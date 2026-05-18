@@ -26,9 +26,9 @@
 
 **`DELETE /queue/all`** — Remove all queue items regardless of status.
 - Auth required
-- Calls `db.remove_all()`
-- Triggers orchestrator cleanup for any active downloads
+- Stops the orchestrator if running, then calls `db.remove_all()`
 - Returns `{ removed: <count> }`
+- Clear All confirmation: the button text changes to "Confirm?" for 3 seconds, then reverts. A second click within that window executes the action.
 
 ### New DB methods in `backend/models.py`
 
