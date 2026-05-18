@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { search, queue } from '../api';
+import { search, queue, resolve } from '../api';
 import { useApp } from '../context/AppContext';
-import type { TrackResult, AlbumResult, PlaylistResult } from '../api';
+import type { TrackResult, AlbumResult, PlaylistResult, ArtistResult } from '../api';
+import ArtistView from './ArtistView';
+
+const TIDAL_URL_RE = /^(https?:\/\/)?(listen\.)?tidal\.com/;
 
 export default function SearchView() {
   const { state, dispatch } = useApp();
@@ -12,17 +15,45 @@ export default function SearchView() {
     albums: AlbumResult[];
     playlists: PlaylistResult[];
   } | null>(null);
+  const [artistResult, setArtistResult] = useState<{
+    artist: ArtistResult;
+    top_tracks: TrackResult[];
+    albums: AlbumResult[];
+  } | null>(null);
   const [loading, setLoading] = useState(false);
+
+  const isUrl = TIDAL_URL_RE.test(query.trim());
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim()) return;
     setLoading(true);
+    setArtistResult(null);
+
     try {
-      const r = await search.query(query, searchType);
-      setResults(r);
+      if (isUrl) {
+        const r = await resolve.url(query.trim());
+        if (r.artist) {
+          setArtistResult({ artist: r.artist, top_tracks: r.top_tracks, albums: r.albums });
+          setResults({ tracks: [], albums: [], playlists: [] });
+        } else {
+          setResults({ tracks: r.tracks, albums: r.albums, playlists: r.playlists });
+        }
+      } else {
+        const r = await search.query(query, searchType);
+        setResults(r);
+      }
     } catch (err) {
-      console.error('Search failed:', err);
+      dispatch({
+        type: 'ADD_TOAST',
+        payload: {
+          id: `resolve-err-${Date.now()}`,
+          type: 'error',
+          title: isUrl ? 'Could not resolve this link' : 'Search failed',
+          detail: String(err),
+          dismissAt: Date.now() + 5000,
+        },
+      });
     } finally {
       setLoading(false);
     }
@@ -50,7 +81,7 @@ export default function SearchView() {
         payload: {
           id: `add-${Date.now()}-${tidal_id}`,
           type: 'info',
-          title: `Added to queue`,
+          title: 'Added to queue',
           detail: title,
           dismissAt: Date.now() + 3000,
         },
@@ -104,16 +135,26 @@ export default function SearchView() {
             }}
           >
             <div className="pl-3 flex items-center">
-              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--text-dim)" strokeWidth="1.5">
-                <circle cx="7.5" cy="7.5" r="5.5"/>
-                <path d="M12 12l4 4"/>
-              </svg>
+              {isUrl ? (
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--accent-primary)" strokeWidth="1.5">
+                  <path d="M7 11L3 15" />
+                  <path d="M11 7L15 3" />
+                  <path d="M5 13L13 5" />
+                  <circle cx="4" cy="14" r="2" />
+                  <circle cx="14" cy="4" r="2" />
+                </svg>
+              ) : (
+                <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--text-dim)" strokeWidth="1.5">
+                  <circle cx="7.5" cy="7.5" r="5.5"/>
+                  <path d="M12 12l4 4"/>
+                </svg>
+              )}
             </div>
             <input
               type="text"
               value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search tracks, albums, playlists..."
+              onChange={(e) => { setQuery(e.target.value); setArtistResult(null); }}
+              placeholder="Search or paste a Tidal link..."
               className="flex-1 bg-transparent border-none outline-none px-3 py-2.5 text-sm"
               style={{ color: 'var(--text-bright)' }}
             />
@@ -125,36 +166,53 @@ export default function SearchView() {
               {loading ? (
                 <span className="flex items-center gap-2">
                   <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
-                  Searching
+                  {isUrl ? 'Resolving' : 'Searching'}
                 </span>
               ) : (
-                'Search'
+                isUrl ? 'Resolve' : 'Search'
               )}
             </button>
           </div>
 
-          <div className="flex items-center justify-center gap-1 mt-4">
-            {typeButtons.map((btn) => (
-              <button
-                key={btn.key}
-                type="button"
-                onClick={() => setSearchType(btn.key)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all duration-200"
-                style={{
-                  color: searchType === btn.key ? 'var(--accent-primary)' : 'var(--text-dim)',
-                  background: searchType === btn.key ? 'var(--accent-dim)' : 'transparent',
-                }}
-              >
-                <span className="text-xs">{btn.icon}</span>
-                {btn.label}
-              </button>
-            ))}
-          </div>
+          {!isUrl && (
+            <div className="flex items-center justify-center gap-1 mt-4">
+              {typeButtons.map((btn) => (
+                <button
+                  key={btn.key}
+                  type="button"
+                  onClick={() => setSearchType(btn.key)}
+                  className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all duration-200"
+                  style={{
+                    color: searchType === btn.key ? 'var(--accent-primary)' : 'var(--text-dim)',
+                    background: searchType === btn.key ? 'var(--accent-dim)' : 'transparent',
+                  }}
+                >
+                  <span className="text-xs">{btn.icon}</span>
+                  {btn.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {isUrl && (
+            <p className="text-xs mt-3" style={{ color: 'var(--accent-primary)' }}>
+              Tidal link detected — will resolve directly
+            </p>
+          )}
         </form>
       </div>
 
-      {/* Results */}
-      {results && (
+      {/* Artist view */}
+      {artistResult && (
+        <ArtistView
+          artist={artistResult.artist}
+          topTracks={artistResult.top_tracks}
+          albums={artistResult.albums}
+        />
+      )}
+
+      {/* Results (non-artist) */}
+      {results && !artistResult && (
         <div className="space-y-2">
           {results.tracks.map((track, i) => {
             const qbc = qualityBadgeColor(track.quality);
@@ -177,7 +235,7 @@ export default function SearchView() {
                       className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center text-sm"
                       style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}
                     >
-                      ♪
+                      &#9834;
                     </div>
                   )}
                   <div className="min-w-0">
@@ -200,7 +258,7 @@ export default function SearchView() {
                     onClick={() => handleAddToQueue(track.id, 'track', track.title, track.artist, track.album)}
                     className="btn-primary text-xs px-3 py-1.5 shrink-0"
                   >
-                    ↓ Download
+                    &#8595; Download
                   </button>
                 </div>
               </div>
@@ -226,7 +284,7 @@ export default function SearchView() {
                     className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center text-sm"
                     style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}
                   >
-                    ▦
+                    &#9638;
                   </div>
                 )}
                 <div className="min-w-0">
@@ -242,7 +300,7 @@ export default function SearchView() {
                 onClick={() => handleAddToQueue(album.id, 'album', album.name, album.artist)}
                 className="btn-primary text-xs px-3 py-1.5 shrink-0 ml-3"
               >
-                ↓ Download
+                &#8595; Download
               </button>
             </div>
           ))}
@@ -266,7 +324,7 @@ export default function SearchView() {
                     className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center text-sm"
                     style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}
                   >
-                    ☰
+                    &#9776;
                   </div>
                 )}
                 <div className="min-w-0">
@@ -282,7 +340,7 @@ export default function SearchView() {
                 onClick={() => handleAddToQueue(pl.id, 'playlist', pl.name)}
                 className="btn-primary text-xs px-3 py-1.5 shrink-0 ml-3"
               >
-                ↓ Download
+                &#8595; Download
               </button>
             </div>
           ))}
@@ -295,7 +353,7 @@ export default function SearchView() {
         </div>
       )}
 
-      {!results && (
+      {!results && !artistResult && (
         <div className="text-center py-24">
           <div
             className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
@@ -307,7 +365,7 @@ export default function SearchView() {
             </svg>
           </div>
           <p className="text-sm" style={{ color: 'var(--text-dim)' }}>
-            Search for tracks, albums, or playlists to get started
+            Search or paste a Tidal link to get started
           </p>
         </div>
       )}
