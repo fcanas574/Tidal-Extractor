@@ -67,6 +67,68 @@ async def test_remove_from_queue(db):
 
 
 @pytest.mark.asyncio
+async def test_remove_completed(db):
+    item1 = await db.add_to_queue(
+        tidal_id="1", item_type="track", title="Song A",
+        artist="A", album="A", quality="high_lossless", format="FLAC",
+    )
+    item2 = await db.add_to_queue(
+        tidal_id="2", item_type="track", title="Song B",
+        artist="B", album="B", quality="high_lossless", format="FLAC",
+    )
+    await db.update_queue_status(item1["id"], "complete")
+    await db.update_queue_status(item2["id"], "downloading")
+
+    removed = await db.remove_completed()
+    assert removed == 1
+
+    queue = await db.get_queue()
+    assert len(queue) == 1
+    assert queue[0]["tidal_id"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_remove_batch(db):
+    item1 = await db.add_to_queue(
+        tidal_id="1", item_type="track", title="Song A",
+        artist="A", album="A", quality="high_lossless", format="FLAC",
+    )
+    item2 = await db.add_to_queue(
+        tidal_id="2", item_type="track", title="Song B",
+        artist="B", album="B", quality="high_lossless", format="FLAC",
+    )
+    item3 = await db.add_to_queue(
+        tidal_id="3", item_type="track", title="Song C",
+        artist="C", album="C", quality="high_lossless", format="FLAC",
+    )
+
+    removed = await db.remove_batch([item1["id"], item3["id"]])
+    assert removed == 2
+
+    queue = await db.get_queue()
+    assert len(queue) == 1
+    assert queue[0]["tidal_id"] == "2"
+
+
+@pytest.mark.asyncio
+async def test_remove_all(db):
+    await db.add_to_queue(
+        tidal_id="1", item_type="track", title="Song A",
+        artist="A", album="A", quality="high_lossless", format="FLAC",
+    )
+    await db.add_to_queue(
+        tidal_id="2", item_type="track", title="Song B",
+        artist="B", album="B", quality="high_lossless", format="FLAC",
+    )
+
+    removed = await db.remove_all()
+    assert removed == 2
+
+    queue = await db.get_queue()
+    assert len(queue) == 0
+
+
+@pytest.mark.asyncio
 async def test_add_to_history(db):
     await db.add_to_history(
         tidal_id="12345",

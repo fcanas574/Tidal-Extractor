@@ -90,6 +90,26 @@ class Database:
         await self._conn.execute("DELETE FROM queue WHERE id = ?", (item_id,))
         await self._conn.commit()
 
+    async def remove_completed(self) -> int:
+        cursor = await self._conn.execute("DELETE FROM queue WHERE status = 'complete'")
+        await self._conn.commit()
+        return cursor.rowcount
+
+    async def remove_batch(self, ids: list[int]) -> int:
+        if not ids:
+            return 0
+        placeholders = ",".join("?" for _ in ids)
+        cursor = await self._conn.execute(
+            f"DELETE FROM queue WHERE id IN ({placeholders})", ids
+        )
+        await self._conn.commit()
+        return cursor.rowcount
+
+    async def remove_all(self) -> int:
+        cursor = await self._conn.execute("DELETE FROM queue")
+        await self._conn.commit()
+        return cursor.rowcount
+
     async def add_to_history(self, tidal_id, item_type, title, artist, album, quality, format, file_path, file_size, actual_bitrate):
         await self._conn.execute(
             """INSERT INTO history (tidal_id, item_type, title, artist, album, quality, format, file_path, file_size, actual_bitrate)
