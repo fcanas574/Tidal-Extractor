@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from backend.auth import AuthManager
 from backend.config import AppConfig
 from backend.models import Database
-from backend.search import search_tidal, get_album_tracks, get_playlist_tracks
+from backend.search import search_tidal, get_album_tracks, get_playlist_tracks, resolve_url
 from backend.downloader import DownloadOrchestrator
 from backend.ws import WebSocketManager
 
@@ -104,6 +104,19 @@ async def playlist_tracks(playlist_id: str):
         raise HTTPException(status_code=401, detail="Not authenticated")
     tracks = await asyncio.to_thread(get_playlist_tracks, auth_manager.session, playlist_id)
     return {"tracks": tracks}
+
+
+@app.get("/resolve")
+async def resolve_tidal_url(url: str):
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        result = await asyncio.to_thread(resolve_url, auth_manager.session, url)
+    except ValueError as e:
+        raise HTTPException(status_code=422, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Content not found: {e}")
+    return result
 
 
 # --- Queue Endpoints ---
