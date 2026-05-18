@@ -103,7 +103,11 @@ function reducer(state: AppState, action: Action): AppState {
         const toastId = `dl-${msg.id}`;
         return {
           ...state,
-          queue: state.queue.filter((item) => String(item.id) !== msg.id),
+          queue: state.queue.map((item) =>
+            String(item.id) === msg.id
+              ? { ...item, status: 'complete' as const, progress: 100 }
+              : item
+          ),
           toasts: [
             ...state.toasts.filter((t) => t.id !== toastId),
             {
