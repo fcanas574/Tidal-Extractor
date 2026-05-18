@@ -9,6 +9,7 @@ export default function NavBar() {
   const { state, dispatch } = useApp();
 
   const activeDownloads = state.queue.filter((i) => i.status === 'downloading').length;
+  const pendingCount = state.queue.filter((i) => i.status !== 'complete').length;
 
   return (
     <nav className="relative z-30 flex items-center justify-between px-6 py-4">
@@ -38,7 +39,7 @@ export default function NavBar() {
             >
               <span className="text-base">{tab.icon}</span>
               <span>{tab.label}</span>
-              {tab.key === 'queue' && state.queue.length > 0 && (
+              {tab.key === 'queue' && pendingCount > 0 && (
                 <span
                   className="mono text-xs px-1.5 py-0.5 rounded-md"
                   style={{
@@ -46,7 +47,7 @@ export default function NavBar() {
                     color: activeDownloads > 0 ? 'var(--accent-primary)' : 'var(--text-muted)',
                   }}
                 >
-                  {state.queue.length}
+                  {pendingCount}
                 </span>
               )}
               {state.activeTab === tab.key && (

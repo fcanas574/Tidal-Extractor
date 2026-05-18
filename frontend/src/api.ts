@@ -123,6 +123,12 @@ export const queue = {
   add: (item: { tidal_id: string; item_type: string; title: string; artist?: string; album?: string; quality?: string; format?: string }) =>
     request<QueueItem>('/queue/add', { method: 'POST', body: JSON.stringify(item) }),
   remove: (id: number) => request<{ ok: boolean }>(`/queue/${id}`, { method: 'DELETE' }),
+  removeBatch: (ids: number[]) =>
+    request<{ removed: number }>('/queue/batch', { method: 'DELETE', body: JSON.stringify({ ids }) }),
+  clearCompleted: () =>
+    request<{ removed: number }>('/queue/completed', { method: 'DELETE' }),
+  clearAll: () =>
+    request<{ removed: number }>('/queue/all', { method: 'DELETE' }),
 };
 
 export const settings = {

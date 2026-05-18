@@ -131,6 +131,10 @@ class AddToQueueRequest(BaseModel):
     format: str = None
 
 
+class BatchRemoveRequest(BaseModel):
+    ids: list[int]
+
+
 @app.post("/queue/add")
 async def add_to_queue(item: AddToQueueRequest):
     quality = item.quality or config.default_quality
@@ -157,6 +161,27 @@ async def get_queue():
 async def remove_from_queue(item_id: int):
     await db.remove_from_queue(item_id)
     return {"ok": True}
+
+
+@app.delete("/queue/completed")
+async def clear_completed():
+    removed = await db.remove_completed()
+    return {"removed": removed}
+
+
+@app.delete("/queue/batch")
+async def remove_batch(body: BatchRemoveRequest):
+    removed = await db.remove_batch(body.ids)
+    return {"removed": removed}
+
+
+@app.delete("/queue/all")
+async def clear_all():
+    global orchestrator
+    if orchestrator and orchestrator._running:
+        orchestrator._running = False
+    removed = await db.remove_all()
+    return {"removed": removed}
 
 
 async def _process_queue_if_idle():
