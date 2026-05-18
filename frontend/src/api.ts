@@ -50,6 +50,21 @@ export interface PlaylistResult {
   cover_url: string | null;
 }
 
+export interface ArtistResult {
+  id: number;
+  name: string;
+  image_url: string | null;
+  bio: string | null;
+}
+
+export interface ResolveResult {
+  artist: ArtistResult | null;
+  top_tracks: TrackResult[];
+  tracks: TrackResult[];
+  albums: AlbumResult[];
+  playlists: PlaylistResult[];
+}
+
 export interface QueueItem {
   id: number;
   tidal_id: string;
@@ -123,4 +138,8 @@ export const quality = {
 
 export const history = {
   list: (limit: number = 100) => request<any[]>(`/history?limit=${limit}`),
+};
+
+export const resolve = {
+  url: (url: string) => request<ResolveResult>(`/resolve?url=${encodeURIComponent(url)}`),
 };
