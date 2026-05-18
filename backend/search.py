@@ -1,5 +1,6 @@
 import logging
-from typing import List, Optional
+import re
+from typing import List, Optional, Tuple
 
 import tidalapi
 
@@ -52,6 +53,65 @@ def format_playlist(playlist) -> dict:
         "creator": playlist.creator.name if hasattr(playlist, "creator") and playlist.creator else None,
         "cover_url": cover_url,
     }
+
+
+TIDAL_URL_PATTERN = re.compile(
+    r"https?://(?:listen\.)?tidal\.com/(?:browse/)?(track|album|playlist|artist)/([^\s/?]+)"
+)
+
+
+def parse_tidal_url(url: str) -> Optional[Tuple[str, str]]:
+    match = TIDAL_URL_PATTERN.match(url.strip())
+    if not match:
+        return None
+    content_type = match.group(1)
+    content_id = match.group(2)
+    if content_type != "playlist" and not content_id.isdigit():
+        return None
+    return (content_type, content_id)
+
+
+def format_artist(artist) -> dict:
+    image_url = None
+    try:
+        image_url = artist.image(480)
+    except Exception:
+        pass
+    return {
+        "id": artist.id,
+        "name": artist.name or "Unknown",
+        "image_url": image_url,
+        "bio": getattr(artist, "bio", None),
+    }
+
+
+def resolve_url(session: tidalapi.Session, url: str) -> dict:
+    parsed = parse_tidal_url(url)
+    if parsed is None:
+        raise ValueError(f"Cannot parse Tidal URL: {url}")
+
+    content_type, content_id = parsed
+    empty = {"artist": None, "top_tracks": [], "tracks": [], "albums": [], "playlists": []}
+
+    if content_type == "track":
+        track = session.track(int(content_id))
+        return {**empty, "tracks": [format_track(track)]}
+
+    if content_type == "album":
+        album = session.album(int(content_id))
+        return {**empty, "albums": [format_album(album)]}
+
+    if content_type == "playlist":
+        playlist = session.playlist(content_id)
+        return {**empty, "playlists": [format_playlist(playlist)]}
+
+    if content_type == "artist":
+        artist = session.artist(int(content_id))
+        top_tracks = [format_track(t) for t in artist.get_top_tracks()]
+        albums = [format_album(a) for a in artist.get_albums()]
+        return {**empty, "artist": format_artist(artist), "top_tracks": top_tracks, "albums": albums}
+
+    return empty
 
 
 def search_tidal(session: tidalapi.Session, query: str, models: Optional[List[str]] = None, limit: int = 20) -> dict:

@@ -1,6 +1,9 @@
 import pytest
 from unittest.mock import MagicMock
-from backend.search import search_tidal, format_track, format_album, format_playlist
+from backend.search import (
+    search_tidal, format_track, format_album, format_playlist,
+    parse_tidal_url, format_artist, resolve_url,
+)
 
 
 def test_format_track():
@@ -74,3 +77,118 @@ def test_search_tidal_tracks():
     results = search_tidal(mock_session, "Found Song", models=["track"])
     assert len(results["tracks"]) == 1
     assert results["tracks"][0]["title"] == "Found Song"
+
+
+# --- parse_tidal_url tests ---
+
+def test_parse_tidal_url_track():
+    result = parse_tidal_url("https://tidal.com/browse/track/12345")
+    assert result == ("track", "12345")
+
+def test_parse_tidal_url_track_listen():
+    result = parse_tidal_url("https://listen.tidal.com/track/12345")
+    assert result == ("track", "12345")
+
+def test_parse_tidal_url_album():
+    result = parse_tidal_url("https://tidal.com/browse/album/999")
+    assert result == ("album", "999")
+
+def test_parse_tidal_url_playlist():
+    result = parse_tidal_url("https://listen.tidal.com/playlist/abc-123")
+    assert result == ("playlist", "abc-123")
+
+def test_parse_tidal_url_artist():
+    result = parse_tidal_url("https://tidal.com/browse/artist/42")
+    assert result == ("artist", "42")
+
+def test_parse_tidal_url_with_trailing_slug():
+    result = parse_tidal_url("https://listen.tidal.com/track/12345/song-name")
+    assert result == ("track", "12345")
+
+def test_parse_tidal_url_invalid():
+    result = parse_tidal_url("https://spotify.com/track/12345")
+    assert result is None
+
+def test_parse_tidal_url_malformed():
+    result = parse_tidal_url("https://tidal.com/browse/notreal/abc")
+    assert result is None
+
+
+# --- format_artist / resolve_url tests ---
+
+def test_format_artist():
+    mock_artist = MagicMock()
+    mock_artist.id = 42
+    mock_artist.name = "Test Artist"
+    mock_artist.image = MagicMock(return_value="https://img.tidal.com/artist.jpg")
+    mock_artist.bio = "A test bio"
+    result = format_artist(mock_artist)
+    assert result["id"] == 42
+    assert result["name"] == "Test Artist"
+    assert result["image_url"] == "https://img.tidal.com/artist.jpg"
+    assert result["bio"] == "A test bio"
+
+def test_resolve_url_track():
+    mock_session = MagicMock()
+    mock_track = MagicMock()
+    mock_track.id = 12345
+    mock_track.title = "Test Song"
+    mock_track.artist.name = "Test Artist"
+    mock_track.album.name = "Test Album"
+    mock_track.album.id = 99
+    mock_track.duration = 240
+    mock_track.audio_quality = "LOSSLESS"
+    mock_track.explicit = False
+    mock_track.isrc = None
+    mock_track.listen_url = ""
+    mock_session.track.return_value = mock_track
+
+    result = resolve_url(mock_session, "https://listen.tidal.com/track/12345")
+    assert len(result["tracks"]) == 1
+    assert result["tracks"][0]["title"] == "Test Song"
+    assert result["artist"] is None
+
+def test_resolve_url_artist():
+    mock_session = MagicMock()
+    mock_artist_obj = MagicMock()
+    mock_artist_obj.id = 42
+    mock_artist_obj.name = "Test Artist"
+    mock_artist_obj.image = MagicMock(return_value="https://img.tidal.com/artist.jpg")
+    mock_artist_obj.bio = "A great artist"
+
+    mock_top_track = MagicMock()
+    mock_top_track.id = 1
+    mock_top_track.title = "Top Hit"
+    mock_top_track.artist.name = "Test Artist"
+    mock_top_track.album.name = "Best Of"
+    mock_top_track.album.id = 10
+    mock_top_track.duration = 200
+    mock_top_track.audio_quality = "LOSSLESS"
+    mock_top_track.explicit = False
+    mock_top_track.isrc = None
+    mock_top_track.listen_url = ""
+    mock_artist_obj.get_top_tracks.return_value = [mock_top_track]
+
+    mock_album_obj = MagicMock()
+    mock_album_obj.id = 99
+    mock_album_obj.name = "Best Of"
+    mock_album_obj.artist.name = "Test Artist"
+    mock_album_obj.num_tracks = 12
+    mock_album_obj.release_date = "2024-01-01"
+    mock_album_obj.audio_quality = "LOSSLESS"
+    mock_album_obj.image = MagicMock(return_value="https://img.tidal.com/album.jpg")
+    mock_artist_obj.get_albums.return_value = [mock_album_obj]
+
+    mock_session.artist.return_value = mock_artist_obj
+
+    result = resolve_url(mock_session, "https://listen.tidal.com/artist/42")
+    assert result["artist"]["name"] == "Test Artist"
+    assert len(result["top_tracks"]) == 1
+    assert result["top_tracks"][0]["title"] == "Top Hit"
+    assert len(result["albums"]) == 1
+    assert result["albums"][0]["name"] == "Best Of"
+
+def test_resolve_url_invalid():
+    mock_session = MagicMock()
+    with pytest.raises(ValueError):
+        resolve_url(mock_session, "https://spotify.com/track/12345")
