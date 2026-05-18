@@ -1,12 +1,23 @@
 import { createContext, useContext, useReducer, Dispatch } from 'react';
 import type { AuthStatus, QueueItem, Settings, WsMessage } from '../api';
 
+export interface Toast {
+  id: string;
+  type: 'info' | 'success' | 'error' | 'downloading';
+  title: string;
+  detail?: string;
+  progress?: number;
+  dismissAt?: number;
+}
+
 export interface AppState {
   auth: AuthStatus;
-  activeTab: 'search' | 'queue' | 'settings';
+  activeTab: 'search' | 'queue';
   queue: QueueItem[];
   settings: Settings;
+  settingsPanelOpen: boolean;
   wsConnected: boolean;
+  toasts: Toast[];
 }
 
 type Action =
@@ -17,14 +28,20 @@ type Action =
   | { type: 'REMOVE_QUEUE_ITEM'; payload: number }
   | { type: 'SET_SETTINGS'; payload: Settings }
   | { type: 'WS_MESSAGE'; payload: WsMessage }
-  | { type: 'SET_WS_CONNECTED'; payload: boolean };
+  | { type: 'SET_WS_CONNECTED'; payload: boolean }
+  | { type: 'TOGGLE_SETTINGS_PANEL' }
+  | { type: 'ADD_TOAST'; payload: Toast }
+  | { type: 'REMOVE_TOAST'; payload: string }
+  | { type: 'UPDATE_TOAST'; payload: { id: string; progress?: number; detail?: string } };
 
 const initialState: AppState = {
   auth: { authenticated: false, username: null },
   activeTab: 'search',
   queue: [],
   settings: { default_quality: 'high_lossless', default_format: 'FLAC', output_dir: '~/Music/TidalDownloads' },
+  settingsPanelOpen: false,
   wsConnected: false,
+  toasts: [],
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -52,22 +69,56 @@ function reducer(state: AppState, action: Action): AppState {
     case 'WS_MESSAGE': {
       const msg = action.payload;
       if (msg.type === 'progress') {
+        const pct = (msg.pct as number) || 0;
+        const item = state.queue.find((i) => String(i.id) === msg.id);
+        const toastId = `dl-${msg.id}`;
+        const existing = state.toasts.find((t) => t.id === toastId);
         return {
           ...state,
           queue: state.queue.map((item) =>
             String(item.id) === msg.id
-              ? { ...item, status: 'downloading', progress: (msg.pct as number) || 0 }
+              ? { ...item, status: 'downloading', progress: pct }
               : item
           ),
+          toasts: existing
+            ? state.toasts.map((t) =>
+                t.id === toastId
+                  ? { ...t, progress: pct, detail: `${Math.round(pct)}%` }
+                  : t
+              )
+            : [
+                ...state.toasts,
+                {
+                  id: toastId,
+                  type: 'downloading' as const,
+                  title: item?.title || 'Downloading...',
+                  detail: `${Math.round(pct)}%`,
+                  progress: pct,
+                },
+              ],
         };
       }
       if (msg.type === 'complete') {
+        const item = state.queue.find((i) => String(i.id) === msg.id);
+        const toastId = `dl-${msg.id}`;
         return {
           ...state,
           queue: state.queue.filter((item) => String(item.id) !== msg.id),
+          toasts: [
+            ...state.toasts.filter((t) => t.id !== toastId),
+            {
+              id: `done-${msg.id}`,
+              type: 'success' as const,
+              title: item?.title || 'Download complete',
+              detail: 'Saved to output directory',
+              dismissAt: Date.now() + 4000,
+            },
+          ],
         };
       }
       if (msg.type === 'error') {
+        const item = state.queue.find((i) => String(i.id) === msg.id);
+        const toastId = `dl-${msg.id}`;
         return {
           ...state,
           queue: state.queue.map((item) =>
@@ -75,12 +126,37 @@ function reducer(state: AppState, action: Action): AppState {
               ? { ...item, status: 'failed', error: (msg.reason as string) || 'Unknown error' }
               : item
           ),
+          toasts: [
+            ...state.toasts.filter((t) => t.id !== toastId),
+            {
+              id: `err-${msg.id}`,
+              type: 'error' as const,
+              title: item?.title || 'Download failed',
+              detail: (msg.reason as string) || 'Unknown error',
+              dismissAt: Date.now() + 6000,
+            },
+          ],
         };
       }
       return state;
     }
     case 'SET_WS_CONNECTED':
       return { ...state, wsConnected: action.payload };
+    case 'TOGGLE_SETTINGS_PANEL':
+      return { ...state, settingsPanelOpen: !state.settingsPanelOpen };
+    case 'ADD_TOAST':
+      return { ...state, toasts: [...state.toasts, action.payload] };
+    case 'REMOVE_TOAST':
+      return { ...state, toasts: state.toasts.filter((t) => t.id !== action.payload) };
+    case 'UPDATE_TOAST':
+      return {
+        ...state,
+        toasts: state.toasts.map((t) =>
+          t.id === action.payload.id
+            ? { ...t, ...action.payload }
+            : t
+        ),
+      };
     default:
       return state;
   }

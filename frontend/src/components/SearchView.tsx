@@ -4,7 +4,7 @@ import { useApp } from '../context/AppContext';
 import type { TrackResult, AlbumResult, PlaylistResult } from '../api';
 
 export default function SearchView() {
-  const { state } = useApp();
+  const { state, dispatch } = useApp();
   const [query, setQuery] = useState('');
   const [searchType, setSearchType] = useState<'track' | 'album' | 'playlist'>('track');
   const [results, setResults] = useState<{
@@ -35,15 +35,38 @@ export default function SearchView() {
     artist: string = '',
     album: string = '',
   ) => {
-    await queue.add({
-      tidal_id: String(tidal_id),
-      item_type,
-      title,
-      artist,
-      album,
-      quality: state.settings.default_quality,
-      format: state.settings.default_format,
-    });
+    try {
+      await queue.add({
+        tidal_id: String(tidal_id),
+        item_type,
+        title,
+        artist,
+        album,
+        quality: state.settings.default_quality,
+        format: state.settings.default_format,
+      });
+      dispatch({
+        type: 'ADD_TOAST',
+        payload: {
+          id: `add-${Date.now()}-${tidal_id}`,
+          type: 'info',
+          title: `Added to queue`,
+          detail: title,
+          dismissAt: Date.now() + 3000,
+        },
+      });
+    } catch {
+      dispatch({
+        type: 'ADD_TOAST',
+        payload: {
+          id: `add-err-${Date.now()}`,
+          type: 'error',
+          title: 'Failed to add to queue',
+          detail: title,
+          dismissAt: Date.now() + 4000,
+        },
+      });
+    }
   };
 
   const formatDuration = (seconds: number) => {
@@ -52,122 +75,240 @@ export default function SearchView() {
     return `${m}:${s.toString().padStart(2, '0')}`;
   };
 
-  const typeButtons: { key: typeof searchType; label: string }[] = [
-    { key: 'track', label: 'Tracks' },
-    { key: 'album', label: 'Albums' },
-    { key: 'playlist', label: 'Playlists' },
+  const typeButtons: { key: typeof searchType; label: string; icon: string }[] = [
+    { key: 'track', label: 'Tracks', icon: '♪' },
+    { key: 'album', label: 'Albums', icon: '▦' },
+    { key: 'playlist', label: 'Playlists', icon: '☰' },
   ];
 
-  return (
-    <div className="max-w-4xl mx-auto p-6">
-      <form onSubmit={handleSearch} className="mb-6">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search tracks, albums, playlists..."
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
-          />
-          <button
-            type="submit"
-            disabled={loading}
-            className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-700 text-white font-semibold px-6 py-2 rounded-lg transition-colors"
-          >
-            {loading ? 'Searching...' : 'Search'}
-          </button>
-        </div>
-        <div className="flex gap-2 mt-3">
-          {typeButtons.map((btn) => (
-            <button
-              key={btn.key}
-              type="button"
-              onClick={() => setSearchType(btn.key)}
-              className={`px-3 py-1 rounded-md text-sm transition-colors ${
-                searchType === btn.key
-                  ? 'bg-gray-700 text-white'
-                  : 'text-gray-400 hover:text-gray-200'
-              }`}
-            >
-              {btn.label}
-            </button>
-          ))}
-        </div>
-      </form>
+  const qualityBadgeColor = (q: string) => {
+    if (q.includes('hi_res') || q.includes('HI_RES')) return { bg: 'rgba(0, 229, 199, 0.12)', color: 'var(--accent-primary)' };
+    if (q.includes('lossless') || q.includes('LOSSLESS')) return { bg: 'rgba(0, 184, 212, 0.1)', color: 'var(--accent-secondary)' };
+    if (q.includes('320')) return { bg: 'rgba(255, 192, 64, 0.1)', color: 'var(--warning)' };
+    return { bg: 'var(--bg-surface)', color: 'var(--text-dim)' };
+  };
 
+  return (
+    <div className="max-w-4xl mx-auto px-6 py-8 animate-fade-in">
+      {/* Search Hero */}
+      <div className="mb-10 text-center">
+        <form onSubmit={handleSearch} className="max-w-2xl mx-auto">
+          <div
+            className="flex items-center gap-1 p-1.5"
+            style={{
+              background: 'var(--bg-deep)',
+              border: '1px solid var(--glass-border)',
+              borderRadius: 'var(--radius)',
+              boxShadow: loading ? '0 0 24px rgba(0, 184, 212, 0.1)' : 'none',
+              transition: 'box-shadow 0.3s',
+            }}
+          >
+            <div className="pl-3 flex items-center">
+              <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="var(--text-dim)" strokeWidth="1.5">
+                <circle cx="7.5" cy="7.5" r="5.5"/>
+                <path d="M12 12l4 4"/>
+              </svg>
+            </div>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Search tracks, albums, playlists..."
+              className="flex-1 bg-transparent border-none outline-none px-3 py-2.5 text-sm"
+              style={{ color: 'var(--text-bright)' }}
+            />
+            <button
+              type="submit"
+              disabled={loading}
+              className="btn-primary text-sm px-5 py-2 shrink-0"
+            >
+              {loading ? (
+                <span className="flex items-center gap-2">
+                  <span className="w-3 h-3 border-2 border-current border-t-transparent rounded-full animate-spin" />
+                  Searching
+                </span>
+              ) : (
+                'Search'
+              )}
+            </button>
+          </div>
+
+          <div className="flex items-center justify-center gap-1 mt-4">
+            {typeButtons.map((btn) => (
+              <button
+                key={btn.key}
+                type="button"
+                onClick={() => setSearchType(btn.key)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-md text-sm transition-all duration-200"
+                style={{
+                  color: searchType === btn.key ? 'var(--accent-primary)' : 'var(--text-dim)',
+                  background: searchType === btn.key ? 'var(--accent-dim)' : 'transparent',
+                }}
+              >
+                <span className="text-xs">{btn.icon}</span>
+                {btn.label}
+              </button>
+            ))}
+          </div>
+        </form>
+      </div>
+
+      {/* Results */}
       {results && (
         <div className="space-y-2">
-          {results.tracks.map((track) => (
-            <div
-              key={track.id}
-              className="flex items-center justify-between bg-gray-800 rounded-lg p-3"
-            >
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-medium truncate">{track.title}</p>
-                <p className="text-gray-400 text-sm truncate">
-                  {track.artist} &middot; {track.album} &middot; {formatDuration(track.duration)} &middot;
-                  <span className="text-gray-500 ml-1">{track.quality}</span>
-                </p>
-              </div>
-              <button
-                onClick={() =>
-                  handleAddToQueue(track.id, 'track', track.title, track.artist, track.album)
-                }
-                className="ml-3 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-3 py-1 rounded-md transition-colors shrink-0"
+          {results.tracks.map((track, i) => {
+            const qbc = qualityBadgeColor(track.quality);
+            return (
+              <div
+                key={track.id}
+                className="glass glass-hover p-4 flex items-center justify-between transition-all duration-200"
+                style={{ animationDelay: `${i * 30}ms` }}
               >
-                Download
-              </button>
-            </div>
-          ))}
+                <div className="flex items-center gap-4 flex-1 min-w-0">
+                  {track.cover_url ? (
+                    <img
+                      src={track.cover_url}
+                      alt=""
+                      className="w-10 h-10 rounded-md object-cover shrink-0"
+                      style={{ border: '1px solid var(--glass-border)' }}
+                    />
+                  ) : (
+                    <div
+                      className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center text-sm"
+                      style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}
+                    >
+                      ♪
+                    </div>
+                  )}
+                  <div className="min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
+                      {track.title}
+                    </p>
+                    <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {track.artist} · {track.album} · {formatDuration(track.duration)}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3 ml-3">
+                  <span
+                    className="mono text-[10px] px-1.5 py-0.5 rounded shrink-0"
+                    style={{ background: qbc.bg, color: qbc.color }}
+                  >
+                    {track.quality}
+                  </span>
+                  <button
+                    onClick={() => handleAddToQueue(track.id, 'track', track.title, track.artist, track.album)}
+                    className="btn-primary text-xs px-3 py-1.5 shrink-0"
+                  >
+                    ↓ Download
+                  </button>
+                </div>
+              </div>
+            );
+          })}
 
-          {results.albums.map((album) => (
+          {results.albums.map((album, i) => (
             <div
               key={album.id}
-              className="flex items-center justify-between bg-gray-800 rounded-lg p-3"
+              className="glass glass-hover p-4 flex items-center justify-between transition-all duration-200"
+              style={{ animationDelay: `${results.tracks.length + i * 30}ms` }}
             >
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-medium truncate">{album.name}</p>
-                <p className="text-gray-400 text-sm truncate">
-                  {album.artist} &middot; {album.num_tracks} tracks
-                  {album.release_date && ` &middot; ${album.release_date}`}
-                </p>
+              <div className="flex items-center gap-4 flex-1 min-w-0">
+                {album.cover_url ? (
+                  <img
+                    src={album.cover_url}
+                    alt=""
+                    className="w-10 h-10 rounded-md object-cover shrink-0"
+                    style={{ border: '1px solid var(--glass-border)' }}
+                  />
+                ) : (
+                  <div
+                    className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center text-sm"
+                    style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}
+                  >
+                    ▦
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
+                    {album.name}
+                  </p>
+                  <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    {album.artist} · {album.num_tracks} tracks{album.release_date ? ` · ${album.release_date}` : ''}
+                  </p>
+                </div>
               </div>
               <button
-                onClick={() =>
-                  handleAddToQueue(album.id, 'album', album.name, album.artist)
-                }
-                className="ml-3 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-3 py-1 rounded-md transition-colors shrink-0"
+                onClick={() => handleAddToQueue(album.id, 'album', album.name, album.artist)}
+                className="btn-primary text-xs px-3 py-1.5 shrink-0 ml-3"
               >
-                Download
+                ↓ Download
               </button>
             </div>
           ))}
 
-          {results.playlists.map((pl) => (
+          {results.playlists.map((pl, i) => (
             <div
               key={pl.id}
-              className="flex items-center justify-between bg-gray-800 rounded-lg p-3"
+              className="glass glass-hover p-4 flex items-center justify-between transition-all duration-200"
+              style={{ animationDelay: `${results.tracks.length + results.albums.length + i * 30}ms` }}
             >
-              <div className="flex-1 min-w-0">
-                <p className="text-white font-medium truncate">{pl.name}</p>
-                <p className="text-gray-400 text-sm truncate">
-                  {pl.creator || 'Unknown'} &middot; {pl.num_tracks} tracks
-                </p>
+              <div className="flex items-center gap-4 flex-1 min-w-0">
+                {pl.cover_url ? (
+                  <img
+                    src={pl.cover_url}
+                    alt=""
+                    className="w-10 h-10 rounded-md object-cover shrink-0"
+                    style={{ border: '1px solid var(--glass-border)' }}
+                  />
+                ) : (
+                  <div
+                    className="w-10 h-10 rounded-md shrink-0 flex items-center justify-center text-sm"
+                    style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}
+                  >
+                    ☰
+                  </div>
+                )}
+                <div className="min-w-0">
+                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
+                    {pl.name}
+                  </p>
+                  <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                    {pl.creator || 'Unknown'} · {pl.num_tracks} tracks
+                  </p>
+                </div>
               </div>
               <button
-                onClick={() =>
-                  handleAddToQueue(pl.id, 'playlist', pl.name)
-                }
-                className="ml-3 bg-green-600 hover:bg-green-700 text-white text-sm font-medium px-3 py-1 rounded-md transition-colors shrink-0"
+                onClick={() => handleAddToQueue(pl.id, 'playlist', pl.name)}
+                className="btn-primary text-xs px-3 py-1.5 shrink-0 ml-3"
               >
-                Download
+                ↓ Download
               </button>
             </div>
           ))}
 
           {results.tracks.length === 0 && results.albums.length === 0 && results.playlists.length === 0 && (
-            <p className="text-gray-500 text-center py-8">No results found</p>
+            <div className="text-center py-16">
+              <p className="text-sm" style={{ color: 'var(--text-dim)' }}>No results found</p>
+            </div>
           )}
+        </div>
+      )}
+
+      {!results && (
+        <div className="text-center py-24">
+          <div
+            className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+            style={{ background: 'var(--bg-mid)', border: '1px solid var(--glass-border)' }}
+          >
+            <svg width="28" height="28" viewBox="0 0 18 18" fill="none" stroke="var(--text-dim)" strokeWidth="1.5">
+              <circle cx="7.5" cy="7.5" r="5.5"/>
+              <path d="M12 12l4 4"/>
+            </svg>
+          </div>
+          <p className="text-sm" style={{ color: 'var(--text-dim)' }}>
+            Search for tracks, albums, or playlists to get started
+          </p>
         </div>
       )}
     </div>

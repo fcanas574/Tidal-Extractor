@@ -1,12 +1,12 @@
 import { useEffect } from 'react';
-import { queue, quality } from '../api';
+import { queue } from '../api';
 import { useApp } from '../context/AppContext';
 
-const statusStyles: Record<string, string> = {
-  queued: 'bg-gray-700 text-gray-300',
-  downloading: 'bg-blue-900 text-blue-300',
-  complete: 'bg-green-900 text-green-300',
-  failed: 'bg-red-900 text-red-300',
+const statusConfig: Record<string, { label: string; color: string; bg: string; dot: string }> = {
+  queued: { label: 'Queued', color: 'var(--text-muted)', bg: 'var(--bg-surface)', dot: 'var(--text-dim)' },
+  downloading: { label: 'Downloading', color: 'var(--accent-secondary)', bg: 'rgba(0, 184, 212, 0.1)', dot: 'var(--accent-secondary)' },
+  complete: { label: 'Complete', color: 'var(--accent-primary)', bg: 'rgba(0, 229, 199, 0.1)', dot: 'var(--accent-primary)' },
+  failed: { label: 'Failed', color: 'var(--danger)', bg: 'rgba(255, 64, 96, 0.1)', dot: 'var(--danger)' },
 };
 
 export default function QueueView() {
@@ -21,69 +21,104 @@ export default function QueueView() {
     dispatch({ type: 'REMOVE_QUEUE_ITEM', payload: id });
   };
 
-  const handleProbeQuality = async () => {
-    try {
-      await quality.probe();
-    } catch (e) {
-      console.error('Quality probe failed:', e);
-    }
-  };
+  const activeCount = state.queue.filter((i) => i.status === 'downloading').length;
+  const completedCount = state.queue.filter((i) => i.status === 'complete').length;
 
   return (
-    <div className="max-w-4xl mx-auto p-6">
-      <div className="flex items-center justify-between mb-6">
-        <h2 className="text-xl font-bold">Download Queue</h2>
-        <button
-          onClick={handleProbeQuality}
-          className="bg-purple-600 hover:bg-purple-700 text-white text-sm font-medium px-3 py-1 rounded-md transition-colors"
-        >
-          Probe Quality
-        </button>
+    <div className="max-w-4xl mx-auto px-6 py-8 animate-fade-in">
+      {/* Header */}
+      <div className="flex items-center justify-between mb-8">
+        <div>
+          <h2 className="text-lg font-bold" style={{ color: 'var(--text-bright)' }}>
+            Download Queue
+          </h2>
+          {state.queue.length > 0 && (
+            <p className="text-xs mt-1" style={{ color: 'var(--text-dim)' }}>
+              {activeCount > 0 && `${activeCount} active`}
+              {activeCount > 0 && completedCount > 0 && ' · '}
+              {completedCount > 0 && `${completedCount} complete`}
+              {!activeCount && !completedCount && `${state.queue.length} items`}
+            </p>
+          )}
+        </div>
       </div>
 
       {state.queue.length === 0 ? (
-        <p className="text-gray-500 text-center py-8">Queue is empty. Search and add tracks to download.</p>
+        <div className="text-center py-24">
+          <div
+            className="w-16 h-16 rounded-2xl mx-auto mb-4 flex items-center justify-center"
+            style={{ background: 'var(--bg-mid)', border: '1px solid var(--glass-border)' }}
+          >
+            <span className="text-2xl" style={{ color: 'var(--text-dim)' }}>↓</span>
+          </div>
+          <p className="text-sm" style={{ color: 'var(--text-dim)' }}>
+            Queue is empty. Search and add tracks to download.
+          </p>
+        </div>
       ) : (
         <div className="space-y-2">
-          {state.queue.map((item) => (
-            <div
-              key={item.id}
-              className="bg-gray-800 rounded-lg p-4"
-            >
-              <div className="flex items-center justify-between mb-2">
-                <div className="flex-1 min-w-0">
-                  <p className="text-white font-medium truncate">{item.title}</p>
-                  <p className="text-gray-400 text-sm truncate">
-                    {item.artist} &middot; {item.album} &middot;
-                    <span className="ml-1">{item.quality}</span> &middot;
-                    <span className="ml-1">{item.format}</span>
-                  </p>
+          {state.queue.map((item) => {
+            const cfg = statusConfig[item.status] || statusConfig.queued;
+            return (
+              <div key={item.id} className="glass p-4">
+                <div className="flex items-center justify-between mb-1">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
+                      {item.title}
+                    </p>
+                    <p className="text-xs truncate mt-0.5" style={{ color: 'var(--text-muted)' }}>
+                      {item.artist}
+                      {item.album && ` · ${item.album}`}
+                      {' · '}
+                      <span className="mono" style={{ color: 'var(--text-dim)' }}>{item.quality}</span>
+                      {' · '}
+                      <span className="mono" style={{ color: 'var(--text-dim)' }}>{item.format}</span>
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-3 ml-3">
+                    <span
+                      className="flex items-center gap-1.5 text-xs px-2 py-0.5 rounded-md"
+                      style={{ background: cfg.bg, color: cfg.color }}
+                    >
+                      <span
+                        className="w-1.5 h-1.5 rounded-full"
+                        style={{
+                          background: cfg.dot,
+                          boxShadow: item.status === 'downloading' ? `0 0 6px ${cfg.dot}` : 'none',
+                          animation: item.status === 'downloading' ? 'pulse-glow 1.5s ease-in-out infinite' : 'none',
+                        }}
+                      />
+                      {cfg.label}
+                    </span>
+                    <button
+                      onClick={() => handleRemove(item.id)}
+                      className="text-xs transition-colors"
+                      style={{ color: 'var(--text-dim)' }}
+                      onMouseEnter={(e) => (e.currentTarget.style.color = 'var(--danger)')}
+                      onMouseLeave={(e) => (e.currentTarget.style.color = 'var(--text-dim)')}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                 </div>
-                <div className="flex items-center gap-2 ml-3">
-                  <span className={`px-2 py-0.5 rounded text-xs font-medium ${statusStyles[item.status] || 'bg-gray-700 text-gray-300'}`}>
-                    {item.status}
-                  </span>
-                  <button
-                    onClick={() => handleRemove(item.id)}
-                    className="text-gray-500 hover:text-red-400 transition-colors text-sm"
-                  >
-                    Cancel
-                  </button>
-                </div>
+
+                {/* Progress bar for active downloads */}
+                {item.status === 'downloading' && (
+                  <div className="progress-track mt-3">
+                    <div
+                      className="progress-fill active"
+                      style={{ width: `${item.progress}%` }}
+                    />
+                  </div>
+                )}
+
+                {/* Error message */}
+                {item.status === 'failed' && item.error && (
+                  <p className="text-xs mt-2" style={{ color: 'var(--danger)' }}>{item.error}</p>
+                )}
               </div>
-              {item.status === 'downloading' && (
-                <div className="w-full bg-gray-700 rounded-full h-2 mt-2">
-                  <div
-                    className="bg-blue-500 h-2 rounded-full transition-all duration-300"
-                    style={{ width: `${item.progress}%` }}
-                  />
-                </div>
-              )}
-              {item.status === 'failed' && item.error && (
-                <p className="text-red-400 text-sm mt-2">{item.error}</p>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
     </div>

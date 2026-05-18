@@ -6,7 +6,8 @@ import AuthGate from './components/AuthGate';
 import NavBar from './components/NavBar';
 import SearchView from './components/SearchView';
 import QueueView from './components/QueueView';
-import SettingsView from './components/SettingsView';
+import SettingsPanel from './components/SettingsPanel';
+import ToastContainer from './components/ToastContainer';
 import type { WsMessage } from './api';
 
 function AppContent() {
@@ -29,8 +30,6 @@ function AppContent() {
         return <SearchView />;
       case 'queue':
         return <QueueView />;
-      case 'settings':
-        return <SettingsView />;
     }
   };
 
@@ -39,6 +38,8 @@ function AppContent() {
       <div className="min-h-screen flex flex-col">
         <NavBar />
         <main className="flex-1">{renderView()}</main>
+        <SettingsPanel />
+        <ToastContainer />
       </div>
     </AuthGate>
   );
