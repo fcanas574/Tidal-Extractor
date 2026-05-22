@@ -20,17 +20,22 @@ def orchestrator(tmp_path):
 
 
 def test_build_filename_track(orchestrator):
-    name = orchestrator._build_filename("Test Song", "Test Artist", ".flac", item_type="track")
+    name = orchestrator._build_filename("Test Song", "Test Artist", ".flac")
     assert name == "Test Artist - Test Song.flac"
 
 
 def test_build_filename_playlist_track(orchestrator):
     name = orchestrator._build_filename(
         "Track One", "Artist", ".flac",
-        item_type="playlist", collection_name="My Playlist", track_num=1,
+        collection_name="My Playlist", track_num=1,
     )
     assert "My Playlist" in name
     assert "01 - Artist - Track One.flac" in name
+
+
+def test_build_filename_album_track_no_collection(orchestrator):
+    name = orchestrator._build_filename("Track Two", "Artist", ".flac")
+    assert name == "Artist - Track Two.flac"
 
 
 def test_sanitize_filename(orchestrator):

@@ -14,6 +14,7 @@ from backend.models import Database
 from backend.quality import get_bitrate, bitrate_meets_threshold, QUALITY_PRESETS, QUALITY_PRESETS_ORDER
 from backend.converter import convert_format
 from backend.tagger import tag_file
+from backend.search import get_album_tracks, get_playlist_tracks
 
 logger = logging.getLogger(__name__)
 
@@ -72,14 +73,13 @@ class DownloadOrchestrator:
         title: str,
         artist: str,
         ext: str,
-        item_type: str = "track",
         collection_name: str = None,
         track_num: int = None,
     ) -> str:
         safe_title = self._sanitize_filename(title)
         safe_artist = self._sanitize_filename(artist)
 
-        if item_type in ("album", "playlist") and collection_name:
+        if collection_name:
             safe_collection = self._sanitize_filename(collection_name)
             num_prefix = f"{track_num:02d} - " if track_num else ""
             return f"{safe_collection}/{num_prefix}{safe_artist} - {safe_title}{ext}"
@@ -156,8 +156,9 @@ class DownloadOrchestrator:
             raise RuntimeError(f"No stream URL for track {tidal_id}")
 
         ext = FORMAT_EXT_MAP.get(target_format, ".flac")
+        collection = queue_item.get("album") or None
         filename = self._build_filename(
-            metadata["title"], metadata["artist"], ext, item_type=item_type,
+            metadata["title"], metadata["artist"], ext, collection_name=collection,
         )
         output_dir = Path(os.path.expanduser(self.config.output_dir))
         output_path = output_dir / filename
@@ -209,48 +210,90 @@ class DownloadOrchestrator:
         logger.info(f"Downloaded: {final_path} ({actual_bitrate}kbps)")
         return final_path
 
+    async def _expand_collection(self, item: dict):
+        """Expand an album or playlist queue item into individual track items."""
+        item_type = item["item_type"]
+        tidal_id = item["tidal_id"]
+        quality = item["quality"]
+        fmt = item["format"]
+        collection_name = item["title"]
+
+        if item_type == "album":
+            tracks = await asyncio.to_thread(get_album_tracks, self.session, int(tidal_id))
+        elif item_type == "playlist":
+            tracks = await asyncio.to_thread(get_playlist_tracks, self.session, tidal_id)
+        else:
+            return
+
+        for track in tracks:
+            await self.db.add_to_queue(
+                tidal_id=str(track["id"]),
+                item_type="track",
+                title=track["title"],
+                artist=track["artist"],
+                album=collection_name,
+                quality=quality,
+                format=fmt,
+            )
+
+        await self.db.update_queue_status(item["id"], "complete")
+        logger.info(f"Expanded {item_type} '{collection_name}' into {len(tracks)} tracks")
+
     async def process_queue(self):
         """Process all items in the download queue sequentially."""
         self._running = True
-        while self._running:
-            queue = await self.db.get_queue()
-            queued = [item for item in queue if item["status"] == "queued"]
-            if not queued:
-                break
+        try:
+            while self._running:
+                queue = await self.db.get_queue()
+                queued = [item for item in queue if item["status"] == "queued"]
+                if not queued:
+                    break
 
-            item = queued[0]
-            await self.db.update_queue_status(item["id"], "downloading")
+                item = queued[0]
 
-            try:
-                async def on_progress(item_id, pct, bytes_done, bytes_total):
-                    await self.db.update_queue_status(item_id, "downloading", progress=pct)
+                if item["item_type"] in ("album", "playlist"):
+                    await self.db.update_queue_status(item["id"], "downloading")
+                    try:
+                        await self._expand_collection(item)
+                    except Exception as e:
+                        logger.error(f"Failed to expand {item['item_type']} {item['id']}: {e}")
+                        await self.db.update_queue_status(item["id"], "failed", error=str(e))
+                    continue
+
+                await self.db.update_queue_status(item["id"], "downloading")
+
+                try:
+                    async def on_progress(item_id, pct, bytes_done, bytes_total):
+                        await self.db.update_queue_status(item_id, "downloading", progress=pct)
+                        if self.ws_manager:
+                            await self.ws_manager.broadcast({
+                                "type": "progress",
+                                "id": str(item_id),
+                                "pct": round(pct, 1),
+                                "bytes": bytes_done,
+                                "total": bytes_total,
+                            })
+
+                    path = await self.download_track(item, on_progress=on_progress)
+                    if self.ws_manager:
+                        file_size = os.path.getsize(path)
+                        await self.ws_manager.broadcast({
+                            "type": "complete",
+                            "id": str(item["id"]),
+                            "path": path,
+                            "size": file_size,
+                        })
+                except Exception as e:
+                    logger.error(f"Download failed for item {item['id']}: {e}")
+                    await self.db.update_queue_status(item["id"], "failed", error=str(e))
                     if self.ws_manager:
                         await self.ws_manager.broadcast({
-                            "type": "progress",
-                            "id": str(item_id),
-                            "pct": round(pct, 1),
-                            "bytes": bytes_done,
-                            "total": bytes_total,
+                            "type": "error",
+                            "id": str(item["id"]),
+                            "reason": str(e),
                         })
-
-                path = await self.download_track(item, on_progress=on_progress)
-                if self.ws_manager:
-                    file_size = os.path.getsize(path)
-                    await self.ws_manager.broadcast({
-                        "type": "complete",
-                        "id": str(item["id"]),
-                        "path": path,
-                        "size": file_size,
-                    })
-            except Exception as e:
-                logger.error(f"Download failed for item {item['id']}: {e}")
-                await self.db.update_queue_status(item["id"], "failed", error=str(e))
-                if self.ws_manager:
-                    await self.ws_manager.broadcast({
-                        "type": "error",
-                        "id": str(item["id"]),
-                        "reason": str(e),
-                    })
+        finally:
+            self._running = False
 
     def stop(self):
         self._running = False
