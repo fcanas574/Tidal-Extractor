@@ -1,7 +1,8 @@
 import { useApp } from '../context/AppContext';
 
-const tabs: { key: 'search' | 'queue'; label: string; icon: string }[] = [
+const tabs: { key: 'search' | 'queue' | 'beatport'; label: string; icon: string }[] = [
   { key: 'search', label: 'Search', icon: '⌕' },
+  { key: 'beatport', label: 'Beatport', icon: '♫' },
   { key: 'queue', label: 'Queue', icon: '↓' },
 ];
 

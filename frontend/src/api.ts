@@ -102,6 +102,45 @@ export interface WsMessage {
   [key: string]: unknown;
 }
 
+export interface BeatportGenre {
+  id: number;
+  name: string;
+  slug: string;
+}
+
+export interface BeatportTrack {
+  id: number;
+  name: string;
+  mix_name: string;
+  artists: string[];
+  remixers: string[];
+  bpm: number;
+  key: string;
+  genre: string;
+  length: string;
+  length_ms: number;
+  isrc: string;
+  cover_url: string | null;
+  beatport_url: string;
+}
+
+export interface MatchCandidate {
+  score: number;
+  tidal_track: TrackResult;
+  match_details: {
+    isrc_match: boolean;
+    mix_match: boolean | string;
+    duration_match: string;
+    artist_match: boolean;
+  };
+}
+
+export interface MatchResult {
+  confidence: number;
+  auto_matched: boolean;
+  candidates: MatchCandidate[];
+}
+
 export const auth = {
   getDeviceLink: () => request<DeviceLink>('/auth/device-link', { method: 'POST' }),
   verifyDeviceLink: () => request<{ authenticated: boolean }>('/auth/device-link/verify', { method: 'POST' }),
@@ -148,4 +187,31 @@ export const history = {
 
 export const resolve = {
   url: (url: string) => request<ResolveResult>(`/resolve?url=${encodeURIComponent(url)}`),
+};
+
+export const beatport = {
+  genres: () => request<{ genres: BeatportGenre[] }>('/beatport/genres'),
+  tracks: (genreId: number) =>
+    request<{ tracks: BeatportTrack[] }>(`/beatport/tracks/${genreId}`),
+  preview: (trackId: number) =>
+    request<{ stream_url: string }>(`/beatport/preview/${trackId}`),
+  match: (track: {
+    id: number;
+    name: string;
+    mix_name: string;
+    artists: string[];
+    remixers: string[];
+    isrc: string;
+    length_ms: number;
+  }) =>
+    request<MatchResult>('/beatport/match', {
+      method: 'POST',
+      body: JSON.stringify(track),
+    }),
+  login: (username: string, password: string) =>
+    request<{ authenticated: boolean }>('/beatport/auth', {
+      method: 'POST',
+      body: JSON.stringify({ username, password }),
+    }),
+  authStatus: () => request<{ authenticated: boolean }>('/beatport/auth/status'),
 };

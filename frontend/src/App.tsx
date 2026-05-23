@@ -6,6 +6,7 @@ import AuthGate from './components/AuthGate';
 import NavBar from './components/NavBar';
 import SearchView from './components/SearchView';
 import QueueView from './components/QueueView';
+import BeatportView from './components/BeatportView';
 import SettingsPanel from './components/SettingsPanel';
 import ToastContainer from './components/ToastContainer';
 import type { WsMessage } from './api';
@@ -40,6 +41,8 @@ function AppContent() {
         return <SearchView />;
       case 'queue':
         return <QueueView />;
+      case 'beatport':
+        return <BeatportView />;
     }
   };
 
