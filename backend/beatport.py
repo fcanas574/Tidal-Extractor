@@ -133,7 +133,10 @@ class BeatportClient:
         if self._genres_cache:
             return self._genres_cache
         try:
-            resp = self.client.get(f"{BEATPORT_INTERNAL}/catalog/genres/")
+            resp = self.client.get(
+                f"{BEATPORT_INTERNAL}/catalog/genres/",
+                headers=self._auth_headers(),
+            )
             if resp.status_code != 200:
                 logger.error("Failed to fetch genres: %s", resp.status_code)
                 return []
