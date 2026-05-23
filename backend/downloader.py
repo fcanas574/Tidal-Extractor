@@ -156,7 +156,7 @@ class DownloadOrchestrator:
             raise RuntimeError(f"No stream URL for track {tidal_id}")
 
         ext = FORMAT_EXT_MAP.get(target_format, ".flac")
-        collection = queue_item.get("album") or None
+        collection = queue_item.get("album") or None if queue_item.get("from_collection") else None
         filename = self._build_filename(
             metadata["title"], metadata["artist"], ext, collection_name=collection,
         )
@@ -234,6 +234,7 @@ class DownloadOrchestrator:
                 album=collection_name,
                 quality=quality,
                 format=fmt,
+                from_collection=True,
             )
 
         await self.db.update_queue_status(item["id"], "complete")

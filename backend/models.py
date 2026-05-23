@@ -24,6 +24,7 @@ class Database:
                 status TEXT NOT NULL DEFAULT 'queued',
                 progress REAL NOT NULL DEFAULT 0.0,
                 error TEXT,
+                from_collection INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS history (
@@ -48,16 +49,20 @@ class Database:
             );
         """)
         await self._conn.commit()
+        try:
+            await self._conn.execute("ALTER TABLE queue ADD COLUMN from_collection INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass
 
     async def close(self):
         if self._conn:
             await self._conn.close()
 
-    async def add_to_queue(self, tidal_id, item_type, title, artist, album, quality, format):
+    async def add_to_queue(self, tidal_id, item_type, title, artist, album, quality, format, from_collection: bool = False):
         cursor = await self._conn.execute(
-            """INSERT INTO queue (tidal_id, item_type, title, artist, album, quality, format)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (tidal_id, item_type, title, artist, album, quality, format),
+            """INSERT INTO queue (tidal_id, item_type, title, artist, album, quality, format, from_collection)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (tidal_id, item_type, title, artist, album, quality, format, int(from_collection)),
         )
         await self._conn.commit()
         row = await self._conn.execute_fetchall(
