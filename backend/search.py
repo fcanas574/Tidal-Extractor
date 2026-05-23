@@ -8,6 +8,12 @@ logger = logging.getLogger(__name__)
 
 
 def format_track(track) -> dict:
+    cover_url = None
+    if track.album:
+        try:
+            cover_url = track.album.image(160)
+        except Exception:
+            pass
     return {
         "id": track.id,
         "title": track.title or "Unknown",
@@ -19,7 +25,7 @@ def format_track(track) -> dict:
         "explicit": track.explicit or False,
         "isrc": track.isrc or None,
         "url": track.listen_url or "",
-        "cover_url": None,
+        "cover_url": cover_url,
     }
 
 

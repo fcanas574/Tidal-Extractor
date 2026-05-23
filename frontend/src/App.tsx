@@ -24,6 +24,16 @@ function AppContent() {
     queue.list().then((items) => dispatch({ type: 'SET_QUEUE', payload: items }));
   }, [dispatch]);
 
+  useEffect(() => {
+    if (!state.wsConnected) return;
+
+    const id = setInterval(() => {
+      queue.list().then((items) => dispatch({ type: 'SET_QUEUE', payload: items }));
+    }, 5000);
+
+    return () => clearInterval(id);
+  }, [state.wsConnected, dispatch]);
+
   const renderView = () => {
     switch (state.activeTab) {
       case 'search':

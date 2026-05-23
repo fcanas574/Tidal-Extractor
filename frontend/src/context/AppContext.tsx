@@ -149,7 +149,16 @@ function reducer(state: AppState, action: Action): AppState {
     case 'TOGGLE_SETTINGS_PANEL':
       return { ...state, settingsPanelOpen: !state.settingsPanelOpen };
     case 'ADD_TOAST':
-      return { ...state, toasts: [...state.toasts, action.payload] };
+      return {
+        ...state,
+        toasts: [
+          ...state.toasts,
+          {
+            ...action.payload,
+            dismissAt: action.payload.dismissAt ?? Date.now() + 4000,
+          },
+        ],
+      };
     case 'REMOVE_TOAST':
       return { ...state, toasts: state.toasts.filter((t) => t.id !== action.payload) };
     case 'UPDATE_TOAST':
