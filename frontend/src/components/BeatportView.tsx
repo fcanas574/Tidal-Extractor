@@ -24,7 +24,9 @@ export default function BeatportView() {
 
   // Check Beatport auth on mount
   useEffect(() => {
-    beatport.authStatus().then((r) => setBeatportAuth(r.authenticated));
+    beatport.authStatus()
+      .then((r) => setBeatportAuth(r.authenticated))
+      .catch(() => setBeatportAuth(false));
   }, []);
 
   // Load genres (only after Beatport auth is confirmed)
@@ -41,8 +43,8 @@ export default function BeatportView() {
         }
         setLoading(false);
       })
-      .catch(() => {
-        setError('Failed to load genres');
+      .catch((err) => {
+        setError(`Failed to load genres: ${err}`);
         setLoading(false);
       });
   }, [beatportAuth]);
@@ -58,8 +60,8 @@ export default function BeatportView() {
         setTracks(r.tracks);
         setLoading(false);
       })
-      .catch(() => {
-        setError('Failed to load tracks');
+      .catch((err) => {
+        setError(`Failed to load tracks: ${err}`);
         setLoading(false);
       });
   }, [selectedGenre]);
@@ -338,7 +340,7 @@ export default function BeatportView() {
             onClick={() => {
               setError(null);
               setLoading(true);
-              const retryGenres = error === 'Failed to load genres' || genres.length === 0;
+              const retryGenres = error.startsWith('Failed to load genres') || genres.length === 0;
               if (retryGenres) {
                 beatport
                   .genres()
@@ -347,12 +349,12 @@ export default function BeatportView() {
                     if (r.genres.length > 0) setSelectedGenre(r.genres[0].id);
                     setLoading(false);
                   })
-                  .catch(() => { setError('Failed to load genres'); setLoading(false); });
+                  .catch((err) => { setError(`Failed to load genres: ${err}`); setLoading(false); });
               } else {
                 beatport
                   .tracks(selectedGenre!)
                   .then((r) => { setTracks(r.tracks); setLoading(false); })
-                  .catch(() => { setError('Failed to load tracks'); setLoading(false); });
+                  .catch((err) => { setError(`Failed to load tracks: ${err}`); setLoading(false); });
               }
             }}
             className="btn-primary text-sm px-4 py-1.5"
