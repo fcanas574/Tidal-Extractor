@@ -1,6 +1,8 @@
 import asyncio
 import logging
+import os
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,10 +24,31 @@ ws_manager = WebSocketManager()
 orchestrator: DownloadOrchestrator = None
 
 
+def _cleanup_tmp_files(output_dir: str) -> int:
+    """Remove stale .tmp files from interrupted downloads. Returns count removed."""
+    try:
+        path = Path(output_dir).expanduser()
+        if not path.is_dir():
+            return 0
+        removed = 0
+        for f in path.glob("*.tmp"):
+            try:
+                f.unlink()
+                removed += 1
+            except OSError:
+                pass
+        if removed:
+            logger.info("Cleaned up %d stale .tmp file(s) from %s", removed, path)
+        return removed
+    except Exception:
+        return 0
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     global orchestrator
     await db.init()
+    _cleanup_tmp_files(config.output_dir)
     if auth_manager.load_saved_session(config.default_quality):
         orchestrator = DownloadOrchestrator(db=db, config=config, ws_manager=ws_manager)
         orchestrator.set_session(auth_manager.session)
@@ -86,7 +109,12 @@ async def search(q: str, type: str = "track"):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     models = [type] if type in ("track", "album", "playlist") else ["track", "album", "playlist"]
-    results = await asyncio.to_thread(search_tidal, auth_manager.session, q, models)
+    artist_filter = None
+    if " - " in q and type == "track":
+        parts = q.split(" - ", 1)
+        q = parts[0]
+        artist_filter = parts[1]
+    results = await asyncio.to_thread(search_tidal, auth_manager.session, q, models, artist_filter=artist_filter)
     return results
 
 

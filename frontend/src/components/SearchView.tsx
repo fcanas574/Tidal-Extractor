@@ -154,7 +154,7 @@ export default function SearchView() {
               type="text"
               value={query}
               onChange={(e) => { setQuery(e.target.value); setArtistResult(null); }}
-              placeholder="Search or paste a Tidal link..."
+              placeholder="Search or paste a Tidal link... (use 'track - artist' to filter)"
               className="flex-1 bg-transparent border-none outline-none px-3 py-2.5 text-sm"
               style={{ color: 'var(--text-bright)' }}
             />

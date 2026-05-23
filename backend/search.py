@@ -120,7 +120,7 @@ def resolve_url(session: tidalapi.Session, url: str) -> dict:
     return empty
 
 
-def search_tidal(session: tidalapi.Session, query: str, models: Optional[List[str]] = None, limit: int = 20) -> dict:
+def search_tidal(session: tidalapi.Session, query: str, models: Optional[List[str]] = None, limit: int = 50, artist_filter: Optional[str] = None) -> dict:
     if models is None:
         models = ["track", "album", "playlist"]
 
@@ -137,6 +137,9 @@ def search_tidal(session: tidalapi.Session, query: str, models: Optional[List[st
     results = session.search(query, models=tidal_models, limit=limit)
 
     tracks = [format_track(t) for t in results.get("tracks", [])]
+    if artist_filter:
+        artist_lower = artist_filter.lower()
+        tracks = [t for t in tracks if artist_lower in t["artist"].lower()]
     albums = [format_album(a) for a in results.get("albums", [])]
     playlists = [format_playlist(p) for p in results.get("playlists", [])]
 
