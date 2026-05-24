@@ -191,8 +191,8 @@ export const resolve = {
 
 export const beatport = {
   genres: () => request<{ genres: BeatportGenre[] }>('/beatport/genres'),
-  tracks: (genreId: number) =>
-    request<{ tracks: BeatportTrack[] }>(`/beatport/tracks/${genreId}`),
+  tracks: (genreId: number, genreName: string = '') =>
+    request<{ tracks: BeatportTrack[] }>(`/beatport/tracks/${genreId}?genre_name=${encodeURIComponent(genreName)}`),
   preview: (trackId: number) =>
     request<{ stream_url: string }>(`/beatport/preview/${trackId}`),
   match: (track: {

@@ -8,6 +8,7 @@ export default function BeatportView() {
   const { state, dispatch } = useApp();
   const [genres, setGenres] = useState<BeatportGenre[]>([]);
   const [selectedGenre, setSelectedGenre] = useState<number | null>(null);
+  const [selectedGenreName, setSelectedGenreName] = useState<string>('');
   const [tracks, setTracks] = useState<BeatportTrack[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -40,6 +41,7 @@ export default function BeatportView() {
         setGenres(r.genres);
         if (r.genres.length > 0 && selectedGenre === null) {
           setSelectedGenre(r.genres[0].id);
+          setSelectedGenreName(r.genres[0].name);
         }
         setLoading(false);
       })
@@ -55,7 +57,7 @@ export default function BeatportView() {
     setLoading(true);
     setError(null);
     beatport
-      .tracks(selectedGenre)
+      .tracks(selectedGenre, selectedGenreName)
       .then((r) => {
         setTracks(r.tracks);
         setLoading(false);
@@ -64,7 +66,7 @@ export default function BeatportView() {
         setError(`Failed to load tracks: ${err}`);
         setLoading(false);
       });
-  }, [selectedGenre]);
+  }, [selectedGenre, selectedGenreName]);
 
   const handlePreview = useCallback(async (track: BeatportTrack) => {
     if (previewTrackId === track.id) {
@@ -315,7 +317,7 @@ export default function BeatportView() {
         {genres.map((g) => (
           <button
             key={g.id}
-            onClick={() => setSelectedGenre(g.id)}
+            onClick={() => { setSelectedGenre(g.id); setSelectedGenreName(g.name); }}
             className="shrink-0 px-3.5 py-1.5 rounded-full text-sm transition-all duration-200"
             style={{
               color: selectedGenre === g.id ? 'var(--accent-primary)' : 'var(--text-dim)',
@@ -346,13 +348,13 @@ export default function BeatportView() {
                   .genres()
                   .then((r) => {
                     setGenres(r.genres);
-                    if (r.genres.length > 0) setSelectedGenre(r.genres[0].id);
+                    if (r.genres.length > 0) { setSelectedGenre(r.genres[0].id); setSelectedGenreName(r.genres[0].name); }
                     setLoading(false);
                   })
                   .catch((err) => { setError(`Failed to load genres: ${err}`); setLoading(false); });
               } else {
                 beatport
-                  .tracks(selectedGenre!)
+                  .tracks(selectedGenre!, selectedGenreName)
                   .then((r) => { setTracks(r.tracks); setLoading(false); })
                   .catch((err) => { setError(`Failed to load tracks: ${err}`); setLoading(false); });
               }

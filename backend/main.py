@@ -4,6 +4,8 @@ import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -53,6 +55,7 @@ async def lifespan(app: FastAPI):
     if auth_manager.load_saved_session(config.default_quality):
         orchestrator = DownloadOrchestrator(db=db, config=config, ws_manager=ws_manager)
         orchestrator.set_session(auth_manager.session)
+    beatport_client.load_saved_session()
     yield
     await db.close()
 
@@ -159,10 +162,10 @@ async def beatport_genres():
 
 
 @app.get("/beatport/tracks/{genre_id}")
-async def beatport_tracks(genre_id: int):
+async def beatport_tracks(genre_id: int, genre_name: str = ""):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    tracks = await asyncio.to_thread(beatport_client.get_top_tracks, genre_id)
+    tracks = await asyncio.to_thread(beatport_client.get_top_tracks, genre_id, genre_name)
     return {"tracks": tracks}
 
 
@@ -225,6 +228,12 @@ async def beatport_auth(req: BeatportLoginRequest):
 @app.get("/beatport/auth/status")
 async def beatport_auth_status():
     return {"authenticated": beatport_client.authenticated}
+
+
+@app.post("/beatport/auth/logout")
+async def beatport_auth_logout():
+    beatport_client.logout()
+    return {"authenticated": False}
 
 
 # --- Queue Endpoints ---

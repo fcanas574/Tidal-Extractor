@@ -1,6 +1,8 @@
+import json
 import logging
 import time
 import re
+from pathlib import Path
 from typing import Optional
 from urllib.parse import urlparse, parse_qs
 
@@ -12,6 +14,7 @@ logger = logging.getLogger(__name__)
 
 BEATPORT_PUBLIC = "https://api.beatport.com/v4"
 BEATPORT_CLIENT_ID = "ryZ8LuyQVPqbK2mBX2Hwt4qSMtnWuTYSqBPO92yQ"
+BEATPORT_SESSION_FILE = Path("beatport-session.json")
 
 
 class BeatportClient:
@@ -34,6 +37,50 @@ class BeatportClient:
     @property
     def authenticated(self) -> bool:
         return self._access_token is not None
+
+    def _save_session(self):
+        if self._access_token:
+            data = {
+                "access_token": self._access_token,
+                "refresh_token": self._refresh_token,
+                "expires_at": self._token_expires_at,
+            }
+            BEATPORT_SESSION_FILE.write_text(json.dumps(data))
+            logger.info("Beatport session saved")
+
+    def load_saved_session(self) -> bool:
+        try:
+            if not BEATPORT_SESSION_FILE.exists():
+                return False
+            data = json.loads(BEATPORT_SESSION_FILE.read_text())
+            self._access_token = data.get("access_token")
+            self._refresh_token = data.get("refresh_token")
+            self._token_expires_at = data.get("expires_at", 0)
+            if self._access_token and self._token_expires_at > time.time():
+                logger.info("Loaded saved Beatport session")
+                return True
+            elif self._access_token and self._refresh_token:
+                # Token expired but we have a refresh token — try to refresh
+                logger.info("Saved Beatport token expired, attempting refresh...")
+                self._ensure_auth()
+                return self._access_token is not None
+        except Exception as e:
+            logger.warning("Failed to load Beatport session: %s", e)
+        self._access_token = None
+        self._refresh_token = None
+        self._token_expires_at = 0
+        return False
+
+    def logout(self):
+        self._access_token = None
+        self._refresh_token = None
+        self._token_expires_at = 0
+        self._genres_cache = None
+        if BEATPORT_SESSION_FILE.exists():
+            BEATPORT_SESSION_FILE.unlink()
+        if self._client:
+            self._client.close()
+            self._client = None
 
     def login(self, username: str, password: str) -> bool:
         try:
@@ -96,6 +143,7 @@ class BeatportClient:
                 return False
             expires_in = data.get("expires_in", 3600)
             self._token_expires_at = time.time() + expires_in - 60
+            self._save_session()
             logger.info("Beatport login successful")
             return True
         except Exception as e:
@@ -121,6 +169,7 @@ class BeatportClient:
                     self._refresh_token = data.get("refresh_token")
                     expires_in = data.get("expires_in", 3600)
                     self._token_expires_at = time.time() + expires_in - 60
+                    self._save_session()
                     logger.info("Beatport token refreshed")
             except Exception as e:
                 logger.error("Beatport token refresh error: %s", e)
@@ -135,7 +184,7 @@ class BeatportClient:
         if self._genres_cache:
             return self._genres_cache
         try:
-            logger.info("Fetching Beatport genres from internal API...")
+            logger.info("Fetching Beatport genres...")
             resp = self.client.get(
                 f"{BEATPORT_PUBLIC}/catalog/genres/",
                 headers=self._auth_headers(),
@@ -149,6 +198,10 @@ class BeatportClient:
                 return []
             results = resp.json().get("results", [])
             logger.info("Fetched %d Beatport genres", len(results))
+            if results:
+                logger.info("Sample genre keys: %s, first genre: %s",
+                            list(results[0].keys()),
+                            str(results[0])[:300])
             genres = [
                 {"id": g["id"], "name": g["name"], "slug": g.get("slug", "")}
                 for g in results
@@ -159,85 +212,122 @@ class BeatportClient:
             logger.error("Error fetching genres: %s", e)
             return []
 
-    def get_top_tracks(self, genre_id: int, per_page: int = 10) -> list[dict]:
+    def get_top_tracks(self, genre_id: int, genre_name: str = "", per_page: int = 10) -> list[dict]:
+        """Get Top 10 tracks for a genre by searching for its Top 100 chart."""
+        auth_headers = self._auth_headers()
+        results = []
+
         try:
-            logger.info("Fetching top tracks for genre %s...", genre_id)
-            resp = self.client.get(
-                f"{BEATPORT_PUBLIC}/catalog/genres/{genre_id}/top-10-tracks/",
-                params={"per_page": per_page},
-                headers=self._auth_headers(),
-            )
-            if resp.status_code != 200:
-                logger.error(
-                    "Failed to fetch top tracks for genre %s: HTTP %s, body: %s",
-                    genre_id,
-                    resp.status_code,
-                    resp.text[:500] if resp.text else "(empty)",
+            # Strategy 1: Search for the genre's Top 100 chart
+            if genre_name:
+                search_query = f"{genre_name} top 100"
+                logger.info("Searching charts for '%s'", search_query)
+                search_resp = self.client.get(
+                    f"{BEATPORT_PUBLIC}/catalog/search/",
+                    params={"q": search_query, "type": "charts", "per_page": 3},
+                    headers=auth_headers,
                 )
-                return []
-            data = resp.json()
-            results = data.get("results", [])
-            # Fallback: try alternative public API path if results empty
-            if not results:
-                logger.info("No results from top-10-tracks, trying /catalog/tracks/top/...")
-                resp2 = self.client.get(
+                # Log raw response to see if type=charts works
+                logger.info("Chart search HTTP %s", search_resp.status_code)
+                chart_id = None
+                if search_resp.status_code == 200:
+                    search_data = search_resp.json()
+                    logger.info("Chart search keys: %s, count=%s",
+                               list(search_data.keys()),
+                               search_data.get("count", "?"))
+                    search_results = search_data.get("results", [])
+                    if search_results:
+                        logger.info("Chart search results: %s",
+                                   [(r.get("id"), r.get("name")) for r in search_results[:5]])
+                        # Pick chart with "Top 100" in name
+                        for r in search_results:
+                            if "top 100" in r.get("name", "").lower():
+                                chart_id = r.get("id")
+                                logger.info("Found Top-100 chart via search: %s (id=%s)", r.get("name"), chart_id)
+                                break
+
+                if chart_id:
+                    resp = self.client.get(
+                        f"{BEATPORT_PUBLIC}/catalog/charts/{chart_id}/tracks/",
+                        params={"page": 1, "per_page": per_page},
+                        headers=auth_headers,
+                    )
+                    if resp.status_code == 200:
+                        results = resp.json().get("results", [])
+                        logger.info("Chart tracks: %d results", len(results))
+
+            # Strategy 2: /catalog/tracks/top/{genre_id}/ (IDs 1-100 only)
+            if not results and genre_id <= 100:
+                logger.info("Fallback /catalog/tracks/top/%s/", genre_id)
+                resp = self.client.get(
                     f"{BEATPORT_PUBLIC}/catalog/tracks/top/{genre_id}/",
                     params={"per_page": per_page},
-                    headers=self._auth_headers(),
+                    headers=auth_headers,
                 )
-                if resp2.status_code == 200:
-                    data2 = resp2.json()
-                    results = data2.get("results", [])
-                    logger.info("Fallback returned %d tracks", len(results))
-            logger.info(
-                "Top tracks response for genre %s: HTTP %s, keys=%s, results_count=%s, body_preview=%s",
-                genre_id,
-                resp.status_code,
-                list(data.keys()) if isinstance(data, dict) else "not_dict",
-                len(results),
-                resp.text[:300],
-            )
-            tracks = []
-            for t in results:
-                artists = [a["name"] for a in t.get("artists", [])]
-                remixers = [a["name"] for a in t.get("remixers", [])]
-                release = t.get("release", {})
-                cover_url = None
-                if release and release.get("image"):
-                    cover_url = release["image"].get("uri", None)
-                tracks.append({
-                    "id": t["id"],
-                    "name": t.get("name", ""),
-                    "mix_name": t.get("mix_name", "") or "",
-                    "artists": artists,
-                    "remixers": remixers,
-                    "bpm": t.get("bpm") or 0,
-                    "key": (t.get("key") or {}).get("name", "") if t.get("key") else "",
-                    "genre": (t.get("genre") or {}).get("name", "") if t.get("genre") else "",
-                    "length": t.get("length", ""),
-                    "length_ms": t.get("length_ms", 0),
-                    "isrc": t.get("isrc", "") or "",
-                    "cover_url": cover_url,
-                    "beatport_url": t.get("url", ""),
-                })
-            return tracks
+                if resp.status_code == 200:
+                    results = resp.json().get("results", [])
         except Exception as e:
             logger.error("Error fetching top tracks: %s", e)
             return []
 
+        # Format track objects
+        tracks = []
+        for item in results:
+            t = item.get("track", item)  # unwrap chart entry if present
+            artists = [a["name"] for a in t.get("artists", [])]
+            remixers = [a["name"] for a in t.get("remixers", [])]
+            release = t.get("release", {})
+            cover_url = None
+            if release and release.get("image"):
+                cover_url = release["image"].get("uri", None)
+            tracks.append({
+                "id": t["id"],
+                "name": t.get("name", ""),
+                "mix_name": t.get("mix_name", "") or "",
+                "artists": artists,
+                "remixers": remixers,
+                "bpm": t.get("bpm") or 0,
+                "key": (t.get("key") or {}).get("name", "") if t.get("key") else "",
+                "genre": (t.get("genre") or {}).get("name", "") if t.get("genre") else "",
+                "length": t.get("length", ""),
+                "length_ms": t.get("length_ms", 0),
+                "isrc": t.get("isrc", "") or "",
+                "cover_url": cover_url,
+                "beatport_url": t.get("url", ""),
+            })
+        return tracks
+
     def get_stream_url(self, track_id: int) -> Optional[str]:
+        """Try the /stream/ endpoint first, then fall back to track detail sample_url."""
+        auth_headers = self._auth_headers()
         try:
+            # Primary: /catalog/tracks/{id}/stream/ (returns {stream_url, sample_start_ms, sample_end_ms})
             resp = self.client.get(
-                f"{BEATPORT_PUBLIC}/catalog/tracks/{track_id}/",
-                params={"fields": "stream"},
-                headers=self._auth_headers(),
+                f"{BEATPORT_PUBLIC}/catalog/tracks/{track_id}/stream/",
+                headers=auth_headers,
             )
-            if resp.status_code != 200:
-                logger.error("Failed to fetch stream for track %s: %s", track_id, resp.status_code)
-                return None
-            data = resp.json()
-            stream = data.get("stream", {})
-            return stream.get("stream_url") or stream.get("url")
+            if resp.status_code == 200:
+                data = resp.json()
+                url = data.get("stream_url")
+                if url:
+                    return url
+                logger.info("Track %s /stream/ response keys: %s", track_id, list(data.keys()))
+
+            # Fallback: track detail's sample_url field
+            resp2 = self.client.get(
+                f"{BEATPORT_PUBLIC}/catalog/tracks/{track_id}/",
+                headers=auth_headers,
+            )
+            if resp2.status_code == 200:
+                data = resp2.json()
+                sample_url = data.get("sample_url")
+                if sample_url:
+                    return sample_url
+                # Log all keys on first failure to help debug
+                logger.info("Track %s detail keys: %s, sample_url present: %s",
+                           track_id, list(data.keys()), "sample_url" in data)
+
+            return None
         except Exception as e:
             logger.error("Error fetching stream URL: %s", e)
             return None
