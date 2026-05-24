@@ -12,7 +12,7 @@ export interface Toast {
 
 export interface AppState {
   auth: AuthStatus;
-  activeTab: 'search' | 'queue' | 'beatport';
+  activeTab: 'search' | 'queue';
   queue: QueueItem[];
   settings: Settings;
   settingsPanelOpen: boolean;

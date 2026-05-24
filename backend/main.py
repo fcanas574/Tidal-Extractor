@@ -12,7 +12,6 @@ from backend.auth import AuthManager
 from backend.config import AppConfig
 from backend.models import Database
 from backend.search import search_tidal, get_album_tracks, get_playlist_tracks, resolve_url
-from backend.beatport import beatport_client
 from backend.downloader import DownloadOrchestrator
 from backend.ws import WebSocketManager
 
@@ -146,85 +145,6 @@ async def resolve_tidal_url(url: str):
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Content not found: {e}")
     return result
-
-
-# --- Beatport Endpoints ---
-
-@app.get("/beatport/genres")
-async def beatport_genres():
-    if not auth_manager.is_authenticated:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    genres = await asyncio.to_thread(beatport_client.get_genres)
-    return {"genres": genres}
-
-
-@app.get("/beatport/tracks/{genre_id}")
-async def beatport_tracks(genre_id: int):
-    if not auth_manager.is_authenticated:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    tracks = await asyncio.to_thread(beatport_client.get_top_tracks, genre_id)
-    return {"tracks": tracks}
-
-
-@app.get("/beatport/preview/{track_id}")
-async def beatport_preview(track_id: int):
-    if not auth_manager.is_authenticated:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    stream_url = await asyncio.to_thread(beatport_client.get_stream_url, track_id)
-    if not stream_url:
-        raise HTTPException(status_code=404, detail="No preview available")
-    return {"stream_url": stream_url}
-
-
-class MatchRequest(BaseModel):
-    id: int
-    name: str
-    mix_name: str = ""
-    artists: list[str] = []
-    remixers: list[str] = []
-    isrc: str = ""
-    length_ms: int = 0
-
-
-@app.post("/beatport/match")
-async def beatport_match(req: MatchRequest):
-    if not auth_manager.is_authenticated:
-        raise HTTPException(status_code=401, detail="Not authenticated")
-    if not auth_manager.session:
-        raise HTTPException(status_code=503, detail="Tidal session not available")
-    track = {
-        "id": req.id,
-        "name": req.name,
-        "mix_name": req.mix_name,
-        "artists": req.artists,
-        "remixers": req.remixers,
-        "isrc": req.isrc,
-        "length_ms": req.length_ms,
-    }
-    result = await asyncio.to_thread(
-        beatport_client.match_to_tidal, track, auth_manager.session
-    )
-    return result
-
-
-class BeatportLoginRequest(BaseModel):
-    username: str
-    password: str
-
-
-@app.post("/beatport/auth")
-async def beatport_auth(req: BeatportLoginRequest):
-    if not auth_manager.is_authenticated:
-        raise HTTPException(status_code=401, detail="Not authenticated to Tidal")
-    success = await asyncio.to_thread(beatport_client.login, req.username, req.password)
-    if not success:
-        raise HTTPException(status_code=401, detail="Beatport login failed")
-    return {"authenticated": True}
-
-
-@app.get("/beatport/auth/status")
-async def beatport_auth_status():
-    return {"authenticated": beatport_client.authenticated}
 
 
 # --- Queue Endpoints ---
