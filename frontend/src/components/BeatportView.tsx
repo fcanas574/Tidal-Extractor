@@ -27,25 +27,20 @@ export default function BeatportView() {
     beatport.authStatus().then((r) => setBeatportAuth(r.authenticated));
   }, []);
 
-  // Load genres (only after Beatport auth is confirmed)
+  // Load genres
   useEffect(() => {
-    if (beatportAuth !== true) return;
-    setLoading(true);
-    setError(null);
     beatport
       .genres()
       .then((r) => {
         setGenres(r.genres);
-        if (r.genres.length > 0 && selectedGenre === null) {
-          setSelectedGenre(r.genres[0].id);
-        }
+        if (r.genres.length > 0) setSelectedGenre(r.genres[0].id);
         setLoading(false);
       })
       .catch(() => {
         setError('Failed to load genres');
         setLoading(false);
       });
-  }, [beatportAuth]);
+  }, []);
 
   // Load tracks when genre changes
   useEffect(() => {
@@ -338,22 +333,10 @@ export default function BeatportView() {
             onClick={() => {
               setError(null);
               setLoading(true);
-              const retryGenres = error === 'Failed to load genres' || genres.length === 0;
-              if (retryGenres) {
-                beatport
-                  .genres()
-                  .then((r) => {
-                    setGenres(r.genres);
-                    if (r.genres.length > 0) setSelectedGenre(r.genres[0].id);
-                    setLoading(false);
-                  })
-                  .catch(() => { setError('Failed to load genres'); setLoading(false); });
-              } else {
-                beatport
-                  .tracks(selectedGenre!)
-                  .then((r) => { setTracks(r.tracks); setLoading(false); })
-                  .catch(() => { setError('Failed to load tracks'); setLoading(false); });
-              }
+              beatport
+                .tracks(selectedGenre!)
+                .then((r) => { setTracks(r.tracks); setLoading(false); })
+                .catch(() => { setError('Failed to load tracks'); setLoading(false); });
             }}
             className="btn-primary text-sm px-4 py-1.5"
           >
