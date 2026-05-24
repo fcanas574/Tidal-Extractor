@@ -10,6 +10,7 @@ from backend.search import format_track
 
 logger = logging.getLogger(__name__)
 
+BEATPORT_INTERNAL = "https://api-internal.beatportprod.com/v4"
 BEATPORT_PUBLIC = "https://api.beatport.com/v4"
 BEATPORT_CLIENT_ID = "ryZ8LuyQVPqbK2mBX2Hwt4qSMtnWuTYSqBPO92yQ"
 
@@ -137,7 +138,7 @@ class BeatportClient:
         try:
             logger.info("Fetching Beatport genres from internal API...")
             resp = self.client.get(
-                f"{BEATPORT_PUBLIC}/catalog/genres/",
+                f"{BEATPORT_INTERNAL}/catalog/genres/",
                 headers=self._auth_headers(),
             )
             if resp.status_code != 200:
@@ -163,7 +164,7 @@ class BeatportClient:
         try:
             logger.info("Fetching top tracks for genre %s...", genre_id)
             resp = self.client.get(
-                f"{BEATPORT_PUBLIC}/catalog/genres/{genre_id}/top-10-tracks/",
+                f"{BEATPORT_INTERNAL}/catalog/genres/{genre_id}/top-10-tracks/",
                 params={"per_page": per_page},
                 headers=self._auth_headers(),
             )
