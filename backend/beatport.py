@@ -1,8 +1,6 @@
 import logging
 import time
-import re
 from typing import Optional
-from urllib.parse import urlparse, parse_qs
 
 import httpx
 
@@ -12,7 +10,6 @@ logger = logging.getLogger(__name__)
 
 BEATPORT_INTERNAL = "https://api-internal.beatportprod.com/v4"
 BEATPORT_PUBLIC = "https://api.beatport.com/v4"
-BEATPORT_CLIENT_ID = "ryZ8LuyQVPqbK2mBX2Hwt4qSMtnWuTYSqBPO92yQ"
 
 
 class BeatportClient:
@@ -35,66 +32,18 @@ class BeatportClient:
 
     def login(self, username: str, password: str) -> bool:
         try:
-            # Step 1: Get session cookie
-            login_resp = self.client.post(
+            resp = self.client.post(
                 f"{BEATPORT_PUBLIC}/auth/login/",
                 json={"username": username, "password": password},
             )
-            if login_resp.status_code != 200:
-                logger.error("Beatport login step 1 failed: HTTP %s", login_resp.status_code)
+            if resp.status_code != 200:
+                logger.error("Beatport login failed: %s", resp.status_code)
                 return False
-
-            sessionid = login_resp.cookies.get("sessionid")
-            if not sessionid:
-                logger.error("Beatport login step 1 failed: no sessionid cookie in response")
-                return False
-
-            # Step 2: Exchange session cookie for authorization code
-            auth_resp = self.client.get(
-                f"{BEATPORT_PUBLIC}/auth/o/authorize/",
-                params={
-                    "client_id": BEATPORT_CLIENT_ID,
-                    "response_type": "code",
-                },
-                cookies={"sessionid": sessionid},
-                follow_redirects=False,
-            )
-            if auth_resp.status_code not in (301, 302, 303, 307, 308):
-                logger.error(
-                    "Beatport login step 2 failed: expected redirect, got HTTP %s",
-                    auth_resp.status_code,
-                )
-                return False
-
-            location = auth_resp.headers.get("Location", "")
-            code_match = re.search(r"[?&]code=([^&]+)", location)
-            if not code_match:
-                logger.error("Beatport login step 2 failed: no code in redirect URL")
-                return False
-            code = code_match.group(1)
-
-            # Step 3: Exchange code for tokens
-            token_resp = self.client.post(
-                f"{BEATPORT_PUBLIC}/auth/o/token/",
-                data={
-                    "client_id": BEATPORT_CLIENT_ID,
-                    "grant_type": "authorization_code",
-                    "code": code,
-                },
-            )
-            if token_resp.status_code != 200:
-                logger.error("Beatport login step 3 failed: HTTP %s", token_resp.status_code)
-                return False
-
-            data = token_resp.json()
+            data = resp.json()
             self._access_token = data.get("access_token")
             self._refresh_token = data.get("refresh_token")
-            if not self._access_token:
-                logger.error("Beatport login step 3 failed: no access_token in response")
-                return False
             expires_in = data.get("expires_in", 3600)
             self._token_expires_at = time.time() + expires_in - 60
-            logger.info("Beatport login successful")
             return True
         except Exception as e:
             logger.error("Beatport login error: %s", e)
@@ -108,20 +57,17 @@ class BeatportClient:
                 resp = self.client.post(
                     f"{BEATPORT_PUBLIC}/auth/o/token/",
                     data={
-                        "client_id": BEATPORT_CLIENT_ID,
                         "grant_type": "refresh_token",
                         "refresh_token": self._refresh_token,
                     },
                 )
                 if resp.status_code == 200:
                     data = resp.json()
-                    self._access_token = data.get("access_token")
-                    self._refresh_token = data.get("refresh_token")
-                    expires_in = data.get("expires_in", 3600)
-                    self._token_expires_at = time.time() + expires_in - 60
-                    logger.info("Beatport token refreshed")
-            except Exception as e:
-                logger.error("Beatport token refresh error: %s", e)
+                    self._access_token = data["access_token"]
+                    self._refresh_token = data["refresh_token"]
+                    self._token_expires_at = time.time() + data.get("expires_in", 3600) - 60
+            except Exception:
+                pass
 
     def _auth_headers(self) -> dict:
         self._ensure_auth()
