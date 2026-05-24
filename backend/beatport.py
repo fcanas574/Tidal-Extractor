@@ -175,28 +175,8 @@ class BeatportClient:
                     resp.text[:500] if resp.text else "(empty)",
                 )
                 return []
-            data = resp.json()
-            results = data.get("results", [])
-            # Fallback: try alternative public API path if results empty
-            if not results:
-                logger.info("No results from top-10-tracks, trying /catalog/tracks/top/...")
-                resp2 = self.client.get(
-                    f"{BEATPORT_PUBLIC}/catalog/tracks/top/{genre_id}/",
-                    params={"per_page": per_page},
-                    headers=self._auth_headers(),
-                )
-                if resp2.status_code == 200:
-                    data2 = resp2.json()
-                    results = data2.get("results", [])
-                    logger.info("Fallback returned %d tracks", len(results))
-            logger.info(
-                "Top tracks response for genre %s: HTTP %s, keys=%s, results_count=%s, body_preview=%s",
-                genre_id,
-                resp.status_code,
-                list(data.keys()) if isinstance(data, dict) else "not_dict",
-                len(results),
-                resp.text[:300],
-            )
+            results = resp.json().get("results", [])
+            logger.info("Fetched %d tracks for genre %s", len(results), genre_id)
             tracks = []
             for t in results:
                 artists = [a["name"] for a in t.get("artists", [])]
