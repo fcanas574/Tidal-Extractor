@@ -26,10 +26,7 @@ class BeatportClient:
     @property
     def client(self) -> httpx.Client:
         if self._client is None:
-            self._client = httpx.Client(
-                timeout=httpx.Timeout(15.0),
-                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
-            )
+            self._client = httpx.Client(timeout=httpx.Timeout(15.0))
         return self._client
 
     @property
@@ -136,20 +133,14 @@ class BeatportClient:
         if self._genres_cache:
             return self._genres_cache
         try:
-            logger.info("Fetching Beatport genres from internal API...")
             resp = self.client.get(
                 f"{BEATPORT_INTERNAL}/catalog/genres/",
                 headers=self._auth_headers(),
             )
             if resp.status_code != 200:
-                logger.error(
-                    "Failed to fetch genres: HTTP %s, body: %s",
-                    resp.status_code,
-                    resp.text[:500] if resp.text else "(empty)",
-                )
+                logger.error("Failed to fetch genres: %s", resp.status_code)
                 return []
             results = resp.json().get("results", [])
-            logger.info("Fetched %d Beatport genres", len(results))
             genres = [
                 {"id": g["id"], "name": g["name"], "slug": g.get("slug", "")}
                 for g in results
@@ -162,22 +153,15 @@ class BeatportClient:
 
     def get_top_tracks(self, genre_id: int, per_page: int = 10) -> list[dict]:
         try:
-            logger.info("Fetching top tracks for genre %s...", genre_id)
             resp = self.client.get(
                 f"{BEATPORT_INTERNAL}/catalog/genres/{genre_id}/top-10-tracks/",
                 params={"per_page": per_page},
                 headers=self._auth_headers(),
             )
             if resp.status_code != 200:
-                logger.error(
-                    "Failed to fetch top tracks for genre %s: HTTP %s, body: %s",
-                    genre_id,
-                    resp.status_code,
-                    resp.text[:500] if resp.text else "(empty)",
-                )
+                logger.error("Failed to fetch top tracks for genre %s: %s", genre_id, resp.status_code)
                 return []
             results = resp.json().get("results", [])
-            logger.info("Fetched %d tracks for genre %s", len(results), genre_id)
             tracks = []
             for t in results:
                 artists = [a["name"] for a in t.get("artists", [])]
