@@ -46,12 +46,11 @@ function drawClubWaveform(
     return p;
   };
 
-  // 1. Draw full waveform (dim — brightens slightly on hover)
-  const dimAlpha = hoverFraction !== null ? 0.25 : 0.15;
+  // 1. Draw full waveform (dim)
   for (const key of ['low', 'mid', 'high']) {
     const data = bands[key as keyof typeof bands];
     if (!data?.length) continue;
-    ctx.globalAlpha = dimAlpha;
+    ctx.globalAlpha = 0.15;
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = specs[key].color;
     ctx.fill(buildPath(data, end - 1));
@@ -104,26 +103,20 @@ function drawClubWaveform(
     ctx.stroke();
   }
 
-  // 5. Hover glow — brighten a narrow vertical slice
+  // 5. Hover: highlight region from playhead to cursor
   if (hoverFraction !== null && wfDuration > 0) {
     const hx = hoverFraction * w;
-    const glowWidth = 12;
+    const px = (playedIdx / end) * w;
+    const left = Math.min(px, hx);
+    const right = Math.max(px, hx);
 
-    // Semi-transparent white overlay at hover position to brighten colors
-    ctx.fillStyle = 'rgba(255,255,255,0.08)';
-    ctx.fillRect(hx - glowWidth / 2, 0, glowWidth, h);
+    // Subtle brighten on the segment between playhead and cursor
+    if (Math.abs(hx - px) > 2) {
+      ctx.fillStyle = 'rgba(255,255,255,0.06)';
+      ctx.fillRect(left, 0, right - left, h);
+    }
 
-    // Gradient glow edges
-    const grad = ctx.createLinearGradient(hx - glowWidth, 0, hx + glowWidth, 0);
-    grad.addColorStop(0, 'rgba(255,255,255,0)');
-    grad.addColorStop(0.3, 'rgba(255,255,255,0.06)');
-    grad.addColorStop(0.5, 'rgba(255,255,255,0.10)');
-    grad.addColorStop(0.7, 'rgba(255,255,255,0.06)');
-    grad.addColorStop(1, 'rgba(255,255,255,0)');
-    ctx.fillStyle = grad;
-    ctx.fillRect(hx - glowWidth, 0, glowWidth * 2, h);
-
-    // Dashed guide line
+    // Dashed guide line at cursor
     ctx.strokeStyle = 'rgba(255,255,255,0.25)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
