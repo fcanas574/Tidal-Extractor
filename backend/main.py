@@ -147,6 +147,29 @@ async def resolve_tidal_url(url: str):
     return result
 
 
+# --- Preview Endpoint ---
+
+from backend.waveform import get_waveform_cached
+
+@app.get("/preview/{track_id}")
+async def preview_track(track_id: int):
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        track = auth_manager.session.track(track_id)
+        # Use lowest quality for previews to save bandwidth
+        orig_quality = auth_manager.session.config.quality
+        auth_manager.session.config.quality = "LOW"
+        try:
+            url = track.get_url()
+        finally:
+            auth_manager.session.config.quality = orig_quality
+        waveform = await asyncio.to_thread(get_waveform_cached, url)
+        return {"stream_url": url, "waveform": waveform}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+
+
 # --- Queue Endpoints ---
 
 class AddToQueueRequest(BaseModel):

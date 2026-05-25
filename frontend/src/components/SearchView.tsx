@@ -255,6 +255,29 @@ export default function SearchView() {
                     {track.quality}
                   </span>
                   <button
+                    onClick={() => dispatch({
+                      type: 'SET_PREVIEW',
+                      payload: { id: track.id, title: track.title, artist: track.artist, cover_url: track.cover_url },
+                    })}
+                    className="text-xs px-2.5 py-1.5 rounded-md transition-all duration-200 shrink-0"
+                    style={{
+                      color: state.previewTrack?.id === track.id ? 'var(--accent-primary)' : 'var(--text-dim)',
+                      background: state.previewTrack?.id === track.id ? 'var(--accent-dim)' : 'var(--bg-surface)',
+                      border: `1px solid ${state.previewTrack?.id === track.id ? 'rgba(0, 229, 199, 0.3)' : 'var(--glass-border)'}`,
+                    }}
+                  >
+                    {state.previewTrack?.id === track.id && state.previewPlaying ? (
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                        <rect x="1" y="0" width="3" height="10" rx="0.5" />
+                        <rect x="6" y="0" width="3" height="10" rx="0.5" />
+                      </svg>
+                    ) : (
+                      <svg width="10" height="10" viewBox="0 0 10 10" fill="currentColor">
+                        <polygon points="1,0 9,5 1,10" />
+                      </svg>
+                    )}
+                  </button>
+                  <button
                     onClick={() => handleAddToQueue(track.id, 'track', track.title, track.artist, track.album)}
                     className="btn-primary text-xs px-3 py-1.5 shrink-0"
                   >

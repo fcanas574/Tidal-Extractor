@@ -149,3 +149,13 @@ export const history = {
 export const resolve = {
   url: (url: string) => request<ResolveResult>(`/resolve?url=${encodeURIComponent(url)}`),
 };
+
+export interface WaveformData {
+  bands: { low: number[]; mid: number[]; high: number[] };
+  colors: { low: string; mid: string; high: string };
+  duration: number;
+}
+
+export const preview = {
+  getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null }>(`/preview/${trackId}`),
+};

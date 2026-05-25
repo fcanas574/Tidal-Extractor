@@ -8,6 +8,7 @@ A web-based Tidal music downloader with verified audio quality. Downloads tracks
 - **Track, album, and playlist support** — Search and download individual tracks, full albums, or entire playlists
 - **Format conversion** — Convert to FLAC, MP3 (320kbps), or M4A/AAC (320kbps) via ffmpeg
 - **Full metadata tagging** — Embeds title, artist, album, genre, year, label, ISRC, BPM, key, and cover art using mutagen
+- **Track preview with tri-band waveform** — Click-to-preview any search result with a Rekordbox-style 3-band waveform (lows/mids/highs), generated from actual audio analysis via wavypy
 - **Real-time progress** — WebSocket-powered download progress with toast notifications
 - **Session persistence** — Tidal OAuth session saved locally so you don't re-auth every launch
 - **Quality cache** — Probed quality presets are cached per session to avoid redundant checks
@@ -16,7 +17,7 @@ A web-based Tidal music downloader with verified audio quality. Downloads tracks
 
 | Layer | Technology |
 |-------|-----------|
-| Backend | Python 3.12+, FastAPI, tidalapi 0.8.11, SQLite, ffmpeg, mutagen |
+| Backend | Python 3.13+, FastAPI, tidalapi 0.8.11, SQLite, ffmpeg, mutagen, numpy, scipy, wavypy |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS |
 | Real-time | WebSocket (native) |
 
@@ -96,6 +97,9 @@ TidalExtractor/
 │   ├── models.py        # SQLite database (queue, history, cache)
 │   ├── config.py        # YAML config loader/saver
 │   ├── ws.py            # WebSocket broadcast manager
+│   ├── waveform.py      # wavypy integration, tri-band audio analysis
+│   ├── audioop_stub.py  # Python 3.13+ audioop compatibility shim
+│   ├── wavypy/          # wavypy waveform generator (submodule)
 │   └── tests/           # pytest test suite
 ├── frontend/
 │   └── src/
@@ -104,12 +108,13 @@ TidalExtractor/
 │       ├── context/AppContext.tsx  # Global state (useReducer)
 │       ├── hooks/useWebSocket.ts  # Auto-reconnecting WS hook
 │       └── components/
-│           ├── AuthGate.tsx        # OAuth device-link UI
-│           ├── NavBar.tsx          # Navigation + settings icon
-│           ├── SearchView.tsx      # Search + results
-│           ├── QueueView.tsx       # Download queue + progress
-│           ├── SettingsPanel.tsx   # Slide-out settings drawer
-│           └── ToastContainer.tsx  # Download notifications
+│           ├── AuthGate.tsx          # OAuth device-link UI
+│           ├── NavBar.tsx            # Navigation + settings icon
+│           ├── SearchView.tsx        # Search + results
+│           ├── QueueView.tsx         # Download queue + progress
+│           ├── SettingsPanel.tsx     # Slide-out settings drawer
+│           ├── ToastContainer.tsx    # Download notifications
+│           └── AudioPlayerFooter.tsx # Canvas tri-band waveform player
 ├── config.yaml          # User settings
 ├── requirements.txt     # Python dependencies
 └── README.md

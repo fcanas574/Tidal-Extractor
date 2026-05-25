@@ -1,0 +1,3 @@
+[submodule "backend/wavypy"]
+	path = backend/wavypy
+	url = https://github.com/GabrielJuliao/wavypy.git

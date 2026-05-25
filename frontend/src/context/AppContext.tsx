@@ -1,6 +1,13 @@
 import { createContext, useContext, useReducer, Dispatch } from 'react';
 import type { AuthStatus, QueueItem, Settings, WsMessage } from '../api';
 
+export interface PreviewTrack {
+  id: number;
+  title: string;
+  artist: string;
+  cover_url: string | null;
+}
+
 export interface Toast {
   id: string;
   type: 'info' | 'success' | 'error' | 'downloading';
@@ -18,6 +25,8 @@ export interface AppState {
   settingsPanelOpen: boolean;
   wsConnected: boolean;
   toasts: Toast[];
+  previewTrack: PreviewTrack | null;
+  previewPlaying: boolean;
 }
 
 type Action =
@@ -32,7 +41,10 @@ type Action =
   | { type: 'TOGGLE_SETTINGS_PANEL' }
   | { type: 'ADD_TOAST'; payload: Toast }
   | { type: 'REMOVE_TOAST'; payload: string }
-  | { type: 'UPDATE_TOAST'; payload: { id: string; progress?: number; detail?: string } };
+  | { type: 'UPDATE_TOAST'; payload: { id: string; progress?: number; detail?: string } }
+  | { type: 'SET_PREVIEW'; payload: PreviewTrack }
+  | { type: 'CLEAR_PREVIEW' }
+  | { type: 'SET_PREVIEW_PLAYING'; payload: boolean };
 
 const initialState: AppState = {
   auth: { authenticated: false, username: null },
@@ -42,6 +54,8 @@ const initialState: AppState = {
   settingsPanelOpen: false,
   wsConnected: false,
   toasts: [],
+  previewTrack: null,
+  previewPlaying: false,
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -170,6 +184,12 @@ function reducer(state: AppState, action: Action): AppState {
             : t
         ),
       };
+    case 'SET_PREVIEW':
+      return { ...state, previewTrack: action.payload, previewPlaying: true };
+    case 'CLEAR_PREVIEW':
+      return { ...state, previewTrack: null, previewPlaying: false };
+    case 'SET_PREVIEW_PLAYING':
+      return { ...state, previewPlaying: action.payload };
     default:
       return state;
   }

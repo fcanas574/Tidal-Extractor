@@ -8,6 +8,7 @@ import SearchView from './components/SearchView';
 import QueueView from './components/QueueView';
 import SettingsPanel from './components/SettingsPanel';
 import ToastContainer from './components/ToastContainer';
+import AudioPlayerFooter from './components/AudioPlayerFooter';
 import type { WsMessage } from './api';
 
 function AppContent() {
@@ -47,9 +48,10 @@ function AppContent() {
     <AuthGate>
       <div className="min-h-screen flex flex-col">
         <NavBar />
-        <main className="flex-1">{renderView()}</main>
+        <main className="flex-1" style={{ paddingBottom: state.previewTrack ? '120px' : 0 }}>{renderView()}</main>
         <SettingsPanel />
         <ToastContainer />
+        <AudioPlayerFooter />
       </div>
     </AuthGate>
   );
