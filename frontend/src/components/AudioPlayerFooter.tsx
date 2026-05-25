@@ -103,9 +103,26 @@ function drawClubWaveform(
     ctx.stroke();
   }
 
-  // 5. Hover line + time tooltip
+  // 5. Hover glow — brighten a narrow vertical slice
   if (hoverFraction !== null && wfDuration > 0) {
     const hx = hoverFraction * w;
+    const glowWidth = 12;
+
+    // Semi-transparent white overlay at hover position to brighten colors
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fillRect(hx - glowWidth / 2, 0, glowWidth, h);
+
+    // Gradient glow edges
+    const grad = ctx.createLinearGradient(hx - glowWidth, 0, hx + glowWidth, 0);
+    grad.addColorStop(0, 'rgba(255,255,255,0)');
+    grad.addColorStop(0.3, 'rgba(255,255,255,0.06)');
+    grad.addColorStop(0.5, 'rgba(255,255,255,0.10)');
+    grad.addColorStop(0.7, 'rgba(255,255,255,0.06)');
+    grad.addColorStop(1, 'rgba(255,255,255,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(hx - glowWidth, 0, glowWidth * 2, h);
+
+    // Dashed guide line
     ctx.strokeStyle = 'rgba(255,255,255,0.25)';
     ctx.lineWidth = 1;
     ctx.setLineDash([4, 4]);
