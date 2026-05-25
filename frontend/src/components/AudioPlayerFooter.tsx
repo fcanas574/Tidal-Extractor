@@ -15,6 +15,8 @@ function drawClubWaveform(
   h: number,
   bands: WaveformData['bands'],
   progress: number,
+  hoverFraction: number | null,
+  wfDuration: number,
 ) {
   ctx.clearRect(0, 0, w, h);
 
@@ -100,6 +102,44 @@ function drawClubWaveform(
     ctx.lineTo(px, h);
     ctx.stroke();
   }
+
+  // 5. Hover line + time tooltip
+  if (hoverFraction !== null && wfDuration > 0) {
+    const hx = hoverFraction * w;
+    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(hx, 0);
+    ctx.lineTo(hx, h);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    const time = hoverFraction * wfDuration;
+    const mins = Math.floor(time / 60);
+    const secs = Math.floor(time % 60);
+    const label = `${mins}:${secs.toString().padStart(2, '0')}`;
+
+    ctx.font = '11px "JetBrains Mono", monospace';
+    const textW = ctx.measureText(label).width + 8;
+    const textH = 18;
+    let tx = hx - textW / 2;
+    tx = Math.max(2, Math.min(tx, w - textW - 2));
+    const ty = 2;
+
+    ctx.fillStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.roundRect(tx, ty, textW, textH, 4);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(label, tx + textW / 2, ty + textH / 2);
+  }
 }
 
 export default function AudioPlayerFooter() {
@@ -110,6 +150,7 @@ export default function AudioPlayerFooter() {
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [waveform, setWaveform] = useState<WaveformData | null>(null);
+  const [hoverFraction, setHoverFraction] = useState<number | null>(null);
 
   useEffect(() => {
     if (!previewTrack) return;
@@ -155,8 +196,8 @@ export default function AudioPlayerFooter() {
     if (!ctx) return;
     const wfDuration = waveform.duration || duration;
     const progress = wfDuration > 0 ? currentTime / wfDuration : 0;
-    drawClubWaveform(ctx, rect.width, rect.height, waveform.bands, Math.min(1, progress));
-  }, [currentTime, waveform, duration]);
+    drawClubWaveform(ctx, rect.width, rect.height, waveform.bands, Math.min(1, progress), hoverFraction, wfDuration);
+  }, [currentTime, waveform, duration, hoverFraction]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
@@ -199,6 +240,13 @@ export default function AudioPlayerFooter() {
       <canvas
         ref={canvasRef}
         onClick={seek}
+        onMouseMove={(e) => {
+          const c = canvasRef.current;
+          if (!c) return;
+          const r = c.getBoundingClientRect();
+          setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
+        }}
+        onMouseLeave={() => setHoverFraction(null)}
         className="w-full mb-2 cursor-pointer"
         style={{ display: 'block', height: '56px' }}
       />
