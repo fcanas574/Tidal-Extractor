@@ -46,11 +46,12 @@ function drawClubWaveform(
     return p;
   };
 
-  // 1. Draw full waveform (dim)
+  // 1. Draw full waveform (dim — brightens slightly on hover)
+  const dimAlpha = hoverFraction !== null ? 0.25 : 0.15;
   for (const key of ['low', 'mid', 'high']) {
     const data = bands[key as keyof typeof bands];
     if (!data?.length) continue;
-    ctx.globalAlpha = 0.15;
+    ctx.globalAlpha = dimAlpha;
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = specs[key].color;
     ctx.fill(buildPath(data, end - 1));
