@@ -155,6 +155,10 @@ export const quality = {
   cache: () => request<{ preset: string; bitrate: number } | null>('/quality/cache'),
 };
 
+export const stats = {
+  get: () => request<Record<string, number>>('/stats'),
+};
+
 export const history = {
   list: (offset = 0, limit = 100) =>
     request<HistoryItem[]>(`/history?offset=${offset}&limit=${limit}`),

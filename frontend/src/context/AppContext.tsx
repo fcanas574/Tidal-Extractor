@@ -19,7 +19,7 @@ export interface Toast {
 
 export interface AppState {
   auth: AuthStatus;
-  activeTab: 'search' | 'queue' | 'history';
+  activeTab: 'search' | 'queue' | 'history' | 'stats';
   queue: QueueItem[];
   settings: Settings;
   settingsPanelOpen: boolean;
@@ -29,6 +29,7 @@ export interface AppState {
   previewPlaying: boolean;
   history: HistoryItem[];
   historyLoading: boolean;
+  stats: Record<string, number>;
 }
 
 type Action =
@@ -48,7 +49,8 @@ type Action =
   | { type: 'CLEAR_PREVIEW' }
   | { type: 'SET_PREVIEW_PLAYING'; payload: boolean }
   | { type: 'SET_HISTORY'; payload: HistoryItem[] }
-  | { type: 'SET_HISTORY_LOADING'; payload: boolean };
+  | { type: 'SET_HISTORY_LOADING'; payload: boolean }
+  | { type: 'SET_STATS'; payload: Record<string, number> };
 
 const initialState: AppState = {
   auth: { authenticated: false, username: null },
@@ -62,6 +64,7 @@ const initialState: AppState = {
   previewPlaying: false,
   history: [],
   historyLoading: false,
+  stats: {},
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -200,6 +203,8 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, history: action.payload, historyLoading: false };
     case 'SET_HISTORY_LOADING':
       return { ...state, historyLoading: action.payload };
+    case 'SET_STATS':
+      return { ...state, stats: action.payload };
     default:
       return state;
   }

@@ -7,6 +7,7 @@ import NavBar from './components/NavBar';
 import SearchView from './components/SearchView';
 import QueueView from './components/QueueView';
 import HistoryView from './components/HistoryView';
+import StatsView from './components/StatsView';
 import SettingsPanel from './components/SettingsPanel';
 import ToastContainer from './components/ToastContainer';
 import AudioPlayerFooter from './components/AudioPlayerFooter';
@@ -44,6 +45,8 @@ function AppContent() {
         return <QueueView />;
       case 'history':
         return <HistoryView />;
+      case 'stats':
+        return <StatsView />;
     }
   };
 
