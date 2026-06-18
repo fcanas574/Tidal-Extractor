@@ -1,6 +1,6 @@
 """Musical key detection using chroma features and Camelot Wheel mapping."""
-import os
 import hashlib
+
 import librosa
 import numpy as np
 
@@ -27,13 +27,11 @@ MAJOR_PROFILE = np.array([6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 
 MINOR_PROFILE = np.array([6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17])
 
 
-def _key_to_pitch_class(key_name: str) -> int:
-    """Convert a note name to pitch class (0-11)."""
-    key_name = key_name.replace("b", "b").replace("Db", "C#").replace("Eb", "D#").replace("Gb", "F#").replace("Ab", "G#").replace("Bb", "A#")
-    return PITCH_NAMES.index(key_name)
+# Pitch class 0-11 to Camelot number (circle of fifths order)
+_CAMELOT_NUMBERS = [5, 12, 7, 2, 9, 4, 11, 6, 1, 8, 3, 10]
 
 
-def _estimate_key(chroma: np.ndarray, tempo: float) -> tuple[str, str, float]:
+def _estimate_key(chroma: np.ndarray) -> tuple[str, str, float]:
     """Estimate key from chroma features. Returns (key, mode, confidence)."""
     chroma_avg = np.mean(chroma, axis=1)
     major_scores = []
@@ -69,12 +67,12 @@ def detect_key(audio_path: str, sample_rate: int = 22050) -> dict:
     """
     y, sr = librosa.load(audio_path, sr=sample_rate, mono=True)
     chroma = librosa.feature.chroma_stft(y=y, sr=sr, hop_length=512)
-    key_full, mode, confidence = _estimate_key(chroma, 120.0)
+    key_full, mode, confidence = _estimate_key(chroma)
 
     camelot = CAMELOT_MAP.get(key_full, None)
     if not camelot:
         pitch_class = PITCH_NAMES.index(key_full.split()[0])
-        camelot = f"{(pitch_class % 12) + 1}{'A' if mode == 'minor' else 'B'}"
+        camelot = f"{_CAMELOT_NUMBERS[pitch_class]}{'A' if mode == 'minor' else 'B'}"
 
     return {
         "key": key_full.replace(" major", "").replace(" minor", "m"),

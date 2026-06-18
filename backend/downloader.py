@@ -13,8 +13,9 @@ from backend.config import AppConfig
 from backend.models import Database
 from backend.quality import get_bitrate, bitrate_meets_threshold, QUALITY_PRESETS, QUALITY_PRESETS_ORDER
 from backend.converter import convert_format
-from backend.tagger import tag_file
+from backend.tagger import tag_file, tag_key
 from backend.search import get_album_tracks, get_playlist_tracks
+from backend.key_detection import detect_key as _detect_key, file_hash
 
 logger = logging.getLogger(__name__)
 
@@ -213,10 +214,10 @@ class DownloadOrchestrator:
 
         if ext in (".flac", ".mp3", ".m4a"):
             try:
-                from backend.key_detection import detect_key as _detect_key, file_hash
-                key_result = _detect_key(final_path)
+                key_result = await asyncio.to_thread(_detect_key, final_path)
                 h = file_hash(final_path)
                 await self.db.set_key_cache(h, key_result["key"], key_result["camelot"], key_result["confidence"])
+                await asyncio.to_thread(tag_key, final_path, key_result["key"], key_result["camelot"])
             except Exception as e:
                 logger.warning(f"Key detection failed for {final_path}: {e}")
         await self.db.add_to_history(
