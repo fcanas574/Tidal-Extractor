@@ -165,9 +165,50 @@ async def preview_track(track_id: int):
         finally:
             auth_manager.session.config.quality = orig_quality
         waveform = await asyncio.to_thread(get_waveform_cached, url)
-        return {"stream_url": url, "waveform": waveform}
+
+        key_data = await _detect_preview_key(url, track_id)
+
+        return {"stream_url": url, "waveform": waveform, **key_data}
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+
+
+async def _detect_preview_key(stream_url: str, track_id: int) -> dict:
+    """Download the full preview stream and detect key/camelot.
+
+    Caches results by track_id to avoid re-downloading on every preview.
+    """
+    import tempfile
+    import os as _os
+    from backend.key_detection import detect_key as _dk
+
+    # Check cache first
+    cache_key = f"preview_key_{track_id}"
+    cached = await db.get_key_cache(cache_key)
+    if cached:
+        return {"key": cached["key"], "camelot": cached["camelot"]}
+
+    tmp_path = None
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+            # Download the full preview stream (not just a chunk)
+            async with client.stream("GET", stream_url) as resp:
+                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+                    tmp_path = f.name
+                    async for chunk in resp.aiter_bytes(chunk_size=65536):
+                        f.write(chunk)
+
+        result = await asyncio.to_thread(_dk, tmp_path)
+        await db.set_key_cache(cache_key, result["key"], result["camelot"], result["confidence"])
+
+        return {"key": result["key"], "camelot": result["camelot"]}
+    except Exception as e:
+        logger.warning(f"Preview key detection failed for track {track_id}: {e}")
+        return {"key": None, "camelot": None}
+    finally:
+        if tmp_path and _os.path.exists(tmp_path):
+            _os.unlink(tmp_path)
 
 
 # --- Queue Endpoints ---

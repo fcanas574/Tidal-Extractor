@@ -9,6 +9,30 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
+// Key badge with rainbow gradient animation when playing
+function KeyBadge({ camelot, playing }: { camelot: string | null; playing: boolean }) {
+  if (!camelot) return null;
+
+  return (
+    <div
+      key={playing ? 'playing' : 'paused'}
+      className="ml-3 px-2 py-0.5 rounded text-xs font-mono shrink-0"
+      style={{
+        background: playing
+          ? 'linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #8b00ff, #ff0000)'
+          : 'var(--accent-dim)',
+        backgroundSize: '200% 100%',
+        animation: playing ? 'rainbow 1.5s linear infinite' : 'none',
+        color: playing ? '#000' : 'var(--text-bright)',
+        border: `1px solid ${playing ? 'rgba(255,255,255,0.3)' : 'rgba(0, 229, 199, 0.2)'}`,
+        textShadow: playing ? 'none' : '0 1px 2px rgba(0,0,0,0.3)',
+      }}
+    >
+      {camelot}
+    </div>
+  );
+}
+
 function drawClubWaveform(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -162,6 +186,7 @@ export default function AudioPlayerFooter() {
   const [duration, setDuration] = useState(0);
   const [waveform, setWaveform] = useState<WaveformData | null>(null);
   const [hoverFraction, setHoverFraction] = useState<number | null>(null);
+  const [keyCamelot, setKeyCamelot] = useState<string | null>(null);
 
   useEffect(() => {
     if (!previewTrack) return;
@@ -169,10 +194,12 @@ export default function AudioPlayerFooter() {
     setCurrentTime(0);
     setDuration(0);
     setWaveform(null);
+    setKeyCamelot(null);
 
     preview.getUrl(previewTrack.id).then((r) => {
       if (cancelled) return;
       if (r.waveform?.bands) setWaveform(r.waveform);
+      if (r.camelot) setKeyCamelot(r.camelot);
       const audio = new Audio(r.stream_url);
       audioRef.current = audio;
       audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
@@ -287,6 +314,7 @@ export default function AudioPlayerFooter() {
               {previewTrack.artist}
             </p>
           </div>
+          <KeyBadge camelot={keyCamelot} playing={previewPlaying} />
         </div>
 
         <div className="flex items-center gap-3 shrink-0 ml-4">

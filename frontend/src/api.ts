@@ -185,5 +185,5 @@ export interface WaveformData {
 }
 
 export const preview = {
-  getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null }>(`/preview/${trackId}`),
+  getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null; key: string | null; camelot: string | null }>(`/preview/${trackId}`),
 };

@@ -243,6 +243,11 @@ body::before {
   50% { box-shadow: 0 0 12px var(--accent-glow), 0 0 24px rgba(0, 229, 199, 0.1); }
 }
 
+@keyframes rainbow {
+  0% { background-position: 0% 50%; }
+  100% { background-position: 200% 50%; }
+}
+
 .animate-slide-in-right {
   animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }

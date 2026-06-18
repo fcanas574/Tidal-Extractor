@@ -6,6 +6,8 @@ export interface PreviewTrack {
   title: string;
   artist: string;
   cover_url: string | null;
+  key: string | null;
+  camelot: string | null;
 }
 
 export interface Toast {
