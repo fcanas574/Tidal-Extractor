@@ -168,16 +168,24 @@ class DownloadOrchestrator:
         import httpx
         total_size = 0
 
-        async with httpx.AsyncClient(follow_redirects=True) as client:
-            async with client.stream("GET", urls[0]) as resp:
-                total = int(resp.headers.get("content-length", 0))
-                with open(tmp_path, "wb") as f:
-                    async for chunk in resp.aiter_bytes(chunk_size=65536):
-                        f.write(chunk)
-                        total_size += len(chunk)
-                        if on_progress and total > 0:
-                            pct = (total_size / total) * 100
-                            await on_progress(queue_item["id"], pct, total_size, total)
+        try:
+            async with httpx.AsyncClient(follow_redirects=True) as client:
+                async with client.stream("GET", urls[0]) as resp:
+                    total = int(resp.headers.get("content-length", 0))
+                    with open(tmp_path, "wb") as f:
+                        async for chunk in resp.aiter_bytes(chunk_size=65536):
+                            f.write(chunk)
+                            total_size += len(chunk)
+                            if on_progress and total > 0:
+                                pct = (total_size / total) * 100
+                                await on_progress(queue_item["id"], pct, total_size, total)
+        except Exception:
+            if os.path.exists(tmp_path):
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+            raise
 
         actual_bitrate = get_bitrate(tmp_path) or 0
 
