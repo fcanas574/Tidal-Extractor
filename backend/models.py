@@ -41,6 +41,11 @@ class Database:
                 actual_bitrate INTEGER NOT NULL DEFAULT 0,
                 downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS device_stats (
+                key TEXT PRIMARY KEY,
+                value INTEGER NOT NULL DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
             CREATE TABLE IF NOT EXISTS quality_cache (
                 id INTEGER PRIMARY KEY CHECK (id = 1),
                 preset TEXT NOT NULL,
@@ -147,3 +152,24 @@ class Database:
     async def clear_quality_cache(self):
         await self._conn.execute("DELETE FROM quality_cache")
         await self._conn.commit()
+
+    async def increment_stat(self, key: str, amount: int = 1):
+        await self._conn.execute(
+            """INSERT INTO device_stats (key, value)
+               VALUES (?, ?)
+               ON CONFLICT(key) DO UPDATE SET
+                   value = value + excluded.value,
+                   updated_at = CURRENT_TIMESTAMP""",
+            (key, amount),
+        )
+        await self._conn.commit()
+
+    async def get_stat(self, key: str) -> int:
+        row = await self._conn.execute_fetchall(
+            "SELECT value FROM device_stats WHERE key = ?", (key,)
+        )
+        return row[0]["value"] if row else 0
+
+    async def get_all_stats(self) -> dict[str, int]:
+        rows = await self._conn.execute_fetchall("SELECT key, value FROM device_stats")
+        return {r["key"]: r["value"] for r in rows}

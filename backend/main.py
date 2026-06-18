@@ -323,6 +323,14 @@ async def get_quality_cache():
     return await db.get_quality_cache()
 
 
+# --- Stats Endpoint ---
+
+@app.get("/stats")
+async def get_stats():
+    stats = await db.get_all_stats()
+    return stats
+
+
 # --- WebSocket Endpoint ---
 
 @app.websocket("/ws")
