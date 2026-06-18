@@ -207,6 +207,18 @@ class DownloadOrchestrator:
         await asyncio.to_thread(tag_file, final_path, metadata, metadata.get("cover_art_url"))
 
         file_size = os.path.getsize(final_path)
+        await self.db.increment_stat("total_tracks", 1)
+        await self.db.increment_stat("total_bytes", file_size)
+        await self.db.increment_stat(f"quality_{quality_preset}", 1)
+
+        if ext in (".flac", ".mp3", ".m4a"):
+            try:
+                from backend.key_detection import detect_key as _detect_key, file_hash
+                key_result = _detect_key(final_path)
+                h = file_hash(final_path)
+                await self.db.set_key_cache(h, key_result["key"], key_result["camelot"], key_result["confidence"])
+            except Exception as e:
+                logger.warning(f"Key detection failed for {final_path}: {e}")
         await self.db.add_to_history(
             tidal_id=tidal_id, item_type=item_type, title=metadata["title"],
             artist=metadata["artist"], album=metadata["album"],
