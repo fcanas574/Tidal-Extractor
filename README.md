@@ -12,6 +12,9 @@ A web-based Tidal music downloader with verified audio quality. Downloads tracks
 - **Real-time progress** — WebSocket-powered download progress with toast notifications
 - **Session persistence** — Tidal OAuth session saved locally so you don't re-auth every launch
 - **Quality cache** — Probed quality presets are cached per session to avoid redundant checks
+- **Download History** — Browse all past downloads with re-download and open-folder actions
+- **Device-wide Stats** — Track total tracks, storage used, and quality breakdown across all sessions
+- **Camelot Key Detection** — Analyze audio waveform to detect musical key in Camelot notation, independent of Tidal metadata
 
 ## Tech Stack
 
