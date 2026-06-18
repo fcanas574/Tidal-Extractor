@@ -243,8 +243,35 @@ async def _process_queue_if_idle():
 # --- History Endpoints ---
 
 @app.get("/history")
-async def get_history(limit: int = 100):
-    return await db.get_history(limit=limit)
+async def get_history(offset: int = 0, limit: int = 100):
+    return await db.get_history(limit=limit, offset=offset)
+
+
+class ReDownloadRequest(BaseModel):
+    tidal_id: str
+    item_type: str = "track"
+    title: str
+    artist: str = ""
+    album: str = ""
+    quality: str = None
+    format: str = None
+
+
+@app.post("/history/re-download")
+async def re_download(item: ReDownloadRequest):
+    quality = item.quality or config.default_quality
+    fmt = item.format or config.default_format
+    queue_item = await db.add_to_queue(
+        tidal_id=item.tidal_id,
+        item_type=item.item_type,
+        title=item.title,
+        artist=item.artist,
+        album=item.album,
+        quality=quality,
+        format=fmt,
+    )
+    asyncio.create_task(_process_queue_if_idle())
+    return queue_item
 
 
 # --- Settings Endpoints ---

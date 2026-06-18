@@ -123,9 +123,10 @@ class Database:
         )
         await self._conn.commit()
 
-    async def get_history(self, limit: int = 100):
+    async def get_history(self, limit: int = 100, offset: int = 0):
         rows = await self._conn.execute_fetchall(
-            "SELECT * FROM history ORDER BY downloaded_at DESC LIMIT ?", (limit,)
+            "SELECT * FROM history ORDER BY downloaded_at DESC LIMIT ? OFFSET ?",
+            (limit, offset),
         )
         return [dict(r) for r in rows]
 
