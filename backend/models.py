@@ -52,6 +52,13 @@ class Database:
                 bitrate INTEGER NOT NULL,
                 updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
+            CREATE TABLE IF NOT EXISTS key_cache (
+                file_hash TEXT PRIMARY KEY,
+                key TEXT,
+                camelot TEXT,
+                confidence REAL,
+                detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
         """)
         await self._conn.commit()
         try:
@@ -173,3 +180,22 @@ class Database:
     async def get_all_stats(self) -> dict[str, int]:
         rows = await self._conn.execute_fetchall("SELECT key, value FROM device_stats")
         return {r["key"]: r["value"] for r in rows}
+
+    async def get_key_cache(self, file_hash: str):
+        rows = await self._conn.execute_fetchall(
+            "SELECT * FROM key_cache WHERE file_hash = ?", (file_hash,)
+        )
+        return dict(rows[0]) if rows else None
+
+    async def set_key_cache(self, file_hash: str, key: str, camelot: str, confidence: float):
+        await self._conn.execute(
+            """INSERT INTO key_cache (file_hash, key, camelot, confidence)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(file_hash) DO UPDATE SET
+                   key = excluded.key,
+                   camelot = excluded.camelot,
+                   confidence = excluded.confidence,
+                   detected_at = CURRENT_TIMESTAMP""",
+            (file_hash, key, camelot, confidence),
+        )
+        await self._conn.commit()

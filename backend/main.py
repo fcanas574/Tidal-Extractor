@@ -323,6 +323,22 @@ async def get_quality_cache():
     return await db.get_quality_cache()
 
 
+# --- Key Detection Endpoint ---
+
+from backend.key_detection import detect_key as _detect_key, file_hash
+
+@app.get("/key/detect")
+async def detect_file_key(path: str):
+    h = file_hash(path)
+    cached = await db.get_key_cache(h)
+    if cached:
+        return {"cached": True, **cached}
+
+    result = _detect_key(path)
+    await db.set_key_cache(h, result["key"], result["camelot"], result["confidence"])
+    return {"cached": False, **result}
+
+
 # --- Stats Endpoint ---
 
 @app.get("/stats")
