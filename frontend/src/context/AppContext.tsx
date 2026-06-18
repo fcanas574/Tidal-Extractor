@@ -1,5 +1,5 @@
 import { createContext, useContext, useReducer, Dispatch } from 'react';
-import type { AuthStatus, QueueItem, Settings, WsMessage } from '../api';
+import type { AuthStatus, QueueItem, Settings, WsMessage, HistoryItem } from '../api';
 
 export interface PreviewTrack {
   id: number;
@@ -19,7 +19,7 @@ export interface Toast {
 
 export interface AppState {
   auth: AuthStatus;
-  activeTab: 'search' | 'queue';
+  activeTab: 'search' | 'queue' | 'history';
   queue: QueueItem[];
   settings: Settings;
   settingsPanelOpen: boolean;
@@ -27,6 +27,8 @@ export interface AppState {
   toasts: Toast[];
   previewTrack: PreviewTrack | null;
   previewPlaying: boolean;
+  history: HistoryItem[];
+  historyLoading: boolean;
 }
 
 type Action =
@@ -44,7 +46,9 @@ type Action =
   | { type: 'UPDATE_TOAST'; payload: { id: string; progress?: number; detail?: string } }
   | { type: 'SET_PREVIEW'; payload: PreviewTrack }
   | { type: 'CLEAR_PREVIEW' }
-  | { type: 'SET_PREVIEW_PLAYING'; payload: boolean };
+  | { type: 'SET_PREVIEW_PLAYING'; payload: boolean }
+  | { type: 'SET_HISTORY'; payload: HistoryItem[] }
+  | { type: 'SET_HISTORY_LOADING'; payload: boolean };
 
 const initialState: AppState = {
   auth: { authenticated: false, username: null },
@@ -56,6 +60,8 @@ const initialState: AppState = {
   toasts: [],
   previewTrack: null,
   previewPlaying: false,
+  history: [],
+  historyLoading: false,
 };
 
 function reducer(state: AppState, action: Action): AppState {
@@ -190,6 +196,10 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, previewTrack: null, previewPlaying: false };
     case 'SET_PREVIEW_PLAYING':
       return { ...state, previewPlaying: action.payload };
+    case 'SET_HISTORY':
+      return { ...state, history: action.payload, historyLoading: false };
+    case 'SET_HISTORY_LOADING':
+      return { ...state, historyLoading: action.payload };
     default:
       return state;
   }

@@ -96,6 +96,19 @@ export interface DeviceLink {
   expires_in: number;
 }
 
+export interface HistoryItem {
+  id: number;
+  tidal_id: string;
+  item_type: string;
+  title: string;
+  artist: string;
+  album: string | null;
+  quality: string;
+  format: string;
+  file_size: number;
+  downloaded_at: string;
+}
+
 export interface WsMessage {
   type: 'progress' | 'quality' | 'complete' | 'error' | 'queue_update';
   id: string;
@@ -143,7 +156,18 @@ export const quality = {
 };
 
 export const history = {
-  list: (limit: number = 100) => request<any[]>(`/history?limit=${limit}`),
+  list: (offset = 0, limit = 100) =>
+    request<HistoryItem[]>(`/history?offset=${offset}&limit=${limit}`),
+
+  reDownload: (item: {
+    tidal_id: string;
+    item_type?: string;
+    title: string;
+    artist?: string;
+    album?: string;
+    quality?: string;
+    format?: string;
+  }) => request<QueueItem>('/history/re-download', { method: 'POST', body: JSON.stringify(item) }),
 };
 
 export const resolve = {

@@ -1,8 +1,9 @@
 import { useApp } from '../context/AppContext';
 
-const tabs: { key: 'search' | 'queue'; label: string; icon: string }[] = [
+const tabs: { key: 'search' | 'queue' | 'history'; label: string; icon: string }[] = [
   { key: 'search', label: 'Search', icon: '⌕' },
   { key: 'queue', label: 'Queue', icon: '↓' },
+  { key: 'history', label: 'History', icon: '⏱' },
 ];
 
 export default function NavBar() {
