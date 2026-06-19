@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock
 from backend.search import (
     search_tidal, format_track, format_album, format_playlist,
-    parse_tidal_url, format_artist, resolve_url, score_results,
+    parse_tidal_url, format_artist, resolve_url, score_results, enrich_tracks,
 )
 
 
@@ -227,3 +227,68 @@ def test_score_results_artist_filter():
     scored = score_results(tracks, "Track - Target", artist_filter="Target Artist")
     # Exact artist match should win
     assert scored[0][0]["artist"] == "Target Artist"
+
+
+# --- enrich_tracks tests ---
+
+from unittest.mock import Mock
+
+
+def test_enrich_tracks_adds_version_to_title():
+    # Mock tidalapi session and track
+    mock_track = Mock()
+    mock_track.full_title = None
+    mock_track.version = "&ME Remix"
+
+    mock_session = Mock()
+    mock_session.track = Mock(return_value=mock_track)
+
+    tracks = [{"id": 123, "title": "What To Do", "artist": "Artist"}]
+    enriched = enrich_tracks(mock_session, tracks, top_n=5)
+
+    assert enriched[0]["title"] == "What To Do (&ME Remix)"
+
+
+def test_enrich_tracks_uses_full_title_when_available():
+    mock_track = Mock()
+    mock_track.full_title = "What To Do (&ME Remix)"
+
+    mock_session = Mock()
+    mock_session.track = Mock(return_value=mock_track)
+
+    tracks = [{"id": 123, "title": "What To Do", "artist": "Artist"}]
+    enriched = enrich_tracks(mock_session, tracks, top_n=5)
+
+    assert enriched[0]["title"] == "What To Do (&ME Remix)"
+
+
+def test_enrich_tracks_silent_fallback_on_error():
+    mock_session = Mock()
+    mock_session.track = Mock(side_effect=Exception("API error"))
+
+    tracks = [{"id": 123, "title": "Original Title", "artist": "Artist"}]
+    enriched = enrich_tracks(mock_session, tracks, top_n=5)
+
+    # Should keep original title on failure
+    assert enriched[0]["title"] == "Original Title"
+
+
+def test_enrich_tracks_only_enrichs_top_n():
+    mock_track = Mock()
+    mock_track.full_title = "Enriched"
+
+    mock_session = Mock()
+    mock_session.track = Mock(return_value=mock_track)
+
+    tracks = [
+        {"id": 1, "title": "Track 1"},
+        {"id": 2, "title": "Track 2"},
+        {"id": 3, "title": "Track 3"},
+    ]
+    enriched = enrich_tracks(mock_session, tracks, top_n=2)
+
+    # First 2 should be enriched (mock returns "Enriched")
+    assert enriched[0]["title"] == "Enriched"
+    assert enriched[1]["title"] == "Enriched"
+    # Third should remain unchanged (not enriched due to top_n=2)
+    assert enriched[2]["title"] == "Track 3"

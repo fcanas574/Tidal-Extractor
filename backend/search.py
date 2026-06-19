@@ -78,6 +78,52 @@ def score_results(tracks: List[dict], query: str, artist_filter: Optional[str] =
     return scored
 
 
+def enrich_tracks(session, tracks: List[dict], top_n: int = 5) -> List[dict]:
+    """
+    Enrich top N tracks with full metadata (version/remix info).
+
+    For each track, fetch the full Track object and construct complete title:
+    1. track.full_title (if available)
+    2. track.title + " (" + track.version + ")" (if version exists)
+    3. track.title (fallback)
+
+    Failures are silent — log warning and keep original title.
+    """
+    logger = logging.getLogger(__name__)
+
+    # Only enrich top N tracks
+    to_enrich = tracks[:top_n]
+    remainder = tracks[top_n:]
+    enriched = []
+
+    for track_dict in to_enrich:
+        track_id = track_dict.get("id")
+        if not track_id:
+            enriched.append(track_dict)
+            continue
+
+        try:
+            full_track = session.track(track_id)
+            new_title = track_dict.get("title", "")
+
+            # Priority 1: full_title
+            if hasattr(full_track, "full_title") and full_track.full_title:
+                new_title = full_track.full_title
+            # Priority 2: construct from title + version
+            elif hasattr(full_track, "version") and full_track.version:
+                new_title = f"{track_dict.get('title', '')} ({full_track.version})"
+
+            # Update the track dict with enriched title
+            track_dict = {**track_dict, "title": new_title}
+        except Exception as e:
+            logger.warning(f"Failed to enrich track {track_id}: {e}")
+            # Keep original title on failure
+
+        enriched.append(track_dict)
+
+    return enriched + remainder
+
+
 def format_album(album) -> dict:
     cover_url = None
     try:
