@@ -257,7 +257,7 @@ export default function SearchView() {
                   <button
                     onClick={() => dispatch({
                       type: 'SET_PREVIEW',
-                      payload: { id: track.id, title: track.title, artist: track.artist, cover_url: track.cover_url },
+                      payload: { id: track.id, title: track.title, artist: track.artist, cover_url: track.cover_url, key: null, camelot: null },
                     })}
                     className="text-xs px-2.5 py-1.5 rounded-md transition-all duration-200 shrink-0"
                     style={{

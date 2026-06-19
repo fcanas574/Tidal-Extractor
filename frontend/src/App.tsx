@@ -37,6 +37,33 @@ function AppContent() {
     return () => clearInterval(id);
   }, [state.wsConnected, dispatch]);
 
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      // Ignore if typing in an input field
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
+
+      switch (e.code) {
+        case 'Space':
+          if (state.previewTrack) {
+            e.preventDefault();
+            // Toggle play/pause - dispatch custom event for AudioPlayerFooter to catch
+            window.dispatchEvent(new CustomEvent('preview-toggle-play'));
+          }
+          break;
+        case 'Escape':
+          if (state.previewTrack) {
+            e.preventDefault();
+            dispatch({ type: 'CLEAR_PREVIEW' });
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [state.previewTrack, dispatch]);
+
   const renderView = () => {
     switch (state.activeTab) {
       case 'search':

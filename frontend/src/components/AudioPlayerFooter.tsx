@@ -249,6 +249,13 @@ export default function AudioPlayerFooter() {
     }
   }, [dispatch]);
 
+  // Keyboard shortcut support
+  useEffect(() => {
+    const handler = () => togglePlay();
+    window.addEventListener('preview-toggle-play', handler);
+    return () => window.removeEventListener('preview-toggle-play', handler);
+  }, [togglePlay]);
+
   const close = useCallback(() => {
     dispatch({ type: 'CLEAR_PREVIEW' });
   }, [dispatch]);
