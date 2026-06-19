@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import MagicMock
 from backend.search import (
     search_tidal, format_track, format_album, format_playlist,
-    parse_tidal_url, format_artist, resolve_url,
+    parse_tidal_url, format_artist, resolve_url, score_results,
 )
 
 
@@ -192,3 +192,38 @@ def test_resolve_url_invalid():
     mock_session = MagicMock()
     with pytest.raises(ValueError):
         resolve_url(mock_session, "https://spotify.com/track/12345")
+
+
+# --- score_results tests ---
+
+from datetime import date, timedelta
+
+
+def test_score_results_exact_title_match():
+    tracks = [
+        {"title": "Abyss", "artist": "Orgyia", "release_date": None},
+        {"title": "Different Song", "artist": "Other", "release_date": None},
+    ]
+    scored = score_results(tracks, "Abyss")
+    # First track has exact match, should score highest
+    assert scored[0][0]["title"] == "Abyss"
+    assert scored[0][1] > scored[1][1]
+
+
+def test_score_results_recency_boost():
+    old_track = {"title": "Song", "artist": "Artist", "release_date": (date.today() - timedelta(days=365)).isoformat()}
+    new_track = {"title": "Song", "artist": "Artist", "release_date": (date.today() - timedelta(days=7)).isoformat()}
+
+    scored = score_results([old_track, new_track], "Song")
+    # New track should score higher due to recency boost
+    assert scored[0][0]["release_date"] == new_track["release_date"]
+
+
+def test_score_results_artist_filter():
+    tracks = [
+        {"title": "Track", "artist": "Target Artist", "release_date": None},
+        {"title": "Track", "artist": "Other Artist", "release_date": None},
+    ]
+    scored = score_results(tracks, "Track - Target", artist_filter="Target Artist")
+    # Exact artist match should win
+    assert scored[0][0]["artist"] == "Target Artist"

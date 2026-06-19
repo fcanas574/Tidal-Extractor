@@ -1,5 +1,6 @@
 import logging
 import re
+from datetime import date, timedelta
 from typing import List, Optional, Tuple
 
 import tidalapi
@@ -27,6 +28,54 @@ def format_track(track) -> dict:
         "url": track.listen_url or "",
         "cover_url": cover_url,
     }
+
+
+def score_results(tracks: List[dict], query: str, artist_filter: Optional[str] = None) -> List[Tuple[dict, float]]:
+    """
+    Score and sort search results by relevance.
+
+    Scoring rules:
+    - Exact title match (query words in order): +10
+    - Partial title match (any query word in title): +5
+    - Released within 30 days: +5
+    - Exact artist match (when " - " in query): +10
+    """
+    scored = []
+    query_lower = query.lower()
+    query_words = query_lower.split()
+    today = date.today()
+
+    for track in tracks:
+        score = 0.0
+        title_lower = track.get("title", "").lower()
+        artist_lower = track.get("artist", "").lower()
+
+        # Exact title match (query appears in order)
+        if query_lower in title_lower:
+            score += 10.0
+        # Partial title match (any word matches)
+        elif any(word in title_lower for word in query_words if len(word) > 2):
+            score += 5.0
+
+        # Recency boost (released within 30 days)
+        release_date = track.get("release_date")
+        if release_date:
+            try:
+                release = date.fromisoformat(str(release_date))
+                if (today - release).days <= 30:
+                    score += 5.0
+            except (ValueError, TypeError):
+                pass
+
+        # Exact artist match (when using "track - artist" format)
+        if artist_filter and artist_filter.lower() in artist_lower:
+            score += 10.0
+
+        scored.append((track, score))
+
+    # Sort by score descending
+    scored.sort(key=lambda x: x[1], reverse=True)
+    return scored
 
 
 def format_album(album) -> dict:
