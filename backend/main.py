@@ -11,7 +11,7 @@ from pydantic import BaseModel
 from backend.auth import AuthManager
 from backend.config import AppConfig
 from backend.models import Database
-from backend.search import search_tidal, get_album_tracks, get_playlist_tracks, resolve_url
+from backend.search import search_tidal, get_album_tracks, get_playlist_tracks, resolve_url, score_results, enrich_tracks
 from backend.downloader import DownloadOrchestrator
 from backend.ws import WebSocketManager
 
@@ -114,8 +114,20 @@ async def search(q: str, type: str = "track"):
         parts = q.split(" - ", 1)
         q = parts[0]
         artist_filter = parts[1]
-    results = await asyncio.to_thread(search_tidal, auth_manager.session, q, models, artist_filter=artist_filter)
-    return results
+
+    # Get raw search results
+    raw = await asyncio.to_thread(search_tidal, auth_manager.session, q, models, artist_filter=artist_filter)
+
+    # Score and sort tracks
+    if raw.get("tracks"):
+        scored = score_results(raw["tracks"], q, artist_filter)
+        raw["tracks"] = [t for t, _ in scored]  # Strip scores
+
+    # Enrich top 5 titles with full metadata
+    if raw.get("tracks"):
+        raw["tracks"] = await asyncio.to_thread(enrich_tracks, auth_manager.session, raw["tracks"], 5)
+
+    return raw
 
 
 @app.get("/album/{album_id}/tracks")
