@@ -5,6 +5,7 @@ A web-based Tidal music downloader with verified audio quality. Downloads tracks
 ## Features
 
 - **Quality-first downloads** — Two-phase fetch with quality fallback: probes presets top-down (HiRes Lossless → Lossless → High → Normal), downloads a sample, and verifies actual bitrate with ffprobe before committing
+- **DJ Search Filters** — Filter tracks by BPM range (60-200), Camelot key (1A-12B), harmonic compatibility (±1 + relative major/minor), and curated genres (House, Techno, Trance, Drum & Bass, etc.)
 - **Track, album, and playlist support** — Search and download individual tracks, full albums, or entire playlists
 - **Format conversion** — Convert to FLAC, MP3 (320kbps), or M4A/AAC (320kbps) via ffmpeg
 - **Full metadata tagging** — Embeds title, artist, album, genre, year, label, ISRC, BPM, key, and cover art using mutagen
@@ -84,6 +85,19 @@ Settings are accessible via the gear icon in the navigation bar:
 | Output Directory | Any local path | `~/Music/TidalDownloads` |
 
 Configuration is also stored in `config.yaml` at the project root and can be edited directly.
+
+## DJ Filters
+
+For DJs preparing sets, the Search tab includes harmonic mixing tools:
+
+| Filter | Description |
+|--------|-------------|
+| **BPM Range** | Set minimum and maximum tempo (60-200 BPM) |
+| **Camelot Key** | Select key (1A-12A, 1B-12B) to filter by exact match |
+| **Compatible** | Toggle to include harmonically compatible keys (±1 number + relative major/minor) |
+| **Genre** | Browse by genre without entering a search query (House, Techno, Trance, Drum & Bass, etc.) |
+
+**Example workflow:** Select "House" from the genre dropdown, set BPM to 120-128, choose "8A" with Compatible enabled to find all tracks in 7A, 8A, 9A, or 8B — perfect for harmonic mixing.
 
 ## Architecture
 
