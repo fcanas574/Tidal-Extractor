@@ -37,8 +37,8 @@ freqblog_stats = {
     "cache_hits": 0,
 }
 
-# Search deduplication cache: cache_key -> set of seen track IDs
-_search_seen_cache: dict[str, set[int]] = {}
+# Search results cache: cache_key -> full list of track IDs (for pagination)
+_search_results_cache: dict[str, list[dict]] = {}
 
 
 def _cleanup_tmp_files(output_dir: str) -> int:
@@ -195,43 +195,43 @@ async def search(
         # Tidal's genre: prefix filters by genre
         search_query = f"genre:{genre} {q}" if q else f"genre:{genre}"
 
-    # Get raw search results
-    raw = await asyncio.to_thread(search_tidal, auth_manager.session, search_query, models, artist_filter=artist_filter)
-
-    # Generate cache key from query + filters
+    # Get raw search results - always fetch full batch (Tidal doesn't support offset)
     cache_key = f"{q}:{bpm_min}:{bpm_max}:{key}:{genre}"
 
-    # Get or initialize seen IDs for this query
-    if cache_key not in _search_seen_cache:
-        _search_seen_cache[cache_key] = set()
-    seen_ids = _search_seen_cache[cache_key]
+    # Check cache first
+    if cache_key in _search_results_cache:
+        # Use cached results and slice the page we need
+        all_tracks = _search_results_cache[cache_key]
+        raw = {"tracks": all_tracks[offset:offset + limit], "albums": [], "playlists": []}
+    else:
+        # First request - fetch and cache all results
+        raw = await asyncio.to_thread(search_tidal, auth_manager.session, search_query, models, artist_filter=artist_filter, limit=500)
 
-    # Filter out already-seen tracks
-    if raw.get("tracks"):
-        raw["tracks"] = [t for t in raw["tracks"] if t["id"] not in seen_ids]
+        # Apply DJ filters (BPM, Key) after search
+        if raw.get("tracks") and (bpm_min is not None or bpm_max is not None or key):
+            raw["tracks"] = filter_tracks_by_dj_metadata(
+                raw["tracks"], bpm_min, bpm_max, key, key_compatible
+            )
 
-    # Update seen IDs with new tracks
-    if raw.get("tracks"):
-        seen_ids.update(t["id"] for t in raw["tracks"])
+        # Score and sort tracks
+        if raw.get("tracks"):
+            scored = score_results(raw["tracks"], q, artist_filter)
+            raw["tracks"] = [t for t, _ in scored]  # Strip scores
 
-    # Apply DJ filters (BPM, Key) after search
-    if raw.get("tracks") and (bpm_min is not None or bpm_max is not None or key):
-        raw["tracks"] = filter_tracks_by_dj_metadata(
-            raw["tracks"], bpm_min, bpm_max, key, key_compatible
-        )
+        # Enrich top 5 titles with full metadata
+        if raw.get("tracks"):
+            raw["tracks"] = await asyncio.to_thread(enrich_tracks, auth_manager.session, raw["tracks"], 5)
 
-    # Score and sort tracks
-    if raw.get("tracks"):
-        scored = score_results(raw["tracks"], q, artist_filter)
-        raw["tracks"] = [t for t, _ in scored]  # Strip scores
+        # Cache the full result set for pagination
+        _search_results_cache[cache_key] = raw["tracks"]
 
-    # Enrich top 5 titles with full metadata
-    if raw.get("tracks"):
-        raw["tracks"] = await asyncio.to_thread(enrich_tracks, auth_manager.session, raw["tracks"], 5)
-
-    # Apply pagination offset/limit to tracks
-    if raw.get("tracks"):
+        # Slice the first page
         raw["tracks"] = raw["tracks"][offset:offset + limit]
+
+    # For cached results, apply enrichment to the sliced page
+    if cache_key in _search_results_cache and offset > 0:
+        if raw.get("tracks"):
+            raw["tracks"] = await asyncio.to_thread(enrich_tracks, auth_manager.session, raw["tracks"], 5)
 
     return raw
 
