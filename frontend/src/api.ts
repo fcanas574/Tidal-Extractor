@@ -30,6 +30,10 @@ export interface TrackResult {
   isrc: string | null;
   url: string;
   cover_url: string | null;
+  // DJ metadata
+  bpm: number | null;
+  key: string | null;
+  key_scale: string | null;
 }
 
 export interface AlbumResult {
@@ -123,12 +127,33 @@ export const auth = {
 };
 
 export const search = {
-  query: (q: string, type: string = 'track') =>
-    request<SearchResult>(`/search?q=${encodeURIComponent(q)}&type=${type}`),
+  query: (q: string, type: string = 'track', filters?: {
+    offset?: number;
+    limit?: number;
+    bpmMin?: number;
+    bpmMax?: number;
+    key?: string;
+    keyCompatible?: boolean;
+    genre?: string;
+  }) => {
+    let url = `/search?q=${encodeURIComponent(q)}&type=${type}`;
+    if (filters) {
+      if (filters.offset !== undefined) url += `&offset=${filters.offset}`;
+      if (filters.limit !== undefined) url += `&limit=${filters.limit}`;
+      if (filters.bpmMin !== undefined) url += `&bpm_min=${filters.bpmMin}`;
+      if (filters.bpmMax !== undefined) url += `&bpm_max=${filters.bpmMax}`;
+      if (filters.key) url += `&key=${encodeURIComponent(filters.key)}`;
+      if (filters.keyCompatible) url += '&key_compatible=true';
+      if (filters.genre) url += `&genre=${encodeURIComponent(filters.genre)}`;
+    }
+    return request<SearchResult>(url);
+  },
   albumTracks: (albumId: number) =>
     request<{ tracks: TrackResult[] }>(`/album/${albumId}/tracks`),
   playlistTracks: (playlistId: string) =>
     request<{ tracks: TrackResult[] }>(`/playlist/${playlistId}/tracks`),
+  getCompatibleKeys: (key: string) =>
+    request<{ key: string; compatible: string[] }>(`/keys/compatible?key=${encodeURIComponent(key)}`),
 };
 
 export const queue = {
@@ -185,5 +210,5 @@ export interface WaveformData {
 }
 
 export const preview = {
-  getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null; key: string | null; camelot: string | null }>(`/preview/${trackId}`),
+  getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null; key: string | null; camelot: string | null; bpm: number | null }>(`/preview/${trackId}`),
 };
