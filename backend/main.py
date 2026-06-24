@@ -3,6 +3,7 @@ import logging
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
+from typing import Optional, List
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -17,11 +18,27 @@ from backend.ws import WebSocketManager
 
 logger = logging.getLogger(__name__)
 
+# Configure logging level for FreqBlog debugging
+logging.basicConfig(level=logging.DEBUG)
+logging.getLogger("backend.freqblog").setLevel(logging.DEBUG)
+logging.getLogger("backend.main").setLevel(logging.INFO)
+
 config = AppConfig()
 db = Database()
 auth_manager = AuthManager()
 ws_manager = WebSocketManager()
 orchestrator: DownloadOrchestrator = None
+
+# FreqBlog stats counters (in-memory, reset on restart)
+freqblog_stats = {
+    "hits": 0,      # FreqBlog returned data
+    "misses": 0,    # Track not in FreqBlog, fell back to local
+    "errors": 0,    # API errors
+    "cache_hits": 0,
+}
+
+# Search deduplication cache: cache_key -> set of seen track IDs
+_search_seen_cache: dict[str, set[int]] = {}
 
 
 def _cleanup_tmp_files(output_dir: str) -> int:
@@ -104,19 +121,104 @@ async def logout():
 
 # --- Search Endpoints ---
 
+def filter_tracks_by_dj_metadata(
+    tracks: List[dict],
+    bpm_min: Optional[int],
+    bpm_max: Optional[int],
+    key: Optional[str],
+    key_compatible: bool,
+) -> List[dict]:
+    """Filter tracks by BPM range and/or Camelot key.
+
+    Tracks without the required metadata are excluded from filtered results.
+    """
+    from backend.key_detection import convert_to_camelot, get_compatible_keys
+
+    # Expand key if compatible mode is on
+    target_keys = [key] if key else []
+    if key and key_compatible:
+        target_keys = get_compatible_keys(key)
+
+    filtered = []
+    for track in tracks:
+        # BPM filter
+        track_bpm = track.get("bpm")
+        if bpm_min is not None or bpm_max is not None:
+            if track_bpm is None:
+                continue  # Skip tracks without BPM data
+            if bpm_min is not None and track_bpm < bpm_min:
+                continue
+            if bpm_max is not None and track_bpm > bpm_max:
+                continue
+
+        # Key filter
+        if target_keys:
+            track_key = track.get("key")
+            track_scale = track.get("key_scale")
+            if not track_key or not track_scale:
+                continue  # Skip tracks without key data
+            track_camelot = convert_to_camelot(track_key, track_scale)
+            if not track_camelot or track_camelot not in target_keys:
+                continue
+
+        filtered.append(track)
+
+    return filtered
+
+
 @app.get("/search")
-async def search(q: str, type: str = "track"):
+async def search(
+    q: str,
+    type: str = "track",
+    offset: int = 0,
+    limit: int = 50,
+    bpm_min: Optional[int] = None,
+    bpm_max: Optional[int] = None,
+    key: Optional[str] = None,
+    key_compatible: bool = False,
+    genre: Optional[str] = None,
+):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     models = [type] if type in ("track", "album", "playlist") else ["track", "album", "playlist"]
     artist_filter = None
+
+    # Handle "track - artist" format
     if " - " in q and type == "track":
         parts = q.split(" - ", 1)
         q = parts[0]
         artist_filter = parts[1]
 
+    # Prepend genre prefix if selected
+    search_query = q
+    if genre:
+        # Tidal's genre: prefix filters by genre
+        search_query = f"genre:{genre} {q}" if q else f"genre:{genre}"
+
     # Get raw search results
-    raw = await asyncio.to_thread(search_tidal, auth_manager.session, q, models, artist_filter=artist_filter)
+    raw = await asyncio.to_thread(search_tidal, auth_manager.session, search_query, models, artist_filter=artist_filter)
+
+    # Generate cache key from query + filters
+    cache_key = f"{q}:{bpm_min}:{bpm_max}:{key}:{genre}"
+
+    # Get or initialize seen IDs for this query
+    if cache_key not in _search_seen_cache:
+        _search_seen_cache[cache_key] = set()
+    seen_ids = _search_seen_cache[cache_key]
+
+    # Filter out already-seen tracks
+    if raw.get("tracks"):
+        raw["tracks"] = [t for t in raw["tracks"] if t["id"] not in seen_ids]
+
+    # Update seen IDs with new tracks
+    if raw.get("tracks"):
+        seen_ids.update(t["id"] for t in raw["tracks"])
+
+    # Apply DJ filters (BPM, Key) after search
+    if raw.get("tracks") and (bpm_min is not None or bpm_max is not None or key):
+        raw["tracks"] = filter_tracks_by_dj_metadata(
+            raw["tracks"], bpm_min, bpm_max, key, key_compatible
+        )
 
     # Score and sort tracks
     if raw.get("tracks"):
@@ -126,6 +228,10 @@ async def search(q: str, type: str = "track"):
     # Enrich top 5 titles with full metadata
     if raw.get("tracks"):
         raw["tracks"] = await asyncio.to_thread(enrich_tracks, auth_manager.session, raw["tracks"], 5)
+
+    # Apply pagination offset/limit to tracks
+    if raw.get("tracks"):
+        raw["tracks"] = raw["tracks"][offset:offset + limit]
 
     return raw
 
@@ -169,6 +275,8 @@ async def preview_track(track_id: int):
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         track = auth_manager.session.track(track_id)
+        logger.info(f"Preview track {track_id}: '{track.title}' by {track.artist.name if track.artist else 'Unknown'}")
+
         # Use lowest quality for previews to save bandwidth
         orig_quality = auth_manager.session.config.quality
         auth_manager.session.config.quality = "LOW"
@@ -178,28 +286,61 @@ async def preview_track(track_id: int):
             auth_manager.session.config.quality = orig_quality
         waveform = await asyncio.to_thread(get_waveform_cached, url)
 
-        key_data = await _detect_preview_key(url, track_id)
+        # Pass track object for FreqBlog metadata lookup
+        key_data = await _detect_preview_key(url, track_id, track)
 
         return {"stream_url": url, "waveform": waveform, **key_data}
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
 
 
-async def _detect_preview_key(stream_url: str, track_id: int) -> dict:
-    """Download the full preview stream and detect key/camelot.
+async def _detect_preview_key(stream_url: str, track_id: int, track=None) -> dict:
+    """Detect key/camelot for preview track.
 
-    Caches results by track_id to avoid re-downloading on every preview.
+    Uses hybrid approach:
+    1. Try FreqBlog API first (fast, ~100ms, no audio download)
+    2. Fall back to local audio analysis if not in FreqBlog catalog
+    3. Cache results by track_id to avoid re-fetching
     """
     import tempfile
     import os as _os
     from backend.key_detection import detect_key as _dk
+    from backend.freqblog import lookup_track_metadata
 
     # Check cache first
     cache_key = f"preview_key_{track_id}"
+    logger.info(f"Checking cache for key: {cache_key}")
     cached = await db.get_key_cache(cache_key)
     if cached:
-        return {"key": cached["key"], "camelot": cached["camelot"]}
+        logger.info(f"Cache HIT for track {track_id}: key={cached['key']}, camelot={cached['camelot']}")
+        freqblog_stats["cache_hits"] += 1
+        return {"key": cached["key"], "camelot": cached["camelot"], "bpm": cached.get("bpm")}
+    else:
+        logger.info(f"Cache MISS for track {track_id}, checking FreqBlog")
 
+    # Step 1: Try FreqBlog API first (fast metadata lookup)
+    if track:
+        logger.info(f"FreqBlog lookup: '{track.title}' by {track.artist.name if track.artist else 'Unknown'}")
+        metadata = await lookup_track_metadata(track.title, track.artist.name if track.artist else "")
+        if metadata:
+            freqblog_stats["hits"] += 1
+            logger.info(
+                f"[FreqBlog HIT] Track {track_id}: BPM={metadata.get('bpm')}, Key={metadata.get('key')}, Camelot={metadata.get('camelot')}"
+            )
+            # Cache the result (including BPM)
+            await db.set_key_cache(
+                cache_key,
+                metadata["key"],
+                metadata["camelot"],
+                metadata.get("key_confidence", 1.0),
+                bpm=metadata.get("bpm")
+            )
+            return {"key": metadata["key"], "camelot": metadata["camelot"], "bpm": metadata.get("bpm")}
+        else:
+            freqblog_stats["misses"] += 1
+            logger.info(f"[FreqBlog MISS] Track {track_id}: Not in catalog, falling back to local analysis")
+
+    # Step 2: Fallback to local audio analysis (slower, requires download)
     tmp_path = None
     try:
         import httpx
@@ -212,10 +353,18 @@ async def _detect_preview_key(stream_url: str, track_id: int) -> dict:
                         f.write(chunk)
 
         result = await asyncio.to_thread(_dk, tmp_path)
-        await db.set_key_cache(cache_key, result["key"], result["camelot"], result["confidence"])
+        await db.set_key_cache(
+            cache_key,
+            result["key"],
+            result["camelot"],
+            result["confidence"],
+            bpm=result.get("bpm")
+        )
 
-        return {"key": result["key"], "camelot": result["camelot"]}
+        logger.info(f"[Local Analysis] Track {track_id}: Key={result['key']}, Camelot={result['camelot']}, BPM={result.get('bpm')}")
+        return {"key": result["key"], "camelot": result["camelot"], "bpm": result.get("bpm")}
     except Exception as e:
+        freqblog_stats["errors"] += 1
         logger.warning(f"Preview key detection failed for track {track_id}: {e}")
         return {"key": None, "camelot": None}
     finally:
@@ -376,9 +525,10 @@ async def get_quality_cache():
     return await db.get_quality_cache()
 
 
-# --- Key Detection Endpoint ---
+# --- Key Detection Endpoints ---
 
-from backend.key_detection import detect_key as _detect_key, file_hash
+from backend.key_detection import detect_key as _detect_key, file_hash, convert_to_camelot, get_compatible_keys
+
 
 @app.get("/key/detect")
 async def detect_file_key(path: str):
@@ -392,12 +542,37 @@ async def detect_file_key(path: str):
     return {"cached": False, **result}
 
 
+@app.get("/keys/compatible")
+async def get_compatible_keys_route(key: str):
+    """Return list of Camelot keys harmonically compatible with the given key."""
+    if not key:
+        raise HTTPException(status_code=400, detail="key parameter required")
+    compatible = get_compatible_keys(key)
+    if not compatible:
+        raise HTTPException(status_code=400, detail="Invalid Camelot key format. Use format like '8A' or '12B'")
+    return {"key": key, "compatible": compatible}
+
+
 # --- Stats Endpoint ---
 
 @app.get("/stats")
 async def get_stats():
     stats = await db.get_all_stats()
     return stats
+
+
+# --- FreqBlog Stats Endpoint ---
+
+@app.get("/freqblog/stats")
+async def get_freqblog_stats():
+    """Return FreqBlog API usage stats (in-memory, reset on restart)."""
+    total = freqblog_stats["hits"] + freqblog_stats["misses"] + freqblog_stats["cache_hits"]
+    hit_rate = freqblog_stats["hits"] / max(freqblog_stats["hits"] + freqblog_stats["misses"], 1)
+    return {
+        **freqblog_stats,
+        "total_requests": total,
+        "hit_rate": round(hit_rate * 100, 1),
+    }
 
 
 # --- WebSocket Endpoint ---
