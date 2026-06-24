@@ -53,7 +53,6 @@ export default function SearchView() {
     if (!query.trim() && !selectedGenre) return;
     setLoading(true);
     setArtistResult(null);
-    setLoadedCount(50);
     setHasMore(true);
 
     try {
@@ -64,6 +63,7 @@ export default function SearchView() {
           setResults({ tracks: [], albums: [], playlists: [] });
         } else {
           setResults({ tracks: r.tracks, albums: r.albums, playlists: r.playlists });
+          setLoadedCount(r.tracks.length);
         }
       } else {
         const filters: {
@@ -85,6 +85,7 @@ export default function SearchView() {
 
         const r = await search.query(query.trim(), searchType, Object.keys(filters).length > 0 ? filters : undefined);
         setResults(r);
+        setLoadedCount(r.tracks.length);
       }
     } catch (err) {
       dispatch({
