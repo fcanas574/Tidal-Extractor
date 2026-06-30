@@ -77,13 +77,20 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, activeTab: action.payload };
     case 'SET_QUEUE':
       return { ...state, queue: action.payload };
-    case 'UPDATE_QUEUE_ITEM':
+    case 'UPDATE_QUEUE_ITEM': {
+      // Upsert: insert the item if it isn't already in the queue, else replace.
+      // This supports optimistic adds (new id from POST /queue/add) and WS
+      // status updates alike.
+      const exists = state.queue.some((i) => i.id === action.payload.id);
       return {
         ...state,
-        queue: state.queue.map((item) =>
-          item.id === action.payload.id ? action.payload : item
-        ),
+        queue: exists
+          ? state.queue.map((item) =>
+              item.id === action.payload.id ? action.payload : item
+            )
+          : [...state.queue, action.payload],
       };
+    }
     case 'REMOVE_QUEUE_ITEM':
       return {
         ...state,

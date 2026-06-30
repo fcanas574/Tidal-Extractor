@@ -226,7 +226,7 @@ class DownloadOrchestrator:
             quality=quality_preset, format=target_format,
             file_path=final_path, file_size=file_size, actual_bitrate=actual_bitrate,
         )
-        await self.db.remove_from_queue(queue_item["id"])
+        await self.db.update_queue_status(queue_item["id"], "complete", progress=100.0)
 
         logger.info(f"Downloaded: {final_path} ({actual_bitrate}kbps)")
         return final_path

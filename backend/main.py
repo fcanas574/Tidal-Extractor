@@ -406,12 +406,6 @@ async def get_queue():
     return await db.get_queue()
 
 
-@app.delete("/queue/{item_id}")
-async def remove_from_queue(item_id: int):
-    await db.remove_from_queue(item_id)
-    return {"ok": True}
-
-
 @app.delete("/queue/completed")
 async def clear_completed():
     removed = await db.remove_completed()
@@ -431,6 +425,12 @@ async def clear_all():
         orchestrator._running = False
     removed = await db.remove_all()
     return {"removed": removed}
+
+
+@app.delete("/queue/{item_id}")
+async def remove_from_queue(item_id: int):
+    await db.remove_from_queue(item_id)
+    return {"ok": True}
 
 
 async def _process_queue_if_idle():

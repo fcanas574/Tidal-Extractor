@@ -16,7 +16,7 @@ export default function HistoryView() {
 
   const handleReDownload = async (item: any) => {
     try {
-      await historyApi.reDownload({
+      const added = await historyApi.reDownload({
         tidal_id: item.tidal_id,
         title: item.title,
         artist: item.artist,
@@ -24,6 +24,7 @@ export default function HistoryView() {
         quality: item.quality,
         format: item.format,
       });
+      dispatch({ type: "UPDATE_QUEUE_ITEM", payload: added });
       dispatch({
         type: "ADD_TOAST",
         payload: {

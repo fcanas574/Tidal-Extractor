@@ -53,7 +53,7 @@ export default function QueueView() {
 
   const handleRetry = async (item: typeof state.queue[0]) => {
     try {
-      await queue.add({
+      const added = await queue.add({
         tidal_id: item.tidal_id,
         item_type: item.item_type,
         title: item.title,
@@ -62,6 +62,7 @@ export default function QueueView() {
         quality: item.quality,
         format: item.format,
       });
+      dispatch({ type: 'UPDATE_QUEUE_ITEM', payload: added });
       dispatch({
         type: 'ADD_TOAST',
         payload: {

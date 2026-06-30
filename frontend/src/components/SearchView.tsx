@@ -184,7 +184,7 @@ export default function SearchView() {
     album: string = '',
   ) => {
     try {
-      await queue.add({
+      const added = await queue.add({
         tidal_id: String(tidal_id),
         item_type,
         title,
@@ -193,6 +193,7 @@ export default function SearchView() {
         quality: state.settings.default_quality,
         format: state.settings.default_format,
       });
+      dispatch({ type: 'UPDATE_QUEUE_ITEM', payload: added });
       dispatch({
         type: 'ADD_TOAST',
         payload: {
