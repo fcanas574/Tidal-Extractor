@@ -33,6 +33,45 @@ function KeyBadge({ camelot, playing }: { camelot: string | null; playing: boole
   );
 }
 
+// BPM badge - subtle display with beat animation
+function BPMBadge({ bpm, playing }: { bpm: number | null; playing: boolean }) {
+  if (!bpm) return null;
+
+  // Calculate animation duration based on BPM (60 seconds / BPM = seconds per beat)
+  const beatDuration = bpm > 0 ? 60 / bpm : 0;
+
+  return (
+    <div
+      className="ml-2 px-2 py-0.5 rounded text-xs font-mono shrink-0 relative overflow-hidden"
+      style={{
+        background: 'var(--bg-surface)',
+        color: 'var(--text-muted)',
+        border: '1px solid rgba(255,255,255,0.1)',
+      }}
+    >
+      {/* Animated beat line - rises from bottom on each beat */}
+      {playing && beatDuration > 0 && (
+        <div
+          key="beat-animation"
+          style={{
+            position: 'absolute',
+            bottom: 0,
+            left: 0,
+            right: 0,
+            height: '100%',
+            background: 'linear-gradient(to top, rgba(0, 229, 199, 0.5), transparent)',
+            animation: `beatPulse ${beatDuration}s ease-in-out infinite`,
+            pointerEvents: 'none',
+          }}
+        />
+      )}
+      <span style={{ position: 'relative', zIndex: 1 }}>
+        {Math.round(bpm)} BPM
+      </span>
+    </div>
+  );
+}
+
 function drawClubWaveform(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -187,6 +226,7 @@ export default function AudioPlayerFooter() {
   const [waveform, setWaveform] = useState<WaveformData | null>(null);
   const [hoverFraction, setHoverFraction] = useState<number | null>(null);
   const [keyCamelot, setKeyCamelot] = useState<string | null>(null);
+  const [bpm, setBpm] = useState<number | null>(null);
 
   useEffect(() => {
     if (!previewTrack) return;
@@ -195,11 +235,13 @@ export default function AudioPlayerFooter() {
     setDuration(0);
     setWaveform(null);
     setKeyCamelot(null);
+    setBpm(null);
 
     preview.getUrl(previewTrack.id).then((r) => {
       if (cancelled) return;
       if (r.waveform?.bands) setWaveform(r.waveform);
       if (r.camelot) setKeyCamelot(r.camelot);
+      if (r.bpm) setBpm(r.bpm);
       const audio = new Audio(r.stream_url);
       audioRef.current = audio;
       audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
@@ -322,6 +364,7 @@ export default function AudioPlayerFooter() {
             </p>
           </div>
           <KeyBadge camelot={keyCamelot} playing={previewPlaying} />
+          <BPMBadge bpm={bpm} playing={previewPlaying} />
         </div>
 
         <div className="flex items-center gap-3 shrink-0 ml-4">

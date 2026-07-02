@@ -57,6 +57,7 @@ class Database:
                 key TEXT,
                 camelot TEXT,
                 confidence REAL,
+                bpm REAL,
                 detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
@@ -65,6 +66,10 @@ class Database:
             await self._conn.execute("ALTER TABLE queue ADD COLUMN from_collection INTEGER NOT NULL DEFAULT 0")
         except Exception:
             pass
+        try:
+            await self._conn.execute("ALTER TABLE key_cache ADD COLUMN bpm REAL")
+        except Exception:
+            pass  # Column already exists
 
     async def close(self):
         if self._conn:
@@ -187,15 +192,16 @@ class Database:
         )
         return dict(rows[0]) if rows else None
 
-    async def set_key_cache(self, file_hash: str, key: str, camelot: str, confidence: float):
+    async def set_key_cache(self, file_hash: str, key: str, camelot: str, confidence: float, bpm: float | None = None):
         await self._conn.execute(
-            """INSERT INTO key_cache (file_hash, key, camelot, confidence)
-               VALUES (?, ?, ?, ?)
+            """INSERT INTO key_cache (file_hash, key, camelot, confidence, bpm)
+               VALUES (?, ?, ?, ?, ?)
                ON CONFLICT(file_hash) DO UPDATE SET
                    key = excluded.key,
                    camelot = excluded.camelot,
                    confidence = excluded.confidence,
+                   bpm = excluded.bpm,
                    detected_at = CURRENT_TIMESTAMP""",
-            (file_hash, key, camelot, confidence),
+            (file_hash, key, camelot, confidence, bpm),
         )
         await self._conn.commit()

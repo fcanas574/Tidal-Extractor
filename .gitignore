@@ -8,3 +8,4 @@ dist/
 .superpowers/
 backend/tests/test_files/
 .superpowers/
+.env

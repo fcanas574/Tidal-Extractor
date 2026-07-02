@@ -248,6 +248,14 @@ body::before {
   100% { background-position: 200% 50%; }
 }
 
+@keyframes beatPulse {
+  0% { transform: scaleY(0); transform-origin: bottom; opacity: 0; }
+  10% { opacity: 0.6; }
+  20% { transform: scaleY(1); transform-origin: bottom; opacity: 0.5; }
+  80% { transform: scaleY(1); transform-origin: bottom; opacity: 0.3; }
+  100% { transform: scaleY(0); transform-origin: bottom; opacity: 0; }
+}
+
 .animate-slide-in-right {
   animation: slide-in-right 0.3s cubic-bezier(0.16, 1, 0.3, 1);
 }
@@ -304,4 +312,110 @@ body::before {
 
 ::-webkit-scrollbar-thumb:hover {
   background: var(--text-dim);
+}
+
+/* DJ Filter Bar */
+.dj-filter-bar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 12px 16px;
+  margin: 16px 0;
+  background: var(--bg-deep);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius);
+  flex-wrap: wrap;
+}
+
+.filter-group {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filter-group label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  font-weight: 600;
+}
+
+.filter-group input[type="number"],
+.filter-group select {
+  font-family: 'Space Grotesk', sans-serif;
+  font-size: 13px;
+  color: var(--text-bright);
+  background: var(--bg-surface);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-sm);
+  padding: 6px 10px;
+  outline: none;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.filter-group input[type="number"]:focus,
+.filter-group select:focus {
+  border-color: rgba(0, 229, 199, 0.4);
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+.filter-group select {
+  cursor: pointer;
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 4l3 3 3-3' stroke='%23506880' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 8px center;
+  padding-right: 28px;
+}
+
+.filter-group input[type="number"] {
+  width: 60px;
+  text-align: center;
+}
+
+.filter-group input[type="number"]::-webkit-inner-spin-button,
+.filter-group input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.filter-toggle .toggle-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 12px;
+  color: var(--text-muted);
+}
+
+.filter-toggle input[type="checkbox"] {
+  accent-color: var(--accent-primary);
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.toggle-icon {
+  font-size: 14px;
+}
+
+.toggle-text {
+  font-weight: 500;
+}
+
+.btn-clear-filters {
+  background: var(--bg-surface);
+  color: var(--text-muted);
+  border: 1px solid var(--glass-border);
+  font-weight: 500;
+  margin-left: auto;
+  transition: all 0.2s;
+}
+
+.btn-clear-filters:hover {
+  color: var(--text-bright);
+  border-color: var(--accent-primary);
+  background: var(--accent-dim);
 }

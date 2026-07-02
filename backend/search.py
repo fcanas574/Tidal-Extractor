@@ -27,6 +27,10 @@ def format_track(track) -> dict:
         "isrc": track.isrc or None,
         "url": track.listen_url or "",
         "cover_url": cover_url,
+        # DJ metadata from Tidal API
+        "bpm": track.bpm,
+        "key": track.key,
+        "key_scale": track.key_scale,
     }
 
 
