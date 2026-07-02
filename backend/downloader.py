@@ -32,7 +32,7 @@ FORMAT_EXT_MAP = {
     "M4A": ".m4a",
 }
 
-
+# Track metadata extraction function
 def extract_track_metadata(track) -> dict:
     """Extract extended metadata from a tidalapi Track object."""
     return {
