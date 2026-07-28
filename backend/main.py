@@ -1,4 +1,5 @@
 import asyncio
+import dataclasses
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -264,6 +265,29 @@ async def resolve_tidal_url(url: str):
 # --- Preview Endpoint ---
 
 from backend.waveform import get_waveform_cached
+from backend.preview_jobs import PreviewJobManager
+
+
+async def _preview_analyzer(stream_url: str, duration: float | None, track_id: int) -> dict:
+    """Background analyzer for preview metadata jobs.
+
+    Resolves the track for key lookup, then runs waveform and key detection in
+    threads / awaitables. Exceptions propagate to the PreviewJobManager, which
+    converts them into a `failed` snapshot rather than crashing the app.
+    """
+    track = auth_manager.session.track(track_id)
+    waveform = await asyncio.to_thread(get_waveform_cached, stream_url)
+    key_data = await _detect_preview_key(stream_url, track_id, track)
+    return {
+        "waveform": waveform,
+        "key": key_data.get("key"),
+        "camelot": key_data.get("camelot"),
+        "bpm": key_data.get("bpm"),
+    }
+
+
+preview_job_manager = PreviewJobManager(analyzer=_preview_analyzer)
+
 
 @app.get("/preview/{track_id}")
 async def preview_track(track_id: int):
@@ -286,6 +310,60 @@ async def preview_track(track_id: int):
         key_data = await _detect_preview_key(url, track_id, track)
 
         return {"stream_url": url, "waveform": waveform, **key_data}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+
+
+@app.get("/preview/{track_id}/stream")
+async def preview_stream(track_id: int):
+    """Fast stream-only endpoint: resolve the LOW-quality url and return.
+
+    Does NOT run waveform generation or key detection -- playback starts
+    immediately.
+    """
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        track = auth_manager.session.track(track_id)
+
+        orig_quality = auth_manager.session.config.quality
+        auth_manager.session.config.quality = "LOW"
+        try:
+            url = track.get_url()
+        finally:
+            auth_manager.session.config.quality = orig_quality
+
+        duration = getattr(track, "duration", None)
+        return {
+            "track_id": track_id,
+            "stream_url": url,
+            "duration": duration,
+        }
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+
+
+@app.get("/preview/{track_id}/metadata")
+async def preview_metadata(track_id: int):
+    """Resolve the same LOW-quality url, kick off (or fetch) the preview
+    metadata job, and return the current snapshot without waiting for the
+    background analyzer.
+    """
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        track = auth_manager.session.track(track_id)
+
+        orig_quality = auth_manager.session.config.quality
+        auth_manager.session.config.quality = "LOW"
+        try:
+            url = track.get_url()
+        finally:
+            auth_manager.session.config.quality = orig_quality
+
+        duration = getattr(track, "duration", None)
+        snapshot = preview_job_manager.start_or_get(track_id, url, duration)
+        return dataclasses.asdict(snapshot)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
 

@@ -112,7 +112,7 @@ class PreviewJobManager:
                 return
             self._update_snapshot_locked(job, status="processing")
         try:
-            result = self.analyzer(job.stream_url, job.duration)
+            result = self.analyzer(job.stream_url, job.duration, job.track_id)
             if inspect.isawaitable(result):
                 result = await result
             result_data = self._extract_result_data(result)
