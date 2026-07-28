@@ -268,6 +268,9 @@ export default function AudioPlayerFooter() {
         });
         return;
       }
+      // Use the stream duration immediately for an early progress-bar read; the
+      // audio 'loadedmetadata' listener refines it once audio headers load.
+      if (typeof r.duration === 'number') setDuration(r.duration);
       const audio = new Audio(r.stream_url);
       audioRef.current = audio;
       audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
