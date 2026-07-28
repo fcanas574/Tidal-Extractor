@@ -102,3 +102,4 @@ def test_metadata_route_returns_processing_snapshot(stub_auth):
     payload = response.json()
     assert payload["track_id"] == TEST_TRACK_ID
     assert payload["status"] in {"queued", "processing", "complete"}
+    assert set(payload) == {"track_id", "status", "revision", "waveform", "key", "camelot", "bpm", "error"}

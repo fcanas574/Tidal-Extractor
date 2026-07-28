@@ -348,6 +348,10 @@ async def preview_metadata(track_id: int):
     """Resolve the same LOW-quality url, kick off (or fetch) the preview
     metadata job, and return the current snapshot without waiting for the
     background analyzer.
+
+    Track/url resolution failures are reported as 404 (mirroring the legacy
+    route); a failure from `start_or_get` (e.g. scheduling error) propagates as
+    a 500 rather than masquerading as "not found."
     """
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -360,12 +364,11 @@ async def preview_metadata(track_id: int):
             url = track.get_url()
         finally:
             auth_manager.session.config.quality = orig_quality
-
-        duration = getattr(track, "duration", None)
-        snapshot = preview_job_manager.start_or_get(track_id, url, duration)
-        return dataclasses.asdict(snapshot)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+    duration = getattr(track, "duration", None)
+    snapshot = preview_job_manager.start_or_get(track_id, url, duration)
+    return dataclasses.asdict(snapshot)
 
 
 async def _detect_preview_key(stream_url: str, track_id: int, track=None) -> dict:
