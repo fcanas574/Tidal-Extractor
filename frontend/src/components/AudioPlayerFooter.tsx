@@ -220,6 +220,9 @@ export default function AudioPlayerFooter() {
   const { state, dispatch } = useApp();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Monotonic preview token: each preview-effect run captures its own value so a
+  // /metadata response arriving after the preview was superseded is rejected.
+  const previewTokenRef = useRef(0);
   const { previewTrack, previewPlaying } = state;
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -230,18 +233,41 @@ export default function AudioPlayerFooter() {
 
   useEffect(() => {
     if (!previewTrack) return;
+    const trackId = previewTrack.id;
+    // Monotonic preview token: each effect run captures its own token so a
+    // metadata response for a superseded track is rejected before it reaches
+    // state. Increment on every run.
+    previewTokenRef.current += 1;
+    const token = previewTokenRef.current;
+
     let cancelled = false;
+    const streamAbort = new AbortController();
+    const metadataAbort = new AbortController();
+
     setCurrentTime(0);
     setDuration(0);
     setWaveform(null);
     setKeyCamelot(null);
     setBpm(null);
 
-    preview.getUrl(previewTrack.id).then((r) => {
-      if (cancelled) return;
-      if (r.waveform?.bands) setWaveform(r.waveform);
-      if (r.camelot) setKeyCamelot(r.camelot);
-      if (r.bpm) setBpm(r.bpm);
+    // Start audio IMMEDIATELY from the fast /stream response. The slow analysis
+    // (waveform/key/bpm) arrives later via /metadata polling and is applied as
+    // it lands — playback must never block on it.
+    preview.getStream(trackId).then((r) => {
+      if (cancelled || streamAbort.signal.aborted) return;
+      if (r.stream_url == null) {
+        dispatch({ type: 'CLEAR_PREVIEW' });
+        dispatch({
+          type: 'ADD_TOAST',
+          payload: {
+            id: `preview-err-${trackId}`,
+            type: 'error',
+            title: 'Preview unavailable',
+            detail: 'No stream URL returned',
+          },
+        });
+        return;
+      }
       const audio = new Audio(r.stream_url);
       audioRef.current = audio;
       audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
@@ -249,10 +275,71 @@ export default function AudioPlayerFooter() {
       audio.addEventListener('ended', () => dispatch({ type: 'CLEAR_PREVIEW' }));
       audio.addEventListener('error', () => dispatch({ type: 'CLEAR_PREVIEW' }));
       audio.play().catch(() => dispatch({ type: 'CLEAR_PREVIEW' }));
+    }).catch((err: unknown) => {
+      if (cancelled) return;
+      streamAbort.abort();
+      dispatch({ type: 'CLEAR_PREVIEW' });
+      dispatch({
+        type: 'ADD_TOAST',
+        payload: {
+          id: `preview-err-${trackId}`,
+          type: 'error',
+          title: 'Preview unavailable',
+          detail: err instanceof Error ? err.message : 'Stream request failed',
+        },
+      });
     });
+
+    // Poll /metadata every 750ms while status is non-terminal. Apply a
+    // snapshot ONLY when the run is not cancelled, its track_id still matches
+    // the active preview, and the local token matches (guards against a
+    // superseding preview whose stale /metadata response arrives late).
+    const poll = async () => {
+      while (!cancelled && !metadataAbort.signal.aborted) {
+        try {
+          const snap = await preview.getMetadata(trackId);
+          if (cancelled || metadataAbort.signal.aborted) return;
+          // Reject stale responses: superseded track (previewTrack changed) or
+          // a response from a prior token attempting to apply.
+          if (previewTrack?.id !== trackId || token !== previewTokenRef.current) return;
+          if (snap.track_id !== trackId || token !== previewTokenRef.current) return;
+          if (snap.waveform?.bands) setWaveform(snap.waveform);
+          if (snap.camelot) setKeyCamelot(snap.camelot);
+          if (snap.bpm != null) setBpm(snap.bpm);
+          if (snap.status === 'complete' || snap.status === 'failed') {
+            return;
+          }
+        } catch (err: unknown) {
+          if (cancelled) return;
+          // Metadata failure is non-blocking: leave audio playing, surface a
+          // non-blocking error toast, and stop polling.
+          dispatch({
+            type: 'ADD_TOAST',
+            payload: {
+              id: `preview-metadata-err-${trackId}`,
+              type: 'error',
+              title: 'Preview metadata unavailable',
+              detail: err instanceof Error ? err.message : 'Metadata request failed',
+            },
+          });
+          return;
+        }
+        await new Promise<void>((resolve) => {
+          const id = setTimeout(resolve, 750);
+          metadataAbort.signal.addEventListener('abort', () => {
+            clearTimeout(id);
+            resolve();
+          }, { once: true });
+        });
+        if (cancelled || metadataAbort.signal.aborted) return;
+      }
+    };
+    void poll();
 
     return () => {
       cancelled = true;
+      streamAbort.abort();
+      metadataAbort.abort();
       audioRef.current?.pause();
       audioRef.current = null;
     };
