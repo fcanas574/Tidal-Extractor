@@ -15,9 +15,15 @@ on completion), preserving the frontend contract consumed by
 """
 from __future__ import annotations
 
+import asyncio
+import logging
+import os
+import subprocess
 import sys
+import tempfile
+import wave
 from dataclasses import dataclass, field
-from typing import Callable, Sequence
+from typing import Any, AsyncIterator, Awaitable, Callable, Sequence
 
 import numpy as np
 from scipy.signal import butter, sosfilt, sosfilt_zi
@@ -255,3 +261,185 @@ class StreamingWaveformGenerator:
             seen = self._fed_samples
         duration = seen / self.sample_rate
         return {"bands": bands, "duration": duration, "complete": self._complete}
+
+
+# ---------------------------------------------------------------------------
+# Task 2: ffmpeg PCM streaming + one temp WAV + progressive snapshots
+# ---------------------------------------------------------------------------
+
+logger = logging.getLogger(__name__)
+
+# Subprocess read deadline; matches the existing build_waveform timeout.
+_PCM_TIMEOUT = 60
+# Emit a snapshot after this many new complete pixels accumulate.
+_SNAPSHOT_INTERVAL_PIXELS = 50
+
+
+async def start_pcm_decoder(stream_url: str) -> AsyncIterator[bytes]:
+    """Launch ffmpeg and yield raw s16le mono PCM byte blocks from stdout.
+
+    Mirrors the existing ffmpeg command (``-ac 1 -ar 44100 -acodec pcm_s16le``)
+    but streams stdout instead of writing to a file. Blocks need NOT be aligned
+    to 2-byte samples --
+    ``analyze_stream`` aligns them. On cancellation/timeout the subprocess is
+    terminated and waited on.
+    """
+    proc = await asyncio.create_subprocess_exec(
+        "ffmpeg", "-i", stream_url,
+        "-ac", "1", "-ar", str(SAMPLE_RATE),
+        "-f", "s16le", "-acodec", "pcm_s16le",
+        "-loglevel", "error", "pipe:1",
+        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+    )
+    try:
+        assert proc.stdout is not None
+        while True:
+            block = await asyncio.wait_for(proc.stdout.read(8192), _PCM_TIMEOUT)
+            if not block:
+                break
+            yield block
+        await asyncio.wait_for(proc.wait(), _PCM_TIMEOUT)
+    except (asyncio.TimeoutError, asyncio.CancelledError):
+        with suppress_called_process_error():
+            proc.terminate()
+            try:
+                await asyncio.wait_for(proc.wait(), 5)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                proc.kill()
+                with suppress_called_process_error():
+                    await proc.wait()
+        raise
+    finally:
+        if proc.returncode is None:
+            with suppress_called_process_error():
+                proc.kill()
+                await proc.wait()
+
+
+class _SuppressCalledProcessError:
+    """contextlib.suppress that also tolerates ProcessLookupError (race where the
+    subprocess already exited). Kept tiny to avoid an extra import alias."""
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc, tb):
+        if exc_type is None:
+            return False
+        return issubclass(exc_type, (ProcessLookupError,))
+
+
+def suppress_called_process_error() -> _SuppressCalledProcessError:
+    return _SuppressCalledProcessError()
+
+
+async def _emit(callback: Callable[[dict], Any] | None, snapshot: dict) -> None:
+    """Invoke the snapshot callback, awaiting it if it returns a coroutine.
+
+    Accepts both the plan's sync ``list.append`` and an async callback.
+    """
+    if callback is None:
+        return
+    result = callback(snapshot)
+    if isinstance(result, Awaitable):
+        await result
+
+
+async def analyze_stream(
+    stream_url: str,
+    duration: float | None,
+    width: int = WAVEFORM_WIDTH,
+    on_snapshot: Callable[[dict], Any] | None = None,
+) -> dict[str, Any]:
+    """Stream one preview track from ``stream_url`` into tri-band waveform
+    analysis, writing a single temp WAV that callers reuse for key/BPM
+    detection (no second network request).
+
+    Emits progressive ``{bands, duration, complete}`` snapshots via
+    ``on_snapshot`` (first incomplete, last complete). Returns the final
+    ``{bands: {low, mid, high}, duration: float, temp_wav_path: str | None}``;
+    the caller owns deletion of the temp WAV after key analysis.
+
+    On any failure, returns empty bands with ``temp_wav_path=None`` and no temp
+    file left on disk -- audio playback (started independently elsewhere) is not
+    interrupted.
+    """
+    # Derive total samples for the streaming generator's samples_per_pixel.
+    if duration is not None and duration > 0:
+        total_samples = int(duration * SAMPLE_RATE)
+    else:
+        total_samples = 0  # generator falls back to max(2, 0//width)=2; refined after first chunk
+    gen = StreamingWaveformGenerator(SAMPLE_RATE, _CHANNELS, total_samples, width)
+
+    tmp_fd, tmp_path = tempfile.mkstemp(suffix=".wav", prefix="preview_stream_")
+    os.close(tmp_fd)
+    wav_writer: wave.Wave_write | None = None
+    try:
+        wav_writer = wave.open(tmp_path, "wb")
+        wav_writer.setnchannels(_CHANNELS)
+        wav_writer.setsampwidth(2)  # s16le
+        wav_writer.setframerate(SAMPLE_RATE)
+
+        saw_samples = 0
+        pending_new = 0
+        carry = b""  # trailing odd byte from a split read, prepended next block
+        async for block in start_pcm_decoder(stream_url):
+            block = carry + block
+            # Align to a 2-byte sample boundary; carry the leftover byte forward
+            # rather than dropping it (ffmpeg emits whole samples, but a read()
+            # can split a frame across blocks).
+            overflow = len(block) % 2
+            if overflow:
+                carry = block[-1:]
+                block = block[:-1]
+            else:
+                carry = b""
+            if not block:
+                continue
+            wav_writer.writeframes(block)
+            samples = np.frombuffer(block, dtype="<i2").astype(np.float64)
+            saw_samples += len(samples)
+            new = gen.feed(samples)
+            # Emit a progressive snapshot whenever new complete pixels land,
+            # throttled so short tracks emit at least one mid-stream snapshot
+            # and long tracks do not flood the callback per read block.
+            pending_new += sum(len(v) for v in new.values())
+            if pending_new >= _SNAPSHOT_INTERVAL_PIXELS or any(new.values()):
+                pending_new = 0
+                await _emit(on_snapshot, gen.snapshot())
+        # Flush any final odd byte (ffmpeg always emits whole samples, so this
+        # is empty in practice -- a single trailing byte is not a sample).
+        _ = carry
+
+        # If duration was unknown, refine total so finish()/snapshot report the
+        # real length rather than the empty-string fallback of 2 samples/pixel.
+        if total_samples == 0 and saw_samples > 0:
+            gen.total_samples = saw_samples
+            # samples_per_pixel stays as-is (already set from width/total before
+            # any feeding); we only correct the reported duration via total.
+
+        gen.finish()
+        await _emit(on_snapshot, gen.snapshot())
+        final = gen.snapshot()
+        return {
+            "bands": final["bands"],
+            "duration": final["duration"],
+            "temp_wav_path": tmp_path,
+        }
+    except Exception as exc:  # pragma: no cover - exercised by failure test
+        logger.warning("analyze_stream failed for %s: %s", stream_url, exc)
+        # Clean up the temp WAV on failure -- caller gets no path to own.
+        _safe_unlink(tmp_path)
+        return {"bands": {"low": [], "mid": [], "high": []}, "duration": float(duration or 0), "temp_wav_path": None}
+    finally:
+        if wav_writer is not None:
+            with suppress_called_process_error():
+                wav_writer.close()
+
+
+def _safe_unlink(path: str) -> None:
+    try:
+        if path and os.path.exists(path):
+            os.unlink(path)
+    except OSError:
+        logger.debug("could not remove temp wav %s", path, exc_info=True)
