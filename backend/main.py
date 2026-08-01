@@ -266,20 +266,46 @@ async def resolve_tidal_url(url: str):
 
 from backend.waveform import get_waveform_cached
 from backend.preview_jobs import PreviewJobManager
+from backend.waveform_stream import analyze_stream
 
 
-async def _preview_analyzer(stream_url: str, duration: float | None, track_id: int) -> dict:
-    """Background analyzer for preview metadata jobs.
+async def _preview_analyzer(
+    stream_url: str, duration: float | None, track_id: int,
+    on_snapshot=None,
+) -> dict:
+    """Background analyzer for preview metadata jobs (streaming pipeline).
 
-    Resolves the track for key lookup, then runs waveform and key detection in
-    threads / awaitables. Exceptions propagate to the PreviewJobManager, which
-    converts them into a `failed` snapshot rather than crashing the app.
+    Uses ``analyze_stream`` to produce progressive waveform snapshots via
+    ``on_snapshot``, then performs key detection via FreqBlog or local analysis
+    on the single temp WAV that was already streamed (no second full-track
+    network request).  Exceptions propagate to the ``PreviewJobManager``, which
+    converts them into a ``failed`` snapshot.
     """
-    track = auth_manager.session.track(track_id)
-    waveform = await asyncio.to_thread(get_waveform_cached, stream_url)
-    key_data = await _detect_preview_key(stream_url, track_id, track)
+    result = await analyze_stream(
+        stream_url, duration, width=600,
+        on_snapshot=on_snapshot,
+    )
+    bands = result["bands"]
+    temp_wav_path = result["temp_wav_path"]
+
+    try:
+        track = auth_manager.session.track(track_id)
+        key_data = await _detect_preview_key(
+            stream_url, track_id, track,
+            audio_path=temp_wav_path,
+        )
+    except Exception:
+        logger.debug("Key detection failed for track %d", track_id, exc_info=True)
+        key_data = {"key": None, "camelot": None, "bpm": None}
+    finally:
+        if temp_wav_path:
+            try:
+                os.unlink(temp_wav_path)
+            except OSError:
+                logger.debug("could not remove temp wav %s", temp_wav_path, exc_info=True)
+
     return {
-        "waveform": waveform,
+        "waveform": bands,
         "key": key_data.get("key"),
         "camelot": key_data.get("camelot"),
         "bpm": key_data.get("bpm"),
@@ -371,13 +397,15 @@ async def preview_metadata(track_id: int):
     return dataclasses.asdict(snapshot)
 
 
-async def _detect_preview_key(stream_url: str, track_id: int, track=None) -> dict:
+async def _detect_preview_key(stream_url: str, track_id: int, track=None, audio_path: str | None = None) -> dict:
     """Detect key/camelot for preview track.
 
     Uses hybrid approach:
     1. Try FreqBlog API first (fast, ~100ms, no audio download)
-    2. Fall back to local audio analysis if not in FreqBlog catalog
-    3. Cache results by track_id to avoid re-fetching
+    2. Fall back to local audio analysis on the provided ``audio_path`` (when
+       called from the streaming pipeline) or on a freshly downloaded file
+       (when called from the legacy combined preview endpoint).
+    3. Cache results by track_id to avoid re-fetching.
     """
     import tempfile
     import os as _os
@@ -417,17 +445,24 @@ async def _detect_preview_key(stream_url: str, track_id: int, track=None) -> dic
             freqblog_stats["misses"] += 1
             logger.info(f"[FreqBlog MISS] Track {track_id}: Not in catalog, falling back to local analysis")
 
-    # Step 2: Fallback to local audio analysis (slower, requires download)
+    # Step 2: Fallback to local audio analysis.
+    # Use the provided audio_path (from the streaming pipeline) or download.
     tmp_path = None
     try:
-        import httpx
-        async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
-            # Download the full preview stream (not just a chunk)
-            async with client.stream("GET", stream_url) as resp:
-                with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
-                    tmp_path = f.name
-                    async for chunk in resp.aiter_bytes(chunk_size=65536):
-                        f.write(chunk)
+        if audio_path and _os.path.exists(audio_path):
+            # Use the temp WAV already produced by analyze_stream — no download.
+            logger.info(f"Using pre-downloaded audio at {audio_path}")
+            tmp_path = audio_path
+        else:
+            import httpx
+            async with httpx.AsyncClient(timeout=60.0, follow_redirects=True) as client:
+                # Download the full preview stream
+                async with client.stream("GET", stream_url) as resp:
+                    with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as f:
+                        tmp_path = f.name
+                        async for chunk in resp.aiter_bytes(chunk_size=65536):
+                            f.write(chunk)
+            logger.info(f"Downloaded audio to {tmp_path}")
 
         result = await asyncio.to_thread(_dk, tmp_path)
         await db.set_key_cache(
@@ -445,7 +480,9 @@ async def _detect_preview_key(stream_url: str, track_id: int, track=None) -> dic
         logger.warning(f"Preview key detection failed for track {track_id}: {e}")
         return {"key": None, "camelot": None}
     finally:
-        if tmp_path and _os.path.exists(tmp_path):
+        # Only clean up if we downloaded ourselves — the streaming pipeline owns
+        # its own temp WAV deletion.
+        if tmp_path and audio_path is None and _os.path.exists(tmp_path):
             _os.unlink(tmp_path)
 
 

@@ -103,3 +103,115 @@ def test_metadata_route_returns_processing_snapshot(stub_auth):
     assert payload["track_id"] == TEST_TRACK_ID
     assert payload["status"] in {"queued", "processing", "complete"}
     assert set(payload) == {"track_id", "status", "revision", "waveform", "key", "camelot", "bpm", "error"}
+
+
+# ---------------------------------------------------------------------------
+# Integration tests for the streaming pipeline (Stage 2, Task 3)
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_preview_analyzer_calls_analyze_stream(monkeypatch):
+    """_preview_analyzer delegates waveform analysis to analyze_stream and
+    includes the streamed bands in the return dict alongside key data."""
+    calls: list[str] = []
+
+    async def _fake_analyze_stream(
+        stream_url, duration=None, width=600, on_snapshot=None,
+    ):
+        calls.append(stream_url)
+        assert width == 600
+        return {
+            "bands": {"low": [0.1, 0.2], "mid": [0.3, 0.4], "high": [0.5, 0.6]},
+            "duration": 240.0,
+            "temp_wav_path": None,
+        }
+
+    monkeypatch.setattr(main, "analyze_stream", _fake_analyze_stream)
+
+    # Direct attribute assignment instead of monkeypatch.setattr for the analyzer
+    # to avoid any module-namespace resolution issues.
+    original_detect = main._detect_preview_key
+
+    async def _fake_detect_key(*_a, **_kw):
+        return {"key": "C", "camelot": "8B", "bpm": 128.0}
+
+    main._detect_preview_key = _fake_detect_key
+    # Stub the session so auth_manager.session.track() returns a dummy track.
+    orig_session = main.auth_manager.session
+    main.auth_manager.session = type("_", (), {"track": lambda _self, _tid: type("_", (), {"title": "Test", "artist": type("_", (), {"name": "Test Artist"})()})()})()
+
+    try:
+        result = await main._preview_analyzer(
+            TEST_STREAM_URL, TEST_DURATION, TEST_TRACK_ID, on_snapshot=None,
+        )
+    finally:
+        main._detect_preview_key = original_detect
+        main.auth_manager.session = orig_session
+
+    assert calls == [TEST_STREAM_URL]
+    assert result["waveform"] == {"low": [0.1, 0.2], "mid": [0.3, 0.4], "high": [0.5, 0.6]}
+    assert result["key"] == "C"
+    assert result["camelot"] == "8B"
+    assert result["bpm"] == 128.0
+
+
+@pytest.mark.asyncio
+async def test_preview_analyzer_reuses_temp_wav_for_key_detection(monkeypatch):
+    """When analyze_stream returns a temp_wav_path, _detect_preview_key receives
+    it as audio_path, avoiding a second full-track network request."""
+    async def _fake_analyze_stream(*_a, **_kw):
+        return {
+            "bands": {"low": [], "mid": [], "high": []},
+            "duration": 10.0,
+            "temp_wav_path": "/tmp/test_preview_track.wav",
+        }
+
+    monkeypatch.setattr(main, "analyze_stream", _fake_analyze_stream)
+
+    received_audio_path: str | None = None
+
+    async def _fake_detect_key(*_a, audio_path=None, **_kw):
+        nonlocal received_audio_path
+        received_audio_path = audio_path
+        return {"key": None, "camelot": None, "bpm": None}
+
+    monkeypatch.setattr(main, "_detect_preview_key", _fake_detect_key)
+    monkeypatch.setattr("os.path.exists", lambda p: True)
+    orig_session = main.auth_manager.session
+    main.auth_manager.session = type("_", (), {"track": lambda _self, _tid: type("_", (), {"title": "Test", "artist": type("_", (), {"name": "Test Artist"})()})()})()
+
+    await main._preview_analyzer(
+        TEST_STREAM_URL, TEST_DURATION, TEST_TRACK_ID, on_snapshot=None,
+    )
+
+    assert received_audio_path == "/tmp/test_preview_track.wav"
+
+    main.auth_manager.session = orig_session
+
+
+@pytest.mark.asyncio
+async def test_preview_analyzer_cleans_up_temp_wav(monkeypatch, tmp_path):
+    """The temp WAV left by analyze_stream is deleted by _preview_analyzer in its
+    finally block after key detection completes."""
+    wav = tmp_path / "preview.wav"
+    wav.write_bytes(b"RIFF....WAVE....")
+
+    async def _fake_analyze_stream(*_a, **_kw):
+        return {
+            "bands": {"low": [], "mid": [], "high": []},
+            "duration": 10.0,
+            "temp_wav_path": str(wav),
+        }
+
+    monkeypatch.setattr(main, "analyze_stream", _fake_analyze_stream)
+    monkeypatch.setattr(main, "_detect_preview_key",
+                        lambda *a, **kw: asyncio.sleep(0) or {"key": None, "camelot": None})
+    monkeypatch.setattr(main.auth_manager, "session",
+                        type("_", (), {"track": lambda _tid: type("_", (), {})()})())
+
+    await main._preview_analyzer(
+        TEST_STREAM_URL, TEST_DURATION, TEST_TRACK_ID, on_snapshot=None,
+    )
+
+    assert not wav.exists(), "temp WAV should be cleaned up after key detection"
