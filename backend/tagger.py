@@ -52,6 +52,40 @@ def tag_key(file_path: str, key: str, camelot: str):
         logger.warning(f"Failed to write key tags to {file_path}: {e}")
 
 
+def tag_dj_metadata(file_path: str, camelot: Optional[str], bpm: Optional[float] = None):
+    """Write DJ-standard Key (Camelot notation) and BPM tags for Rekordbox/Serato/VirtualDJ."""
+    ext = Path(file_path).suffix.lower()
+    bpm_int = round(bpm) if bpm else None
+    try:
+        if ext == ".flac":
+            f = FLAC(file_path)
+            if camelot:
+                f["initialkey"] = [camelot]
+            if bpm_int:
+                f["bpm"] = [str(bpm_int)]
+            f.save()
+        elif ext == ".mp3":
+            f = MP3(file_path)
+            if f.tags is None:
+                f.add_tags()
+            if camelot:
+                f.tags["TKEY"] = TKEY(encoding=3, text=camelot)
+            if bpm_int:
+                f.tags["TBPM"] = TBPM(encoding=3, text=str(bpm_int))
+            f.save()
+        elif ext == ".m4a":
+            f = MP4(file_path)
+            if f.tags is None:
+                f.add_tags()
+            if camelot:
+                f.tags["----:com.apple.iTunes:initialkey"] = [camelot.encode("utf-8")]
+            if bpm_int:
+                f.tags["tmpo"] = [bpm_int]
+            f.save()
+    except Exception as e:
+        logger.warning(f"Failed to write DJ metadata tags to {file_path}: {e}")
+
+
 def _get_cover_bytes(metadata: dict, cover_art_url: Optional[str] = None) -> Optional[bytes]:
     local_path = metadata.get("cover_art_path")
     if local_path and Path(local_path).exists():
