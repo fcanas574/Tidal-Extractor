@@ -286,6 +286,7 @@ async def _preview_analyzer(
         on_snapshot=on_snapshot,
     )
     bands = result["bands"]
+    stream_duration = result["duration"]
     temp_wav_path = result["temp_wav_path"]
 
     try:
@@ -305,7 +306,8 @@ async def _preview_analyzer(
                 logger.debug("could not remove temp wav %s", temp_wav_path, exc_info=True)
 
     return {
-        "waveform": bands,
+        # Match the frontend WaveformData contract: { bands: {low,mid,high}, duration }.
+        "waveform": {"bands": bands, "duration": stream_duration},
         "key": key_data.get("key"),
         "camelot": key_data.get("camelot"),
         "bpm": key_data.get("bpm"),

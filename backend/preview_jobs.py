@@ -118,7 +118,11 @@ class PreviewJobManager:
             with self._lock:
                 current_job = self._jobs.get(track_id)
                 if current_job is not None:
-                    waveform = snapshot.get("bands")
+                    bands = snapshot.get("bands")
+                    duration = snapshot.get("duration")
+                    # Wrap bands in the frontend WaveformData contract:
+                    # { bands: {low,mid,high}, duration }.
+                    waveform = {"bands": bands, "duration": duration} if bands is not None else None
                     # Push "complete" on the terminal snapshot so the frontend
                     # sees the final waveform; keep "processing" for intermediate
                     # snapshots.

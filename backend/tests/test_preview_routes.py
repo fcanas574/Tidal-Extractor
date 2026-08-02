@@ -150,7 +150,8 @@ async def test_preview_analyzer_calls_analyze_stream(monkeypatch):
         main.auth_manager.session = orig_session
 
     assert calls == [TEST_STREAM_URL]
-    assert result["waveform"] == {"low": [0.1, 0.2], "mid": [0.3, 0.4], "high": [0.5, 0.6]}
+    assert result["waveform"]["bands"] == {"low": [0.1, 0.2], "mid": [0.3, 0.4], "high": [0.5, 0.6]}
+    assert result["waveform"]["duration"] == 240.0
     assert result["key"] == "C"
     assert result["camelot"] == "8B"
     assert result["bpm"] == 128.0
