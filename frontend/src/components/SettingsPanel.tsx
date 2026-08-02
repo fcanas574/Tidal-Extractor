@@ -3,6 +3,7 @@ import { settings, quality, auth } from '../api';
 import { useApp } from '../context/AppContext';
 
 const QUALITY_OPTIONS = [
+  { value: 'auto_max', label: 'Auto (max quality per track)', badge: 'AUTO' },
   { value: 'hi_res_lossless', label: 'HiRes Lossless (24-bit, up to 192kHz)', badge: 'HI-RES' },
   { value: 'high_lossless', label: 'Lossless (16-bit FLAC, 44.1kHz)', badge: 'LOSSLESS' },
   { value: 'low_320k', label: 'High (320kbps AAC)', badge: '320K' },

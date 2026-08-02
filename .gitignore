@@ -1,11 +1,21 @@
+# Python
 __pycache__/
 *.pyc
+
+# Environment & secrets
 .env
 tidal-session.json
-*.tmp
+
+# Database (auto-generated at startup)
+*.db
+*.db-shm
+*.db-wal
+
+# Frontend build
 node_modules/
 dist/
+
+# Temp & misc
+*.tmp
 .superpowers/
 backend/tests/test_files/
-.superpowers/
-.env

@@ -32,6 +32,18 @@ FORMAT_EXT_MAP = {
     "M4A": ".m4a",
 }
 
+AUTO_QUALITY = "auto_max"
+
+
+def _resolve_auto_quality(track) -> str:
+    """Pick the highest quality preset actually available for this track,
+    per Tidal's own mediaMetadata tags (no network probing needed)."""
+    if getattr(track, "is_hi_res_lossless", False):
+        return "hi_res_lossless"
+    if getattr(track, "is_lossless", False):
+        return "high_lossless"
+    return "low_320k"
+
 # Track metadata extraction function
 def extract_track_metadata(track) -> dict:
     """Extract extended metadata from a tidalapi Track object."""
@@ -147,6 +159,9 @@ class DownloadOrchestrator:
         track = self.session.track(int(tidal_id))
         metadata = extract_track_metadata(track)
 
+        if quality_preset == AUTO_QUALITY:
+            quality_preset = _resolve_auto_quality(track)
+
         quality_enum = QUALITY_ENUM_MAP.get(quality_preset, Quality.high_lossless)
         self.session.audio_quality = quality_enum
         stream = track.get_stream()
@@ -195,6 +210,8 @@ class DownloadOrchestrator:
             final_path = await asyncio.to_thread(
                 convert_format, tmp_path, final_path, target_format.lower()
             )
+            if final_path != tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
         else:
             shutil.move(tmp_path, final_path)
 
