@@ -209,6 +209,28 @@ export interface WaveformData {
   duration: number;
 }
 
+export interface PreviewStream {
+  track_id: number;
+  stream_url: string;
+  duration: number | null;
+}
+
+export type PreviewMetadataStatus = 'queued' | 'processing' | 'complete' | 'failed';
+
+export interface PreviewMetadataSnapshot {
+  track_id: number;
+  status: PreviewMetadataStatus;
+  revision: number;
+  waveform: WaveformData | null;
+  key: string | null;
+  camelot: string | null;
+  bpm: number | null;
+  error: string | null;
+}
+
 export const preview = {
+  // Legacy combined endpoint kept as a fallback.
   getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null; key: string | null; camelot: string | null; bpm: number | null }>(`/preview/${trackId}`),
+  getStream: (trackId: number) => request<PreviewStream>(`/preview/${trackId}/stream`),
+  getMetadata: (trackId: number) => request<PreviewMetadataSnapshot>(`/preview/${trackId}/metadata`),
 };
