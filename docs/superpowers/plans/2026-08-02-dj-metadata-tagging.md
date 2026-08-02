@@ -107,9 +107,9 @@ def test_tag_dj_metadata_skips_none_values(test_flac):
 Run: `pytest backend/tests/test_tagger.py -v`
 Expected: FAIL with `ImportError: cannot import name 'tag_dj_metadata'`
 
-- [ ] **Step 4: Replace `tag_key` with `tag_dj_metadata` in `backend/tagger.py`**
+- [ ] **Step 4: Add `tag_dj_metadata` to `backend/tagger.py`**
 
-Replace the entire existing `tag_key` function (currently `backend/tagger.py:27-52`, including its local `from mutagen.id3 import TKEY, TXXX` import — `TKEY` and `TBPM` are already imported at module level on line 7, so no import is needed inside the new function) with:
+Add this as a **new** function — do not modify or remove the existing `tag_key` function (`backend/tagger.py:27-52`). `downloader.py` still calls `tag_key` until Task 2 rewires it; removing `tag_key` now would break that import and fail the full suite before Task 2 lands. Task 2 deletes `tag_key` once nothing calls it. Insert `tag_dj_metadata` directly after `tag_key` (`TKEY` and `TBPM` are already imported at module level on line 7, so no new import is needed):
 
 ```python
 def tag_dj_metadata(file_path: str, camelot: Optional[str], bpm: Optional[float] = None):
@@ -308,7 +308,9 @@ with:
 
 - [ ] **Step 8: Delete the now-unused `tag_key` from `backend/tagger.py`**
 
-`tag_key` (originally `backend/tagger.py:27-52`, already replaced in content by `tag_dj_metadata` from Task 1 — check whether it's still present under its old name anywhere else). Confirm no remaining references:
+Step 6 removed `download_track`'s only caller of `tag_key`, so the function (`backend/tagger.py:27-52`, left in place by Task 1) is now dead code — delete the whole function body. `tag_dj_metadata`, which Task 1 added right after it, stays.
+
+Confirm no remaining references:
 
 Run: `grep -rn "tag_key" backend/ --include=*.py`
 Expected: no output (Task 1 already replaced the function body; this step just confirms no stale caller survived).
