@@ -1,8 +1,8 @@
 import os
 import subprocess
 import pytest
-from unittest.mock import MagicMock, patch
-from backend.downloader import DownloadOrchestrator, extract_track_metadata, _resolve_auto_quality
+from unittest.mock import MagicMock, patch, AsyncMock
+from backend.downloader import DownloadOrchestrator, extract_track_metadata, _resolve_auto_quality, _resolve_dj_metadata
 from backend.models import Database
 from backend.config import AppConfig
 
@@ -88,6 +88,27 @@ def test_resolve_auto_quality_lossy_only():
 
 
 @pytest.mark.asyncio
+async def test_resolve_dj_metadata_prefers_freqblog():
+    with patch("backend.downloader.lookup_track_metadata", new=AsyncMock(return_value={
+        "key": "Am", "camelot": "8A", "bpm": 128.0, "key_confidence": 0.9,
+    })), patch("backend.downloader._detect_key") as mock_local:
+        result = await _resolve_dj_metadata("fake.flac", "Title", "Artist")
+
+    assert result == {"key": "Am", "camelot": "8A", "bpm": 128.0, "confidence": 0.9, "source": "freqblog"}
+    mock_local.assert_not_called()
+
+
+@pytest.mark.asyncio
+async def test_resolve_dj_metadata_falls_back_to_local():
+    with patch("backend.downloader.lookup_track_metadata", new=AsyncMock(return_value=None)), \
+         patch("backend.downloader._detect_key",
+               return_value={"key": "C", "camelot": "8B", "confidence": 1.0, "bpm": 120.0}):
+        result = await _resolve_dj_metadata("fake.flac", "Title", "Artist")
+
+    assert result == {"key": "C", "camelot": "8B", "bpm": 120.0, "confidence": 1.0, "source": "local"}
+
+
+@pytest.mark.asyncio
 @pytest.mark.skipif(
     subprocess.run(["ffmpeg", "-version"], capture_output=True).returncode != 0,
     reason="ffmpeg not installed"
@@ -169,9 +190,10 @@ async def test_download_track_removes_tmp_file_after_conversion(tmp_path):
 
     with patch("httpx.AsyncClient", return_value=FakeClient()), \
          patch("backend.downloader.tag_file"), \
-         patch("backend.downloader.tag_key"), \
+         patch("backend.downloader.tag_dj_metadata"), \
+         patch("backend.downloader.lookup_track_metadata", new=AsyncMock(return_value=None)), \
          patch("backend.downloader._detect_key",
-               return_value={"key": "C", "camelot": "8B", "confidence": 1.0}), \
+               return_value={"key": "C", "camelot": "8B", "confidence": 1.0, "bpm": 120.0}), \
          patch("backend.downloader.file_hash", return_value="hash"):
         final_path = await orchestrator.download_track(queue_item)
 

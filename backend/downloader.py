@@ -13,7 +13,8 @@ from backend.config import AppConfig
 from backend.models import Database
 from backend.quality import get_bitrate, bitrate_meets_threshold, QUALITY_PRESETS, QUALITY_PRESETS_ORDER
 from backend.converter import convert_format
-from backend.tagger import tag_file, tag_key
+from backend.tagger import tag_file, tag_dj_metadata
+from backend.freqblog import lookup_track_metadata
 from backend.search import get_album_tracks, get_playlist_tracks
 from backend.key_detection import detect_key as _detect_key, file_hash
 
@@ -43,6 +44,27 @@ def _resolve_auto_quality(track) -> str:
     if getattr(track, "is_lossless", False):
         return "high_lossless"
     return "low_320k"
+
+
+async def _resolve_dj_metadata(final_path: str, title: str, artist: str) -> dict:
+    """Resolve BPM + Camelot key for a downloaded track: FreqBlog first, local audio analysis as fallback."""
+    freq_result = await lookup_track_metadata(title, artist)
+    if freq_result and freq_result.get("bpm") and freq_result.get("camelot"):
+        return {
+            "key": freq_result["key"],
+            "camelot": freq_result["camelot"],
+            "bpm": freq_result["bpm"],
+            "confidence": freq_result.get("key_confidence") or 1.0,
+            "source": "freqblog",
+        }
+    local_result = await asyncio.to_thread(_detect_key, final_path)
+    return {
+        "key": local_result["key"],
+        "camelot": local_result["camelot"],
+        "bpm": local_result["bpm"],
+        "confidence": local_result["confidence"],
+        "source": "local",
+    }
 
 # Track metadata extraction function
 def extract_track_metadata(track) -> dict:
@@ -231,12 +253,13 @@ class DownloadOrchestrator:
 
         if ext in (".flac", ".mp3", ".m4a"):
             try:
-                key_result = await asyncio.to_thread(_detect_key, final_path)
+                dj = await _resolve_dj_metadata(final_path, metadata["title"], metadata["artist"])
                 h = file_hash(final_path)
-                await self.db.set_key_cache(h, key_result["key"], key_result["camelot"], key_result["confidence"])
-                await asyncio.to_thread(tag_key, final_path, key_result["key"], key_result["camelot"])
+                await self.db.set_key_cache(h, dj["key"], dj["camelot"], dj["confidence"], bpm=dj["bpm"])
+                await asyncio.to_thread(tag_dj_metadata, final_path, dj["camelot"], dj["bpm"])
+                logger.info(f"DJ metadata ({dj['source']}): {final_path} — BPM={dj['bpm']}, Key={dj['camelot']}")
             except Exception as e:
-                logger.warning(f"Key detection failed for {final_path}: {e}")
+                logger.warning(f"DJ metadata tagging failed for {final_path}: {e}")
         await self.db.add_to_history(
             tidal_id=tidal_id, item_type=item_type, title=metadata["title"],
             artist=metadata["artist"], album=metadata["album"],
