@@ -89,10 +89,11 @@ def test_resolve_auto_quality_lossy_only():
 
 @pytest.mark.asyncio
 async def test_resolve_dj_metadata_prefers_freqblog():
+    """FreqBlog wins over both Tidal's own BPM and local analysis when it has a full result."""
     with patch("backend.downloader.lookup_track_metadata", new=AsyncMock(return_value={
         "key": "Am", "camelot": "8A", "bpm": 128.0, "key_confidence": 0.9,
     })), patch("backend.downloader._detect_key") as mock_local:
-        result = await _resolve_dj_metadata("fake.flac", "Title", "Artist")
+        result = await _resolve_dj_metadata("fake.flac", "Title", "Artist", tidal_bpm=140.0)
 
     assert result == {"key": "Am", "camelot": "8A", "bpm": 128.0, "confidence": 0.9, "source": "freqblog"}
     mock_local.assert_not_called()
@@ -105,6 +106,32 @@ async def test_resolve_dj_metadata_falls_back_to_local():
                return_value={"key": "C", "camelot": "8B", "confidence": 1.0, "bpm": 120.0}):
         result = await _resolve_dj_metadata("fake.flac", "Title", "Artist")
 
+    assert result == {"key": "C", "camelot": "8B", "bpm": 120.0, "confidence": 1.0, "source": "local"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_dj_metadata_local_prefers_tidal_bpm():
+    """When local analysis runs but Tidal supplied its own BPM, the Tidal BPM wins over
+    librosa's guess (Tidal catalog data is higher-confidence than a local tempo estimate)."""
+    with patch("backend.downloader.lookup_track_metadata", new=AsyncMock(return_value=None)), \
+         patch("backend.downloader._detect_key",
+               return_value={"key": "C", "camelot": "8B", "confidence": 1.0, "bpm": 120.0}):
+        result = await _resolve_dj_metadata("fake.flac", "Title", "Artist", tidal_bpm=128.0)
+
+    assert result == {"key": "C", "camelot": "8B", "bpm": 128.0, "confidence": 1.0, "source": "local"}
+
+
+@pytest.mark.asyncio
+async def test_resolve_dj_metadata_falls_back_to_local_on_partial_freqblog_result():
+    """A FreqBlog hit with bpm but no camelot (a real API response shape when the key
+    hasn't been analyzed yet) isn't usable and must fall through to local analysis."""
+    with patch("backend.downloader.lookup_track_metadata", new=AsyncMock(return_value={
+        "key": None, "camelot": None, "bpm": 128.0, "key_confidence": None,
+    })), patch("backend.downloader._detect_key",
+               return_value={"key": "C", "camelot": "8B", "confidence": 1.0, "bpm": 120.0}):
+        result = await _resolve_dj_metadata("fake.flac", "Title", "Artist")
+
+    assert result["source"] == "local"
     assert result == {"key": "C", "camelot": "8B", "bpm": 120.0, "confidence": 1.0, "source": "local"}
 
 
@@ -190,7 +217,7 @@ async def test_download_track_removes_tmp_file_after_conversion(tmp_path):
 
     with patch("httpx.AsyncClient", return_value=FakeClient()), \
          patch("backend.downloader.tag_file"), \
-         patch("backend.downloader.tag_dj_metadata"), \
+         patch("backend.downloader.tag_dj_metadata") as mock_tag_dj, \
          patch("backend.downloader.lookup_track_metadata", new=AsyncMock(return_value=None)), \
          patch("backend.downloader._detect_key",
                return_value={"key": "C", "camelot": "8B", "confidence": 1.0, "bpm": 120.0}), \
@@ -200,3 +227,8 @@ async def test_download_track_removes_tmp_file_after_conversion(tmp_path):
     assert os.path.exists(final_path)
     leftover_tmp = final_path + ".tmp"
     assert not os.path.exists(leftover_tmp), f"orphaned tmp file left behind: {leftover_tmp}"
+
+    # track.bpm is None above, so Tidal supplied no BPM (extract_track_metadata turns that
+    # into 0, which _resolve_dj_metadata treats as "no Tidal BPM") -- the local analysis's
+    # own BPM (120.0) should reach tag_dj_metadata unchanged, alongside the Camelot key.
+    mock_tag_dj.assert_called_once_with(final_path, "8B", 120.0)

@@ -46,8 +46,9 @@ def _resolve_auto_quality(track) -> str:
     return "low_320k"
 
 
-async def _resolve_dj_metadata(final_path: str, title: str, artist: str) -> dict:
-    """Resolve BPM + Camelot key for a downloaded track: FreqBlog first, local audio analysis as fallback."""
+async def _resolve_dj_metadata(final_path: str, title: str, artist: str, tidal_bpm: float | None = None) -> dict:
+    """Resolve BPM + Camelot key for a downloaded track: FreqBlog first, then Tidal's own
+    BPM (if present) combined with local key analysis, then fully-local analysis as last resort."""
     freq_result = await lookup_track_metadata(title, artist)
     if freq_result and freq_result.get("bpm") and freq_result.get("camelot"):
         return {
@@ -61,7 +62,7 @@ async def _resolve_dj_metadata(final_path: str, title: str, artist: str) -> dict
     return {
         "key": local_result["key"],
         "camelot": local_result["camelot"],
-        "bpm": local_result["bpm"],
+        "bpm": tidal_bpm if tidal_bpm else local_result["bpm"],
         "confidence": local_result["confidence"],
         "source": "local",
     }
@@ -253,7 +254,8 @@ class DownloadOrchestrator:
 
         if ext in (".flac", ".mp3", ".m4a"):
             try:
-                dj = await _resolve_dj_metadata(final_path, metadata["title"], metadata["artist"])
+                tidal_bpm = metadata.get("bpm") if metadata.get("bpm") else None
+                dj = await _resolve_dj_metadata(final_path, metadata["title"], metadata["artist"], tidal_bpm)
                 h = file_hash(final_path)
                 await self.db.set_key_cache(h, dj["key"], dj["camelot"], dj["confidence"], bpm=dj["bpm"])
                 await asyncio.to_thread(tag_dj_metadata, final_path, dj["camelot"], dj["bpm"])
