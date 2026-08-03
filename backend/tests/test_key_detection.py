@@ -19,7 +19,8 @@ def test_detect_key_mocked():
         mock_librosa.load.return_value = (mock_y, sr)
         mock_chroma = np.zeros((12, 100))
         mock_chroma[0, :] = 1.0
-        mock_librosa.feature.chroma_stft.return_value = mock_chroma
+        mock_librosa.feature.chroma_cqt.return_value = mock_chroma
+        mock_librosa.beat.beat_track.return_value = (120.0, None)
 
         result = detect_key("/fake/path.flac")
 
