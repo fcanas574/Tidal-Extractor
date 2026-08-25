@@ -57,4 +57,21 @@ describe('AudioPlayerFooter fast lifecycle', () => {
     await new Promise((r) => setTimeout(r, 900));
     expect(container.querySelector('canvas')).toBeNull(); // shimmer placeholder still shown
   });
+
+  it('retries polling after a transient metadata error and applies the later snapshot', async () => {
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 240 });
+    (api.preview.getMetadata as any)
+      .mockRejectedValueOnce(new Error('transient network blip'))
+      .mockResolvedValueOnce({
+        track_id: 7, status: 'complete', revision: 1,
+        waveform: { bands: { low: [0.5], mid: [0.5], high: [0.5] }, colors: {}, duration: 240 },
+        key: null, camelot: '8A', bpm: 128, error: null,
+      });
+    const { container } = render(<AudioPlayerFooter />);
+    // First tick fails; the next tick retries and the resolved waveform renders (canvas replaces shimmer)
+    await waitFor(() => expect(container.querySelector('canvas')).toBeTruthy(), { timeout: 4000 });
+    expect(api.preview.getMetadata).toHaveBeenCalledTimes(2);
+    expect(play).toHaveBeenCalled();
+  });
 });

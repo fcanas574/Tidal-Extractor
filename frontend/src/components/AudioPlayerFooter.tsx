@@ -246,14 +246,13 @@ export default function AudioPlayerFooter() {
         try {
           const meta = await preview.getMetadata(trackId);
           if (!active()) return;
-          if (meta.track_id === trackId) {
-            if (meta.waveform?.bands) setWaveform(meta.waveform);
-            if (meta.camelot) setKeyCamelot(meta.camelot);
-            if (meta.bpm) setBpm(meta.bpm);
-            if (meta.status === 'complete' || meta.status === 'failed') return; // terminal: stop polling
-          }
+          if (meta.track_id !== trackId) return; // stale/mismatched snapshot: stop polling
+          if (meta.waveform?.bands) setWaveform(meta.waveform);
+          if (meta.camelot) setKeyCamelot(meta.camelot);
+          if (meta.bpm) setBpm(meta.bpm);
+          if (meta.status === 'complete' || meta.status === 'failed') return; // terminal: stop polling
           poll();
-        } catch { /* non-blocking: keep placeholder */ }
+        } catch { /* transient error: retry next tick, keep placeholder */ poll(); }
       }, 750);
     };
 
