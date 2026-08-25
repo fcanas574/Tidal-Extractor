@@ -209,6 +209,17 @@ export interface WaveformData {
   duration: number;
 }
 
+export interface PreviewStream { track_id: number; stream_url: string; duration: number | null; }
+export interface PreviewMetadata {
+  track_id: number;
+  status: 'queued' | 'processing' | 'complete' | 'failed';
+  revision: number;
+  waveform: WaveformData | null;
+  key: string | null; camelot: string | null; bpm: number | null; error: string | null;
+}
+
 export const preview = {
   getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null; key: string | null; camelot: string | null; bpm: number | null }>(`/preview/${trackId}`),
+  getStream: (trackId: number) => request<PreviewStream>(`/preview/${trackId}/stream`),
+  getMetadata: (trackId: number) => request<PreviewMetadata>(`/preview/${trackId}/metadata`),
 };

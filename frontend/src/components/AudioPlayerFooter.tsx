@@ -220,6 +220,7 @@ export default function AudioPlayerFooter() {
   const { state, dispatch } = useApp();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const previewTokenRef = useRef(0);
   const { previewTrack, previewPlaying } = state;
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -230,18 +231,34 @@ export default function AudioPlayerFooter() {
 
   useEffect(() => {
     if (!previewTrack) return;
+    const trackId = previewTrack.id;
+    const token = ++previewTokenRef.current;
     let cancelled = false;
-    setCurrentTime(0);
-    setDuration(0);
-    setWaveform(null);
-    setKeyCamelot(null);
-    setBpm(null);
+    let pollTimer: ReturnType<typeof setTimeout> | undefined;
+    setCurrentTime(0); setDuration(0); setWaveform(null);
+    setKeyCamelot(null); setBpm(null);
 
-    preview.getUrl(previewTrack.id).then((r) => {
-      if (cancelled) return;
-      if (r.waveform?.bands) setWaveform(r.waveform);
-      if (r.camelot) setKeyCamelot(r.camelot);
-      if (r.bpm) setBpm(r.bpm);
+    const active = () => !cancelled && token === previewTokenRef.current;
+
+    const poll = () => {
+      pollTimer = setTimeout(async () => {
+        if (!active()) return;
+        try {
+          const meta = await preview.getMetadata(trackId);
+          if (!active()) return;
+          if (meta.track_id === trackId) {
+            if (meta.waveform?.bands) setWaveform(meta.waveform);
+            if (meta.camelot) setKeyCamelot(meta.camelot);
+            if (meta.bpm) setBpm(meta.bpm);
+            if (meta.status === 'complete' || meta.status === 'failed') return; // terminal: stop polling
+          }
+          poll();
+        } catch { /* non-blocking: keep placeholder */ }
+      }, 750);
+    };
+
+    preview.getStream(trackId).then((r) => {
+      if (!active()) return;
       const audio = new Audio(r.stream_url);
       audioRef.current = audio;
       audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
@@ -249,10 +266,12 @@ export default function AudioPlayerFooter() {
       audio.addEventListener('ended', () => dispatch({ type: 'CLEAR_PREVIEW' }));
       audio.addEventListener('error', () => dispatch({ type: 'CLEAR_PREVIEW' }));
       audio.play().catch(() => dispatch({ type: 'CLEAR_PREVIEW' }));
-    });
+      poll();
+    }).catch(() => dispatch({ type: 'CLEAR_PREVIEW' }));
 
     return () => {
       cancelled = true;
+      if (pollTimer) clearTimeout(pollTimer);
       audioRef.current?.pause();
       audioRef.current = null;
     };
@@ -324,19 +343,24 @@ export default function AudioPlayerFooter() {
         backdropFilter: 'blur(16px)',
       }}
     >
-      <canvas
-        ref={canvasRef}
-        onClick={seek}
-        onMouseMove={(e) => {
-          const c = canvasRef.current;
-          if (!c) return;
-          const r = c.getBoundingClientRect();
-          setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
-        }}
-        onMouseLeave={() => setHoverFraction(null)}
-        className="w-full mb-2 cursor-pointer"
-        style={{ display: 'block', height: '56px' }}
-      />
+      {waveform ? (
+        <canvas
+          ref={canvasRef}
+          onClick={seek}
+          onMouseMove={(e) => {
+            const c = canvasRef.current;
+            if (!c) return;
+            const r = c.getBoundingClientRect();
+            setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
+          }}
+          onMouseLeave={() => setHoverFraction(null)}
+          className="w-full mb-2 cursor-pointer"
+          style={{ display: 'block', height: '56px' }}
+        />
+      ) : (
+        <div className="w-full mb-2 rounded animate-pulse"
+             style={{ height: '56px', background: 'var(--bg-surface)', opacity: 0.4 }} />
+      )}
 
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3 flex-1 min-w-0">
