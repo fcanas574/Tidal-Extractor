@@ -53,7 +53,7 @@ Pure-Python stateful class, no I/O:
 
 ### analyze_stream(stream_url, duration, width=600, on_snapshot=None)
 
-Owns the ffmpeg subprocess (`-ac 1 -ar 44100 -f s16le pipe:1`), reads byte blocks aligned to 2-byte samples, feeds the generator, writes every block to one temp WAV via `wave.Wave_write`, emits snapshots every N points. Returns `{bands, duration, temp_wav_path}`; callers own temp-file deletion after key analysis. 60-second subprocess timeout; terminate and clean up on cancellation.
+Owns the ffmpeg subprocess (`-ac 1 -ar 44100 -f s16le pipe:1`), reads byte blocks aligned to 2-byte samples, feeds the generator, writes every block to one temp WAV via `wave.Wave_write`, emits provisional snapshots at most once per second of audio (every `sample_rate` samples fed), coalesced so slow consumers never queue multiple pending snapshots. Returns `{bands, duration, temp_wav_path}`; callers own temp-file deletion after key analysis. 60-second subprocess timeout; terminate and clean up on cancellation.
 
 ### Analyzer integration
 
