@@ -1,4 +1,5 @@
 import aiosqlite
+import json
 from typing import Optional
 
 
@@ -59,6 +60,12 @@ class Database:
                 confidence REAL,
                 bpm REAL,
                 detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS waveform_cache (
+                tidal_id TEXT PRIMARY KEY,
+                bands_json TEXT NOT NULL,
+                duration REAL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
         """)
         await self._conn.commit()
@@ -203,5 +210,24 @@ class Database:
                    bpm = excluded.bpm,
                    detected_at = CURRENT_TIMESTAMP""",
             (file_hash, key, camelot, confidence, bpm),
+        )
+        await self._conn.commit()
+
+    async def get_waveform_cache(self, tidal_id: str):
+        rows = await self._conn.execute_fetchall(
+            "SELECT bands_json, duration FROM waveform_cache WHERE tidal_id = ?", (tidal_id,))
+        if not rows:
+            return None
+        return {"bands": json.loads(rows[0]["bands_json"]), "duration": rows[0]["duration"]}
+
+    async def set_waveform_cache(self, tidal_id: str, bands: dict, duration: float):
+        await self._conn.execute(
+            """INSERT INTO waveform_cache (tidal_id, bands_json, duration)
+               VALUES (?, ?, ?)
+               ON CONFLICT(tidal_id) DO UPDATE SET
+                   bands_json = excluded.bands_json,
+                   duration = excluded.duration,
+                   created_at = CURRENT_TIMESTAMP""",
+            (tidal_id, json.dumps(bands), duration),
         )
         await self._conn.commit()
