@@ -124,3 +124,14 @@ async def test_analyze_stream_cleans_up_on_decoder_error(tmp_path, monkeypatch):
     with pytest.raises(RuntimeError):
         await waveform_stream.analyze_stream("u", 2.0, temp_dir=str(tmp_path))
     assert not list(tmp_path.glob("*.wav"))  # temp WAV removed on failure
+
+
+@pytest.mark.asyncio
+async def test_analyze_stream_cleans_up_when_spawn_fails(tmp_path, monkeypatch):
+    async def failing_start(url):
+        raise RuntimeError("ffmpeg binary missing")
+
+    monkeypatch.setattr(waveform_stream, "start_pcm_decoder", failing_start)
+    with pytest.raises(RuntimeError):
+        await waveform_stream.analyze_stream("u", 2.0, temp_dir=str(tmp_path))
+    assert not list(tmp_path.glob("*.wav"))  # no orphaned wav on spawn failure

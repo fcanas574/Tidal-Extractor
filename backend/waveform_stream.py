@@ -128,7 +128,12 @@ async def analyze_stream(stream_url, duration, width=600, on_snapshot=None,
                          temp_dir=None, sample_rate=44100):
     fd, wav_path = tempfile.mkstemp(suffix=".wav", dir=temp_dir)
     os.close(fd)
-    proc = await start_pcm_decoder(stream_url)
+    try:
+        proc = await start_pcm_decoder(stream_url)
+    except BaseException:
+        with contextlib.suppress(OSError):
+            os.unlink(wav_path)
+        raise
     fallback_total = sample_rate * 60 * 30  # 30-minute ceiling keeps pixels stable if duration unknown
     total = int(duration * sample_rate) if duration else fallback_total
     gen = StreamingWaveformGenerator(sample_rate, total, width=width)
