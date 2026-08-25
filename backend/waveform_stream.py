@@ -87,3 +87,87 @@ class StreamingWaveformGenerator:
         return {"bands": out,
                 "duration": self._consumed / self.sample_rate,
                 "complete": True}
+
+
+# --- Task 4: ffmpeg PCM streaming with one temp WAV ---
+import asyncio
+import contextlib
+import inspect
+import os
+import tempfile
+import wave
+
+FFMPEG_CMD = ["ffmpeg", "-i", "{url}", "-ac", "1", "-ar", "44100",
+              "-f", "s16le", "-acodec", "pcm_s16le", "-loglevel", "error", "pipe:1"]
+READ_BYTES = 44100 * 2 * 2  # ~1 second of mono s16 audio per read
+READ_TIMEOUT_S = 30         # kill ffmpeg if no PCM arrives for 30s (stall guard)
+
+
+async def start_pcm_decoder(stream_url: str):
+    cmd = [c.format(url=stream_url) if "{url}" in c else c for c in FFMPEG_CMD]
+    return await asyncio.create_subprocess_exec(
+        *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL)
+
+
+async def _emit(on_snapshot, snap):
+    """Support both sync and async snapshot callbacks."""
+    res = on_snapshot(snap)
+    if inspect.isawaitable(res):
+        await res
+
+
+async def _read_block(proc):
+    """Read one PCM block, tolerating sync (fake/test) or async (real) readers."""
+    res = proc.stdout.read(READ_BYTES)
+    if inspect.isawaitable(res):
+        return await asyncio.wait_for(res, timeout=READ_TIMEOUT_S)
+    return res
+
+
+async def analyze_stream(stream_url, duration, width=600, on_snapshot=None,
+                         temp_dir=None, sample_rate=44100):
+    fd, wav_path = tempfile.mkstemp(suffix=".wav", dir=temp_dir)
+    os.close(fd)
+    proc = await start_pcm_decoder(stream_url)
+    fallback_total = sample_rate * 60 * 30  # 30-minute ceiling keeps pixels stable if duration unknown
+    total = int(duration * sample_rate) if duration else fallback_total
+    gen = StreamingWaveformGenerator(sample_rate, total, width=width)
+    consumed = 0
+    next_snapshot_at = sample_rate  # publish at most once per second of audio
+    try:
+        with wave.open(wav_path, "wb") as w:
+            w.setnchannels(1)
+            w.setsampwidth(2)
+            w.setframerate(sample_rate)
+            while True:
+                try:
+                    block = await _read_block(proc)
+                except asyncio.TimeoutError:
+                    raise RuntimeError("ffmpeg stalled: no PCM for 30s")
+                if not block:
+                    break
+                if len(block) % 2:
+                    block = block[:-1]
+                w.writeframes(block)
+                samples = np.frombuffer(block, dtype=np.int16)
+                consumed += samples.size
+                gen.feed(samples)
+                if on_snapshot and consumed >= next_snapshot_at:
+                    next_snapshot_at = consumed + sample_rate
+                    await _emit(on_snapshot, gen.snapshot(complete=False))
+        rc = await proc.wait()
+        if rc != 0:
+            raise RuntimeError(f"ffmpeg exited {rc}")
+        final = gen.finish()
+        final["duration"] = consumed / sample_rate
+        final["temp_wav_path"] = wav_path
+        if on_snapshot:
+            await _emit(on_snapshot, final)
+        return final
+    except BaseException:
+        proc.kill()
+        with contextlib.suppress(ProcessLookupError):
+            await proc.wait()
+        with contextlib.suppress(OSError):
+            os.unlink(wav_path)
+        raise
