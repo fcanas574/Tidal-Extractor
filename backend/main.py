@@ -290,6 +290,56 @@ async def preview_track(track_id: int):
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
 
 
+import dataclasses
+from backend.preview_jobs import PreviewJobManager
+
+preview_job_manager = PreviewJobManager()
+
+async def _legacy_analyzer(track_id: int, stream_url: str, duration):
+    """Full-file analysis worker; replaced by streaming analysis in Task 6."""
+    waveform = await asyncio.to_thread(get_waveform_cached, stream_url)
+    key_data = await _detect_preview_key(stream_url, track_id)
+    wf = waveform if waveform.get("bands") else None
+    return {"waveform": wf, **key_data}
+
+preview_job_manager.analyzer = _legacy_analyzer
+
+@app.get("/preview/{track_id}/stream")
+async def preview_stream(track_id: int):
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        track = auth_manager.session.track(track_id)
+        orig_quality = auth_manager.session.config.quality
+        auth_manager.session.config.quality = "LOW"
+        try:
+            url = track.get_url()
+        finally:
+            auth_manager.session.config.quality = orig_quality
+        return {"track_id": track_id, "stream_url": url,
+                "duration": getattr(track, "duration", None)}
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+
+
+@app.get("/preview/{track_id}/metadata")
+async def preview_metadata(track_id: int):
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        track = auth_manager.session.track(track_id)
+        orig_quality = auth_manager.session.config.quality
+        auth_manager.session.config.quality = "LOW"
+        try:
+            url = track.get_url()
+        finally:
+            auth_manager.session.config.quality = orig_quality
+        snap = preview_job_manager.start_or_get(track_id, url, getattr(track, "duration", None))
+        return dataclasses.asdict(snap)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+
+
 async def _detect_preview_key(stream_url: str, track_id: int, track=None) -> dict:
     """Detect key/camelot for preview track.
 
