@@ -228,14 +228,16 @@ export default function AudioPlayerFooter() {
   const [hoverFraction, setHoverFraction] = useState<number | null>(null);
   const [keyCamelot, setKeyCamelot] = useState<string | null>(null);
   const [bpm, setBpm] = useState<number | null>(null);
+  const [waveformFailed, setWaveformFailed] = useState(false);
 
   useEffect(() => {
     if (!previewTrack) return;
     const trackId = previewTrack.id;
     const token = ++previewTokenRef.current;
+    const abort = new AbortController();
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
-    setCurrentTime(0); setDuration(0); setWaveform(null);
+    setCurrentTime(0); setDuration(0); setWaveform(null); setWaveformFailed(false);
     setKeyCamelot(null); setBpm(null);
 
     const active = () => !cancelled && token === previewTokenRef.current;
@@ -244,19 +246,20 @@ export default function AudioPlayerFooter() {
       pollTimer = setTimeout(async () => {
         if (!active()) return;
         try {
-          const meta = await preview.getMetadata(trackId);
+          const meta = await preview.getMetadata(trackId, abort.signal);
           if (!active()) return;
           if (meta.track_id !== trackId) return; // stale/mismatched snapshot: stop polling
           if (meta.waveform?.bands) setWaveform(meta.waveform);
           if (meta.camelot) setKeyCamelot(meta.camelot);
           if (meta.bpm) setBpm(meta.bpm);
-          if (meta.status === 'complete' || meta.status === 'failed') return; // terminal: stop polling
+          if (meta.status === 'failed') { setWaveformFailed(true); return; } // terminal failure
+          if (meta.status === 'complete') return; // terminal: stop polling
           poll();
         } catch { /* transient error: retry next tick, keep placeholder */ poll(); }
       }, 750);
     };
 
-    preview.getStream(trackId).then((r) => {
+    preview.getStream(trackId, abort.signal).then((r) => {
       if (!active()) return;
       const audio = new Audio(r.stream_url);
       audioRef.current = audio;
@@ -266,10 +269,13 @@ export default function AudioPlayerFooter() {
       audio.addEventListener('error', () => dispatch({ type: 'CLEAR_PREVIEW' }));
       audio.play().catch(() => dispatch({ type: 'CLEAR_PREVIEW' }));
       poll();
-    }).catch(() => dispatch({ type: 'CLEAR_PREVIEW' }));
+    }).catch(() => {
+      if (active()) dispatch({ type: 'CLEAR_PREVIEW' });
+    });
 
     return () => {
       cancelled = true;
+      abort.abort(); // cancel any in-flight preview requests on track change/close
       if (pollTimer) clearTimeout(pollTimer);
       audioRef.current?.pause();
       audioRef.current = null;
@@ -356,6 +362,10 @@ export default function AudioPlayerFooter() {
           className="w-full mb-2 cursor-pointer"
           style={{ display: 'block', height: '56px' }}
         />
+      ) : waveformFailed ? (
+        <div className="w-full mb-2 flex items-center justify-center" style={{ height: '56px' }}>
+          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>waveform unavailable</span>
+        </div>
       ) : (
         <div className="w-full mb-2 rounded animate-pulse"
              style={{ height: '56px', background: 'var(--bg-surface)', opacity: 0.4 }} />

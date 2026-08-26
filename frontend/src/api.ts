@@ -220,6 +220,6 @@ export interface PreviewMetadata {
 
 export const preview = {
   getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null; key: string | null; camelot: string | null; bpm: number | null }>(`/preview/${trackId}`),
-  getStream: (trackId: number) => request<PreviewStream>(`/preview/${trackId}/stream`),
-  getMetadata: (trackId: number) => request<PreviewMetadata>(`/preview/${trackId}/metadata`),
+  getStream: (trackId: number, signal?: AbortSignal) => request<PreviewStream>(`/preview/${trackId}/stream`, { signal }),
+  getMetadata: (trackId: number, signal?: AbortSignal) => request<PreviewMetadata>(`/preview/${trackId}/metadata`, { signal }),
 };

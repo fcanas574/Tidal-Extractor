@@ -35,7 +35,7 @@ describe('AudioPlayerFooter fast lifecycle', () => {
       () => new Promise((res) => { resolveMeta = res; }));
     render(<AudioPlayerFooter />);
     // Audio element constructed from the stream response while metadata still pending
-    await waitFor(() => expect(api.preview.getMetadata).toHaveBeenCalledWith(7), { timeout: 3000 });
+    await waitFor(() => expect(api.preview.getMetadata).toHaveBeenCalledWith(7, expect.anything()), { timeout: 3000 });
     expect(audioCtor).toHaveBeenCalledWith('/audio/7');
     expect(resolveMeta).toBeDefined();
     expect(play).toHaveBeenCalled();
@@ -73,5 +73,37 @@ describe('AudioPlayerFooter fast lifecycle', () => {
     await waitFor(() => expect(container.querySelector('canvas')).toBeTruthy(), { timeout: 4000 });
     expect(api.preview.getMetadata).toHaveBeenCalledTimes(2);
     expect(play).toHaveBeenCalled();
+  });
+
+  it('shows a non-blocking unavailable state when the metadata snapshot fails', async () => {
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 240 });
+    (api.preview.getMetadata as any).mockResolvedValue({
+      track_id: 7, status: 'failed', revision: 3,
+      waveform: null, key: null, camelot: null, bpm: null, error: 'decode died',
+    });
+    const { container } = render(<AudioPlayerFooter />);
+    // Shimmer is replaced by muted text; audio keeps playing; polling stops
+    await waitFor(() => expect(container.textContent).toContain('waveform unavailable'));
+    expect(container.querySelector('.animate-pulse')).toBeNull();
+    expect(api.preview.getMetadata).toHaveBeenCalledTimes(1);
+    await new Promise((r) => setTimeout(r, 900));
+    expect(api.preview.getMetadata).toHaveBeenCalledTimes(1); // no retry after terminal failure
+    expect(play).toHaveBeenCalled();
+  });
+
+  it('aborts in-flight preview requests on unmount', async () => {
+    vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 240 });
+    const signals: AbortSignal[] = [];
+    (api.preview.getMetadata as any).mockImplementation(
+      (_id: number, signal?: AbortSignal) => {
+        if (signal) signals.push(signal);
+        return new Promise(() => {}); // never resolves: request stays in flight
+      });
+    const { unmount } = render(<AudioPlayerFooter />);
+    await waitFor(() => expect(signals.length).toBeGreaterThan(0));
+    unmount();
+    expect(signals[0].aborted).toBe(true);
   });
 });
