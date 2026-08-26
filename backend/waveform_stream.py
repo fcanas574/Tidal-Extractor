@@ -18,7 +18,7 @@ class StreamingWaveformGenerator:
         self.total_samples = total_samples
         self.samples_per_pixel = max(2, total_samples // width)
         self.bands = get_band_preset(preset)
-        self._filters: dict = {}          # key -> [sos, zi]  (zi mutated in place)
+        self._filters: dict = {}          # key -> [sos, zi]  (zi reassigned each chunk from sosfilt's returned zf)
         self._remainder_store: dict = {}  # band name -> unprocessed filtered tail
         self._points: dict = {b.name: [] for b in self.bands}
         self._consumed = 0
