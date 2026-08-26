@@ -131,3 +131,36 @@ async def test_publish_progress_merges_and_bumps_revision():
     assert snap.waveform == {"bands": {"low": [0.5]}}  # earlier fields preserved
 
     manager.publish_progress(999, {"key": "X"})  # unknown job: no-op, no raise
+
+
+@pytest.mark.asyncio
+async def test_metadata_poll_with_existing_job_skips_url_resolution(monkeypatch):
+    track_calls, url_calls = [], []
+
+    track = type("T", (), {
+        "title": "t",
+        "artist": type("A", (), {"name": "a"})(),
+        "duration": 240.0,
+        "get_url": staticmethod(lambda: url_calls.append(1) or "https://s/7"),
+    })()
+    session = type("S", (), {"track": staticmethod(lambda _id: track_calls.append(_id) or track),
+                             "config": type("C", (), {"quality": "HIGH"})()})()
+    monkeypatch.setattr(main.auth_manager, "session", session)
+    monkeypatch.setattr(type(main.auth_manager), "is_authenticated",
+                        property(lambda self: True))
+
+    async def fast_analyzer(tid, url, duration):
+        return {"waveform": {"bands": {"low": [0.1], "mid": [0.1], "high": [0.1]},
+                             "colors": {}, "duration": duration or 0}}
+
+    monkeypatch.setattr(main.preview_job_manager, "analyzer", fast_analyzer)
+
+    first = await main.preview_metadata(7)
+    assert track_calls == [7]
+    assert len(url_calls) == 1
+
+    second = await main.preview_metadata(7)
+    # Second poll must not re-resolve the stream URL
+    assert track_calls == [7]
+    assert len(url_calls) == 1
+    assert set(first) == set(second)  # same response shape

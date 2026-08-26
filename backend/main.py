@@ -393,14 +393,18 @@ async def preview_metadata(track_id: int):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        track = auth_manager.session.track(track_id)
-        orig_quality = auth_manager.session.config.quality
-        auth_manager.session.config.quality = "LOW"
-        try:
-            url = track.get_url()
-        finally:
-            auth_manager.session.config.quality = orig_quality
-        snap = preview_job_manager.start_or_get(track_id, url, getattr(track, "duration", None))
+        snap = preview_job_manager.snapshot(track_id)
+        if snap is None:
+            # No job yet: resolve the stream URL once to kick one off. Subsequent
+            # polls hit the snapshot above and never touch the session.
+            track = auth_manager.session.track(track_id)
+            orig_quality = auth_manager.session.config.quality
+            auth_manager.session.config.quality = "LOW"
+            try:
+                url = track.get_url()
+            finally:
+                auth_manager.session.config.quality = orig_quality
+            snap = preview_job_manager.start_or_get(track_id, url, getattr(track, "duration", None))
         return dataclasses.asdict(snap)
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
