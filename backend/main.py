@@ -292,17 +292,83 @@ async def preview_track(track_id: int):
 
 import dataclasses
 from backend.preview_jobs import PreviewJobManager
+from backend.waveform_stream import analyze_stream
 
 preview_job_manager = PreviewJobManager()
 
-async def _legacy_analyzer(track_id: int, stream_url: str, duration):
-    """Full-file analysis worker; replaced by streaming analysis in Task 6."""
-    waveform = await asyncio.to_thread(get_waveform_cached, stream_url)
-    key_data = await _detect_preview_key(stream_url, track_id)
-    wf = waveform if waveform.get("bands") else None
-    return {"waveform": wf, **key_data}
+_WAVEFORM_COLORS = {"low": "#0055e2", "mid": "#f2aa3c", "high": "#ffffff"}
 
-preview_job_manager.analyzer = _legacy_analyzer
+
+async def _freqblog_lookup(title: str, artist: str):
+    from backend.freqblog import lookup_track_metadata
+    return await lookup_track_metadata(title, artist)
+
+
+async def _detect_key_local(path: str):
+    from backend.key_detection import detect_key
+    return await asyncio.to_thread(detect_key, path)
+
+
+async def _detect_preview_key_cached(track_id: int) -> dict:
+    try:
+        cached = await db.get_key_cache(f"preview_key_{track_id}")
+    except Exception as e:
+        logger.warning("key cache read failed for %s: %s", track_id, e)
+        return {}
+    if not cached:
+        return {}
+    return {"key": cached.get("key"), "camelot": cached.get("camelot"),
+            "bpm": cached.get("bpm")}
+
+
+async def _remove_temp_file(path: str | None) -> None:
+    if path and os.path.exists(path):
+        os.unlink(path)
+
+
+async def preview_analyzer(track_id: int, stream_url: str, duration: float | None) -> dict:
+    cached = await db.get_waveform_cache(str(track_id))
+    if cached:
+        key_data = await _detect_preview_key_cached(track_id)
+        return {"waveform": {"bands": cached["bands"], "colors": _WAVEFORM_COLORS,
+                             "duration": cached["duration"]}, **key_data}
+
+    track = auth_manager.session.track(track_id)
+    title = getattr(track, "title", "") or ""
+    artist = getattr(getattr(track, "artist", None), "name", "") or ""
+
+    async def on_snap(snap):
+        preview_job_manager.publish_progress(track_id, {"waveform": snap})
+
+    result = await analyze_stream(stream_url, duration, on_snapshot=on_snap)
+    waveform = {"bands": result["bands"], "colors": _WAVEFORM_COLORS,
+                "duration": result["duration"]}
+    preview_job_manager.publish_progress(track_id, {"waveform": waveform})
+
+    key_payload = {}
+    tmp_path = result.get("temp_wav_path")
+    try:
+        metadata = await _freqblog_lookup(title, artist)
+        if metadata:
+            key_payload = {"key": metadata["key"], "camelot": metadata["camelot"],
+                           "bpm": metadata.get("bpm")}
+        elif tmp_path:
+            local = await _detect_key_local(tmp_path)
+            key_payload = {"key": local.get("key"), "camelot": local.get("camelot"),
+                           "bpm": local.get("bpm")}
+        if key_payload.get("key"):
+            await db.set_key_cache(f"preview_key_{track_id}", key_payload["key"],
+                                   key_payload.get("camelot"), 1.0,
+                                   bpm=key_payload.get("bpm"))
+    except Exception as e:
+        logger.warning("key detection failed for %s: %s", track_id, e)
+    finally:
+        await db.set_waveform_cache(str(track_id), result["bands"], result["duration"])
+        await _remove_temp_file(tmp_path)
+    return {"waveform": waveform, **key_payload}
+
+
+preview_job_manager.analyzer = preview_analyzer
 
 @app.get("/preview/{track_id}/stream")
 async def preview_stream(track_id: int):

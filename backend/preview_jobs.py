@@ -126,6 +126,18 @@ class PreviewJobManager:
                 if current_job is not None:
                     self._update_snapshot_locked(current_job, status="failed", error=str(exc))
 
+    def publish_progress(self, track_id: int, updates: dict) -> None:
+        """Merge partial fields into the live snapshot with a revision bump."""
+        with self._lock:
+            job = self._jobs.get(track_id)
+            if job is None:
+                return
+            merged = {
+                "status": "processing",
+                **{k: updates[k] for k in ("waveform", "key", "camelot", "bpm") if k in updates},
+            }
+            self._update_snapshot_locked(job, **merged)
+
     def _update_snapshot_locked(self, job: _PreviewJob, **updates: Any) -> None:
         job.snapshot = PreviewMetadataSnapshot(
             track_id=job.snapshot.track_id,
