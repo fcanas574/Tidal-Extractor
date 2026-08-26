@@ -1,7 +1,7 @@
 import asyncio
 import logging
 import os
-from contextlib import asynccontextmanager
+from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Optional, List
 
@@ -363,8 +363,12 @@ async def preview_analyzer(track_id: int, stream_url: str, duration: float | Non
     except Exception as e:
         logger.warning("key detection failed for %s: %s", track_id, e)
     finally:
-        await db.set_waveform_cache(str(track_id), result["bands"], result["duration"])
-        await _remove_temp_file(tmp_path)
+        # Each cleanup step is isolated so one failure can't leak the temp WAV
+        # or mask another error (including any exception from the body above).
+        with suppress(Exception):
+            await db.set_waveform_cache(str(track_id), result["bands"], result["duration"])
+        with suppress(Exception):
+            await _remove_temp_file(tmp_path)
     return {"waveform": waveform, **key_payload}
 
 

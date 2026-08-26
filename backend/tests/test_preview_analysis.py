@@ -164,3 +164,36 @@ async def test_metadata_poll_with_existing_job_skips_url_resolution(monkeypatch)
     assert track_calls == [7]
     assert len(url_calls) == 1
     assert set(first) == set(second)  # same response shape
+
+
+@pytest.mark.asyncio
+async def test_temp_wav_removed_even_when_db_write_fails(monkeypatch):
+    deleted = []
+
+    async def fake_analyze(url, duration, **kw):
+        return {"bands": {"low": [0.2], "mid": [0.2], "high": [0.2]},
+                "duration": 30.0, "temp_wav_path": "/tmp/fake.wav"}
+
+    async def failing_set(tid, bands, duration):
+        raise RuntimeError("db write exploded")
+
+    async def none(_):
+        return None
+
+    async def fake_remove(path):
+        deleted.append(path)
+
+    async def fake_fb(*a, **k):
+        return None
+
+    monkeypatch.setattr(main, "analyze_stream", fake_analyze)
+    monkeypatch.setattr(main.db, "get_waveform_cache", none)
+    monkeypatch.setattr(main.db, "set_waveform_cache", failing_set)
+    monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
+    monkeypatch.setattr(main, "_remove_temp_file", fake_remove)
+    _fake_session_track(monkeypatch)
+
+    # DB failure must not propagate or block cleanup
+    result = await main.preview_analyzer(15, "https://s/15", 30.0)
+    assert deleted == ["/tmp/fake.wav"]  # temp WAV removed despite DB error
+    assert result["waveform"]["bands"]["low"] == [0.2]
