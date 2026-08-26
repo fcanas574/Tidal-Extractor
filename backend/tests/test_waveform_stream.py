@@ -127,6 +127,40 @@ async def test_analyze_stream_cleans_up_on_decoder_error(tmp_path, monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_analyze_stream_matches_full_file_build_waveform(tmp_path):
+    """Spec equivalence gate vs the legacy backend.waveform.build_waveform path."""
+    from backend.waveform import build_waveform
+
+    # Deterministic 8s mono test tone written as a real WAV file
+    rng = np.random.default_rng(7)
+    sr = 44100
+    t = np.arange(sr * 8)
+    sig = (9000 * np.sin(2 * np.pi * 180 * t / sr)
+           + 5000 * np.sin(2 * np.pi * 2500 * t / sr)
+           + rng.integers(-500, 500, t.size)).astype(np.int16)
+    wav_file = tmp_path / "fixture.wav"
+    with wavemod.open(str(wav_file), "wb") as w:
+        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
+        w.writeframes(sig.tobytes())
+
+    streaming = await waveform_stream.analyze_stream(str(wav_file), 8.0, width=600,
+                                                     temp_dir=str(tmp_path))
+    legacy = build_waveform(str(wav_file))
+    assert legacy.get("bands"), "legacy path returned empty"
+    for band in ("low", "mid", "high"):
+        a = np.array(streaming["bands"][band])
+        b = np.array(legacy["bands"][band])
+        assert len(a) > 0 and len(b) > 0
+        n = min(len(a), len(b))
+        assert len(a) == len(b), (
+            f"{band}: streaming {len(a)} pts vs legacy {len(b)} pts")
+        np.testing.assert_allclose(a[:n], b[:n], atol=0.02)
+
+    import os as _os
+    _os.unlink(streaming["temp_wav_path"])
+
+
+@pytest.mark.asyncio
 async def test_analyze_stream_cleans_up_when_spawn_fails(tmp_path, monkeypatch):
     async def failing_start(url):
         raise RuntimeError("ffmpeg binary missing")
