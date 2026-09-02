@@ -72,6 +72,19 @@ function BPMBadge({ bpm, playing }: { bpm: number | null; playing: boolean }) {
   );
 }
 
+export type WaveformMode = '3band' | 'rgb';
+
+export interface WaveformPalette {
+  low: string;
+  mid: string;
+  high: string;
+}
+
+export const WAVEFORM_PALETTES: Record<WaveformMode, WaveformPalette> = {
+  '3band': { low: '#0055e2', mid: '#f2aa3c', high: '#ffffff' },
+  rgb: { low: '#ff304f', mid: '#35d07f', high: '#3d8bff' },
+};
+
 function drawClubWaveform(
   ctx: CanvasRenderingContext2D,
   w: number,
@@ -80,6 +93,8 @@ function drawClubWaveform(
   progress: number,
   hoverFraction: number | null,
   wfDuration: number,
+  mode: WaveformMode = '3band',
+  palette: WaveformPalette = WAVEFORM_PALETTES[mode] || WAVEFORM_PALETTES['3band'],
 ) {
   ctx.clearRect(0, 0, w, h);
 
@@ -90,9 +105,9 @@ function drawClubWaveform(
   const playedIdx = Math.floor(progress * end);
 
   const specs: Record<string, { color: string; alpha: number; blend: GlobalCompositeOperation }> = {
-    low:  { color: '#0055e2', alpha: 0.85, blend: 'source-over' },
-    mid:  { color: '#f2aa3c', alpha: 0.70, blend: 'lighter' },
-    high: { color: '#ffffff', alpha: 0.90, blend: 'lighter' },
+    low:  { color: palette.low, alpha: 0.85, blend: 'source-over' },
+    mid:  { color: palette.mid, alpha: 0.70, blend: 'lighter' },
+    high: { color: palette.high, alpha: 0.90, blend: 'lighter' },
   };
 
   const buildPath = (data: number[], toIdx: number) => {
@@ -114,7 +129,7 @@ function drawClubWaveform(
     const data = bands[key as keyof typeof bands];
     if (!data?.length) continue;
     ctx.globalAlpha = 0.15;
-    ctx.globalCompositeOperation = 'source-over';
+    ctx.globalCompositeOperation = mode === 'rgb' ? 'lighter' : 'source-over';
     ctx.fillStyle = specs[key].color;
     ctx.fill(buildPath(data, end - 1));
     ctx.strokeStyle = specs[key].color;
@@ -300,8 +315,9 @@ export default function AudioPlayerFooter() {
     if (!ctx) return;
     const wfDuration = waveform.duration || duration;
     const progress = wfDuration > 0 ? currentTime / wfDuration : 0;
-    drawClubWaveform(ctx, rect.width, rect.height, waveform.bands, Math.min(1, progress), hoverFraction, wfDuration);
-  }, [currentTime, waveform, duration, hoverFraction]);
+    const mode = (state.settings?.waveform_color as WaveformMode) || '3band';
+    drawClubWaveform(ctx, rect.width, rect.height, waveform.bands, Math.min(1, progress), hoverFraction, wfDuration, mode);
+  }, [currentTime, waveform, duration, hoverFraction, state.settings?.waveform_color]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
@@ -339,6 +355,8 @@ export default function AudioPlayerFooter() {
 
   if (!previewTrack) return null;
 
+  const waveformMode = (state.settings?.waveform_color as WaveformMode) || '3band';
+
   return (
     <div
       className="fixed bottom-0 left-0 right-0 z-50 px-4 py-2"
@@ -348,6 +366,7 @@ export default function AudioPlayerFooter() {
         backdropFilter: 'blur(16px)',
       }}
     >
+      <span data-testid="waveform-color-mode" className="hidden">{waveformMode}</span>
       {waveform ? (
         <canvas
           ref={canvasRef}

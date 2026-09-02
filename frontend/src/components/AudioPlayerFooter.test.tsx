@@ -1,11 +1,22 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, waitFor, cleanup } from '@testing-library/react';
+import { render, waitFor, cleanup, screen } from '@testing-library/react';
 import * as api from '../api';
+
+let currentSettings: api.Settings = {
+  default_quality: 'high_lossless',
+  default_format: 'FLAC',
+  output_dir: '~/Music/TidalDownloads',
+  waveform_color: '3band',
+};
 
 vi.mock('../context/AppContext', () => ({
   useApp: () => ({
-    state: { previewTrack: { id: 7, title: 'T', artist: 'A', cover_url: null }, previewPlaying: true },
+    state: {
+      previewTrack: { id: 7, title: 'T', artist: 'A', cover_url: null },
+      previewPlaying: true,
+      settings: currentSettings,
+    },
     dispatch: vi.fn(),
   }),
 }));
@@ -18,12 +29,42 @@ vi.mock('../api', async (orig) => ({
   },
 }));
 
-import AudioPlayerFooter from './AudioPlayerFooter';
+import AudioPlayerFooter, { WAVEFORM_PALETTES } from './AudioPlayerFooter';
+
+function PreviewHarness(props: { settings?: Partial<api.Settings> }) {
+  if (props.settings) {
+    currentSettings = { ...currentSettings, ...props.settings };
+  }
+  return <AudioPlayerFooter />;
+}
 
 describe('AudioPlayerFooter fast lifecycle', () => {
   afterEach(() => {
+    currentSettings = {
+      default_quality: 'high_lossless',
+      default_format: 'FLAC',
+      output_dir: '~/Music/TidalDownloads',
+      waveform_color: '3band',
+    };
     cleanup();
     vi.restoreAllMocks();
+  });
+
+  it('uses the 3Band palette by default', () => {
+    expect(WAVEFORM_PALETTES['3band']).toEqual({ low: '#0055e2', mid: '#f2aa3c', high: '#ffffff' });
+  });
+
+  it('uses RGB colors without requesting new metadata', async () => {
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 240 });
+    (api.preview.getMetadata as any).mockResolvedValue({
+      track_id: 7, status: 'complete', revision: 1,
+      waveform: { bands: { low: [0.5], mid: [0.5], high: [0.5] }, colors: {}, duration: 240 },
+      key: null, camelot: '8A', bpm: 128, error: null,
+    });
+    const callsBefore = vi.mocked(api.preview.getMetadata).mock.calls.length;
+    render(<PreviewHarness settings={{ waveform_color: 'rgb' }} />);
+    expect(screen.getByTestId('waveform-color-mode').textContent).toBe('rgb');
+    expect(vi.mocked(api.preview.getMetadata).mock.calls.length).toBe(callsBefore);
   });
 
   it('starts audio from stream response before metadata resolves', async () => {

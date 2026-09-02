@@ -15,6 +15,11 @@ const FORMAT_OPTIONS = [
   { value: 'M4A', label: 'M4A', desc: '320kbps, Apple ecosystem' },
 ];
 
+const WAVEFORM_OPTIONS: { value: '3band' | 'rgb'; label: string; desc: string }[] = [
+  { value: '3band', label: '3Band (Rekordbox)', desc: 'Blue / orange / white' },
+  { value: 'rgb', label: 'RGB', desc: 'Red / green / blue blend' },
+];
+
 export default function SettingsPanel() {
   const { state, dispatch } = useApp();
   const [saving, setSaving] = useState(false);
@@ -245,6 +250,48 @@ export default function SettingsPanel() {
                     style={{
                       color:
                         state.settings.default_format === opt.value
+                          ? 'var(--accent-primary)'
+                          : 'var(--text-primary)',
+                    }}
+                  >
+                    {opt.label}
+                  </p>
+                  <p className="text-[10px] mt-1" style={{ color: 'var(--text-dim)' }}>
+                    {opt.desc}
+                  </p>
+                </button>
+              ))}
+            </div>
+          </section>
+
+          {/* Waveform Color */}
+          <section className="mb-6">
+            <h3 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>
+              Waveform Color
+            </h3>
+            <div className="flex gap-2">
+              {WAVEFORM_OPTIONS.map((opt) => (
+                <button
+                  key={opt.value}
+                  onClick={() =>
+                    dispatch({
+                      type: 'SET_SETTINGS',
+                      payload: { ...state.settings, waveform_color: opt.value },
+                    })
+                  }
+                  className="flex-1 glass glass-hover p-3 text-center transition-all"
+                  style={{
+                    borderColor:
+                      (state.settings.waveform_color || '3band') === opt.value
+                        ? 'rgba(0, 229, 199, 0.3)'
+                        : undefined,
+                  }}
+                >
+                  <p
+                    className="mono text-sm font-semibold"
+                    style={{
+                      color:
+                        (state.settings.waveform_color || '3band') === opt.value
                           ? 'var(--accent-primary)'
                           : 'var(--text-primary)',
                     }}
