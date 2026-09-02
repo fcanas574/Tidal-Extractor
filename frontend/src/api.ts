@@ -87,6 +87,7 @@ export interface Settings {
   default_quality: string;
   default_format: string;
   output_dir: string;
+  waveform_color: '3band' | 'rgb';
 }
 
 export interface AuthStatus {

@@ -607,6 +607,7 @@ class UpdateSettingsRequest(BaseModel):
     default_quality: str = None
     default_format: str = None
     output_dir: str = None
+    waveform_color: str = None
 
 
 @app.put("/settings")
@@ -617,6 +618,11 @@ async def update_settings(settings: UpdateSettingsRequest):
         config.default_format = settings.default_format
     if settings.output_dir:
         config.output_dir = settings.output_dir
+    if settings.waveform_color is not None:
+        try:
+            config.update(waveform_color=settings.waveform_color)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
     config.save()
     return config.as_dict()
 

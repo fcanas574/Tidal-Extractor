@@ -58,7 +58,7 @@ const initialState: AppState = {
   auth: { authenticated: false, username: null },
   activeTab: 'search',
   queue: [],
-  settings: { default_quality: 'high_lossless', default_format: 'FLAC', output_dir: '~/Music/TidalDownloads' },
+  settings: { default_quality: 'high_lossless', default_format: 'FLAC', output_dir: '~/Music/TidalDownloads', waveform_color: '3band' },
   settingsPanelOpen: false,
   wsConnected: false,
   toasts: [],
