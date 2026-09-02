@@ -51,7 +51,7 @@ describe('AudioPlayerFooter fast lifecycle', () => {
   });
 
   it('uses the 3Band palette by default', () => {
-    expect(WAVEFORM_PALETTES['3band']).toEqual({ low: '#0055e2', mid: '#f2aa3c', high: '#ffffff' });
+    expect(WAVEFORM_PALETTES['3band']).toEqual({ low: '#0055ff', mid: '#ff7700', high: '#ffffff' });
   });
 
   it('uses RGB colors without requesting new metadata', async () => {

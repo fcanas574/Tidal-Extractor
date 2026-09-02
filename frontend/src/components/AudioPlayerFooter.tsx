@@ -81,8 +81,8 @@ export interface WaveformPalette {
 }
 
 export const WAVEFORM_PALETTES: Record<WaveformMode, WaveformPalette> = {
-  '3band': { low: '#0055e2', mid: '#f2aa3c', high: '#ffffff' },
-  rgb: { low: '#ff304f', mid: '#35d07f', high: '#3d8bff' },
+  '3band': { low: '#0055ff', mid: '#ff7700', high: '#ffffff' },
+  rgb: { low: '#ff0844', mid: '#00e676', high: '#00b0ff' },
 };
 
 function drawClubWaveform(
@@ -104,11 +104,18 @@ function drawClubWaveform(
   if (end === 0) return;
   const playedIdx = Math.floor(progress * end);
 
-  const specs: Record<string, { color: string; alpha: number; blend: GlobalCompositeOperation }> = {
-    low:  { color: palette.low, alpha: 0.85, blend: 'source-over' },
-    mid:  { color: palette.mid, alpha: 0.70, blend: 'lighter' },
-    high: { color: palette.high, alpha: 0.90, blend: 'lighter' },
-  };
+  const isRgb = mode === 'rgb';
+  const specs: Record<string, { color: string; alpha: number; blend: GlobalCompositeOperation }> = isRgb
+    ? {
+        low:  { color: palette.low, alpha: 0.88, blend: 'source-over' },
+        mid:  { color: palette.mid, alpha: 0.78, blend: 'lighter' },
+        high: { color: palette.high, alpha: 0.82, blend: 'lighter' },
+      }
+    : {
+        low:  { color: palette.low, alpha: 0.90, blend: 'source-over' },
+        mid:  { color: palette.mid, alpha: 0.85, blend: 'source-over' },
+        high: { color: palette.high, alpha: 0.95, blend: 'source-over' },
+      };
 
   const buildPath = (data: number[], toIdx: number) => {
     const p = new Path2D();
@@ -124,20 +131,21 @@ function drawClubWaveform(
     return p;
   };
 
-  // 1. Draw full waveform (dim)
+  // 1. Draw full waveform (dim background)
   for (const key of ['low', 'mid', 'high']) {
     const data = bands[key as keyof typeof bands];
     if (!data?.length) continue;
-    ctx.globalAlpha = 0.15;
-    ctx.globalCompositeOperation = mode === 'rgb' ? 'lighter' : 'source-over';
+    ctx.globalAlpha = isRgb ? 0.18 : 0.20;
+    ctx.globalCompositeOperation = isRgb ? 'lighter' : 'source-over';
+    const path = buildPath(data, end - 1);
     ctx.fillStyle = specs[key].color;
-    ctx.fill(buildPath(data, end - 1));
+    ctx.fill(path);
     ctx.strokeStyle = specs[key].color;
     ctx.lineWidth = 0.5;
-    ctx.stroke(buildPath(data, end - 1));
+    ctx.stroke(path);
   }
 
-  // 2. Draw played portion (bright) — clipped
+  // 2. Draw played portion (bright foreground) — clipped
   if (playedIdx > 0) {
     ctx.save();
     ctx.beginPath();
@@ -149,11 +157,12 @@ function drawClubWaveform(
       if (!data?.length) continue;
       ctx.globalAlpha = s.alpha;
       ctx.globalCompositeOperation = s.blend;
+      const path = buildPath(data, Math.min(playedIdx, end - 1));
       ctx.fillStyle = s.color;
-      ctx.fill(buildPath(data, Math.min(playedIdx, end - 1)));
+      ctx.fill(path);
       ctx.strokeStyle = s.color;
       ctx.lineWidth = 0.5;
-      ctx.stroke(buildPath(data, Math.min(playedIdx, end - 1)));
+      ctx.stroke(path);
     }
     ctx.restore();
   }
