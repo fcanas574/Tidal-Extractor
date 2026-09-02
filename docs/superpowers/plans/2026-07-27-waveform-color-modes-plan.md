@@ -32,7 +32,7 @@
 - `AppConfig.waveform_color: str` with default `3band`.
 - `UpdateSettingsRequest.waveform_color: str | None`.
 
-- [ ] **Step 1: Write failing config tests**
+- [x] **Step 1: Write failing config tests**
 
 ```python
 def test_waveform_color_defaults_to_3band(tmp_path):
@@ -47,27 +47,27 @@ def test_invalid_waveform_color_is_rejected(tmp_path):
         config.update(waveform_color='purple')
 ```
 
-- [ ] **Step 2: Run focused tests to verify failure**
+- [x] **Step 2: Run focused tests to verify failure**
 
 Run: `python3 -m pytest backend/tests/test_config.py -q`
 
 Expected: FAIL because `waveform_color` is not part of `AppConfig`.
 
-- [ ] **Step 3: Implement validation and persistence**
+- [x] **Step 3: Implement validation and persistence**
 
 Define `WAVEFORM_COLORS = {'3band', 'rgb'}`. Add `waveform_color` to defaults, YAML load/save, `update()`, and `as_dict()`. Raise `ValueError("waveform_color must be '3band' or 'rgb'")` for other values. Add the optional field to `UpdateSettingsRequest`; only assign it after validation.
 
-- [ ] **Step 4: Update frontend types and initial state**
+- [x] **Step 4: Update frontend types and initial state**
 
 Add `waveform_color: '3band' | 'rgb'` to `Settings` and set the initial context value to `3band`.
 
-- [ ] **Step 5: Run tests and build**
+- [x] **Step 5: Run tests and build**
 
 Run: `python3 -m pytest backend/tests/test_config.py -q && cd frontend && npm run build`
 
 Expected: PASS and successful build.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add backend/config.py backend/main.py backend/tests/test_config.py frontend/src/api.ts frontend/src/context/AppContext.tsx
@@ -86,7 +86,7 @@ git commit -m "feat: persist waveform color preference"
 - `WAVEFORM_PALETTES: Record<WaveformMode, { low: string; mid: string; high: string }>`.
 - `drawClubWaveform(..., palette: WaveformPalette)`.
 
-- [ ] **Step 1: Write palette tests**
+- [x] **Step 1: Write palette tests**
 
 ```tsx
 it('uses the 3Band palette by default', () => {
@@ -101,27 +101,27 @@ it('uses RGB colors without requesting new metadata', async () => {
 });
 ```
 
-- [ ] **Step 2: Run focused test to verify failure**
+- [x] **Step 2: Run focused test to verify failure**
 
 Run: `cd frontend && npm test -- --run src/components/AudioPlayerFooter.test.tsx`
 
 Expected: FAIL because the palette map and setting control do not exist.
 
-- [ ] **Step 3: Add the settings UI**
+- [x] **Step 3: Add the settings UI**
 
 Add `WAVEFORM_OPTIONS` with `3band` label `3Band (Rekordbox)` and `rgb` label `RGB`. Render a two-option button group in `SettingsPanel.tsx`. Dispatch `SET_SETTINGS` on selection and rely on the existing Save button to persist the value.
 
-- [ ] **Step 4: Make the canvas palette-driven**
+- [x] **Step 4: Make the canvas palette-driven**
 
 Move the current hardcoded `specs` colors into `WAVEFORM_PALETTES`. Pass `state.settings.waveform_color` to the drawing function. Keep 3Band alpha values and use `lighter` compositing for RGB overlapping bands so red/green/blue energy can blend.
 
-- [ ] **Step 5: Run tests and build**
+- [x] **Step 5: Run tests and build**
 
 Run: `cd frontend && npm test -- --run src/components/AudioPlayerFooter.test.tsx && npm run build`
 
 Expected: PASS and successful build.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add frontend/src/components/SettingsPanel.tsx frontend/src/components/AudioPlayerFooter.tsx frontend/src/components/AudioPlayerFooter.test.tsx
