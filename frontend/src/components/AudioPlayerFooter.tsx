@@ -81,7 +81,7 @@ export interface WaveformPalette {
 }
 
 export const WAVEFORM_PALETTES: Record<WaveformMode, WaveformPalette> = {
-  '3band': { low: '#0055ff', mid: '#ff7700', high: '#ffffff' },
+  '3band': { low: '#0054e2', mid: '#b3680a', high: '#f6ebd8' },
   rgb: { low: '#ff0844', mid: '#00e676', high: '#00b0ff' },
 };
 
@@ -96,53 +96,62 @@ function drawClubWaveform(
   mode: WaveformMode = '3band',
   palette: WaveformPalette = WAVEFORM_PALETTES[mode] || WAVEFORM_PALETTES['3band'],
 ) {
+  // Clear and fill with pitch black background (genuine Rekordbox deck)
   ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = '#000000';
+  ctx.fillRect(0, 0, w, h);
 
   const centerY = h / 2;
-  const scale = (h / 2) * 0.85;
+  const scale = (h / 2) * 0.90;
   const end = bands.low.length;
   if (end === 0) return;
   const playedIdx = Math.floor(progress * end);
 
   const isRgb = mode === 'rgb';
-  const specs: Record<string, { color: string; alpha: number; blend: GlobalCompositeOperation }> = isRgb
+  // Genuine Rekordbox 3Band:
+  // - Low (Blue #0054e2): wide bass foundation (scale 1.0)
+  // - Mid (Amber #b3680a): musical mid core (scale 0.68)
+  // - High (Cream #f6ebd8): sharp transient spikes & continuous core (scale 0.85, min 1.5px)
+  // Stacked solidly with source-over — no washed-out muddy bleeds.
+  const specs: Record<string, { color: string; scale: number; minHeight: number; alpha: number; blend: GlobalCompositeOperation }> = isRgb
     ? {
-        low:  { color: palette.low, alpha: 0.88, blend: 'source-over' },
-        mid:  { color: palette.mid, alpha: 0.78, blend: 'lighter' },
-        high: { color: palette.high, alpha: 0.82, blend: 'lighter' },
+        low:  { color: palette.low, scale: 1.00, minHeight: 0, alpha: 0.88, blend: 'source-over' },
+        mid:  { color: palette.mid, scale: 0.85, minHeight: 0, alpha: 0.78, blend: 'lighter' },
+        high: { color: palette.high, scale: 0.90, minHeight: 0, alpha: 0.82, blend: 'lighter' },
       }
     : {
-        low:  { color: palette.low, alpha: 0.90, blend: 'source-over' },
-        mid:  { color: palette.mid, alpha: 0.85, blend: 'source-over' },
-        high: { color: palette.high, alpha: 0.95, blend: 'source-over' },
+        low:  { color: palette.low, scale: 1.00, minHeight: 0, alpha: 1.00, blend: 'source-over' },
+        mid:  { color: palette.mid, scale: 0.68, minHeight: 0, alpha: 1.00, blend: 'source-over' },
+        high: { color: palette.high, scale: 0.85, minHeight: 1.5, alpha: 1.00, blend: 'source-over' },
       };
 
-  const buildPath = (data: number[], toIdx: number) => {
+  const buildPath = (data: number[], toIdx: number, bandScale: number = 1.0, minH: number = 0) => {
     const p = new Path2D();
     p.moveTo(0, centerY);
+    const effScale = scale * bandScale;
     for (let i = 0; i <= toIdx; i++) {
-      p.lineTo((i / end) * w, centerY - data[i] * scale);
+      const val = Math.max(minH, data[i] * effScale);
+      p.lineTo((i / end) * w, centerY - val);
     }
     p.lineTo((toIdx / end) * w, centerY);
     for (let i = toIdx; i >= 0; i--) {
-      p.lineTo((i / end) * w, centerY - (-data[i]) * scale);
+      const val = Math.max(minH, data[i] * effScale);
+      p.lineTo((i / end) * w, centerY + val);
     }
     p.closePath();
     return p;
   };
 
-  // 1. Draw full waveform (dim background)
+  // 1. Draw full waveform (dim background preview)
   for (const key of ['low', 'mid', 'high']) {
     const data = bands[key as keyof typeof bands];
     if (!data?.length) continue;
-    ctx.globalAlpha = isRgb ? 0.18 : 0.20;
+    const s = specs[key];
+    ctx.globalAlpha = isRgb ? 0.20 : 0.28;
     ctx.globalCompositeOperation = isRgb ? 'lighter' : 'source-over';
-    const path = buildPath(data, end - 1);
-    ctx.fillStyle = specs[key].color;
+    const path = buildPath(data, end - 1, s.scale, s.minHeight);
+    ctx.fillStyle = s.color;
     ctx.fill(path);
-    ctx.strokeStyle = specs[key].color;
-    ctx.lineWidth = 0.5;
-    ctx.stroke(path);
   }
 
   // 2. Draw played portion (bright foreground) — clipped
@@ -157,12 +166,9 @@ function drawClubWaveform(
       if (!data?.length) continue;
       ctx.globalAlpha = s.alpha;
       ctx.globalCompositeOperation = s.blend;
-      const path = buildPath(data, Math.min(playedIdx, end - 1));
+      const path = buildPath(data, Math.min(playedIdx, end - 1), s.scale, s.minHeight);
       ctx.fillStyle = s.color;
       ctx.fill(path);
-      ctx.strokeStyle = s.color;
-      ctx.lineWidth = 0.5;
-      ctx.stroke(path);
     }
     ctx.restore();
   }
@@ -171,19 +177,11 @@ function drawClubWaveform(
   ctx.globalAlpha = 1;
   ctx.globalCompositeOperation = 'source-over';
 
-  // 3. Center line
-  ctx.strokeStyle = 'rgba(255,255,255,0.10)';
-  ctx.lineWidth = 1;
-  ctx.beginPath();
-  ctx.moveTo(0, centerY);
-  ctx.lineTo(w, centerY);
-  ctx.stroke();
-
-  // 4. Playhead
+  // 3. Playhead
   if (playedIdx >= 0) {
     const px = (playedIdx / end) * w;
-    ctx.strokeStyle = 'rgba(255,255,255,0.60)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1.5;
     ctx.beginPath();
     ctx.moveTo(px, 0);
     ctx.lineTo(px, h);
@@ -387,16 +385,16 @@ export default function AudioPlayerFooter() {
             setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
           }}
           onMouseLeave={() => setHoverFraction(null)}
-          className="w-full mb-2 cursor-pointer"
-          style={{ display: 'block', height: '56px' }}
+          className="w-full mb-2 cursor-pointer rounded"
+          style={{ display: 'block', height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}
         />
       ) : waveformFailed ? (
-        <div className="w-full mb-2 flex items-center justify-center" style={{ height: '56px' }}>
+        <div className="w-full mb-2 rounded flex items-center justify-center" style={{ height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}>
           <span className="text-xs" style={{ color: 'var(--text-dim)' }}>waveform unavailable</span>
         </div>
       ) : (
         <div className="w-full mb-2 rounded animate-pulse"
-             style={{ height: '56px', background: 'var(--bg-surface)', opacity: 0.4 }} />
+             style={{ height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }} />
       )}
 
       <div className="flex items-center justify-between">
