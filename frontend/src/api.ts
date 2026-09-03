@@ -210,17 +210,29 @@ export interface WaveformData {
   duration: number;
 }
 
-export interface PreviewStream { track_id: number; stream_url: string; duration: number | null; }
-export interface PreviewMetadata {
+export interface PreviewStream {
   track_id: number;
-  status: 'queued' | 'processing' | 'complete' | 'failed';
+  stream_url: string;
+  duration: number | null;
+}
+
+export type PreviewMetadataStatus = 'queued' | 'processing' | 'complete' | 'failed';
+
+export interface PreviewMetadataSnapshot {
+  track_id: number;
+  status: PreviewMetadataStatus;
   revision: number;
   waveform: WaveformData | null;
-  key: string | null; camelot: string | null; bpm: number | null; error: string | null;
+  key: string | null;
+  camelot: string | null;
+  bpm: number | null;
+  error: string | null;
 }
 
 export const preview = {
+  // Legacy combined endpoint kept as a fallback.
   getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null; key: string | null; camelot: string | null; bpm: number | null }>(`/preview/${trackId}`),
   getStream: (trackId: number, signal?: AbortSignal) => request<PreviewStream>(`/preview/${trackId}/stream`, { signal }),
-  getMetadata: (trackId: number, signal?: AbortSignal) => request<PreviewMetadata>(`/preview/${trackId}/metadata`, { signal }),
+  getMetadata: (trackId: number, signal?: AbortSignal) => request<PreviewMetadataSnapshot>(`/preview/${trackId}/metadata`, { signal }),
 };
+

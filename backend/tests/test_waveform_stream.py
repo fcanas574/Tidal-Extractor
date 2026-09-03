@@ -1,171 +1,175 @@
-from pathlib import Path
+"""Tests for the streaming waveform analyzer (Stage 2, Tasks 1 & 2).
 
+Task 1 tests pin the load-bearing property of the streaming generator: feeding
+a track in arbitrary chunks must produce the same waveform as feeding it whole,
+and filter state must survive chunk boundaries. Task 2 test pins the ffmpeg
+reader: analyze_stream writes one temp WAV and emits progressive snapshots with
+a terminal ``complete=True`` snapshot. Output-equivalence with the full-file
+``get_waveform_cached`` path is checked in Task 3 integration tests.
+"""
 import numpy as np
 import pytest
-from backend.waveform_stream import StreamingWaveformGenerator
+
+import backend.waveform_stream as waveform_stream
+from backend.waveform_stream import (
+    StreamingWaveformGenerator,
+    analyze_stream,
+    club_bands,
+)
 
 
 @pytest.fixture
-def fixture_samples():
-    rng = np.random.default_rng(42)
-    t = np.arange(44100 * 3, dtype=np.int64)  # ~3 s: many pixels, deterministic
-    base = (12000 * np.sin(2 * np.pi * 220 * t / 44100)
-            + 6000 * np.sin(2 * np.pi * 3000 * t / 44100))
-    noise = rng.integers(-800, 800, size=t.size)
-    return np.clip(base + noise, -32768, 32767).astype(np.int16)
+def fixture_samples() -> np.ndarray:
+    """Deterministic signed-16-bit mono signal with content in all 3 club bands.
 
-
-def _feed_chunks(gen, samples, sizes):
-    start = 0
-    for size in sizes:
-        gen.feed(samples[start:start + size])
-        start += size
-
-
-def test_chunked_matches_single_chunk_within_tolerance(fixture_samples):
-    one = StreamingWaveformGenerator(44100, fixture_samples.size, width=600)
-    one.feed(fixture_samples)
-    fin_one = one.finish()
-
-    many = StreamingWaveformGenerator(44100, fixture_samples.size, width=600)
-    _feed_chunks(many, fixture_samples, (137, 4096, 8191, 73, 100000, 10, 50000, 999999))
-    fin_many = many.finish()
-
-    assert set(fin_many["bands"]) == set(fin_one["bands"])
-    for band in ("low", "mid", "high"):
-        assert len(fin_many["bands"][band]) == len(fin_one["bands"][band]) > 0
-        np.testing.assert_allclose(fin_many["bands"][band], fin_one["bands"][band],
-                                   atol=2 / 32768)
-
-
-def test_filter_state_survives_pathological_boundaries(fixture_samples):
-    gen = StreamingWaveformGenerator(44100, fixture_samples.size, width=600)
-    _feed_chunks(gen, fixture_samples, (1, 1, 1, 4096, 1, 2048))
-    result = gen.finish()
-    for band in result["bands"].values():
-        assert len(band) > 0
-        assert np.isfinite(band).all()
-
-
-def test_provisional_points_use_stable_scale(fixture_samples):
-    gen = StreamingWaveformGenerator(44100, fixture_samples.size, width=600)
-    out = gen.feed(fixture_samples[:44100])
-    out2 = gen.feed(fixture_samples[44100:])
-    # Provisional values are bounded in [0, 1]; later chunks never rescale earlier ones
-    assert all(0.0 <= v <= 1.0 for v in out["low"] + out2["low"])
-
-
-# --- Task 4: ffmpeg PCM streaming with one temp WAV ---
-import io
-import wave as wavemod
-from backend import waveform_stream
-
-
-class FakeProc:
-    def __init__(self, pcm_bytes):
-        self.stdout = io.BytesIO(pcm_bytes)
-        self.killed = False
-
-    async def read(self, n):
-        await __import__("asyncio").sleep(0)
-        return self.stdout.read(n)
-
-    def kill(self):
-        self.killed = True
-
-    async def wait(self):
-        return 0
-
-
-@pytest.mark.asyncio
-async def test_analyze_stream_writes_wav_and_emits_snapshots(tmp_path, monkeypatch):
-    pcm = (np.sin(np.linspace(0, 400, 44100 * 2)) * 10000).astype(np.int16).tobytes()
-    proc = FakeProc(pcm)
-
-    async def fake_start(url):
-        return proc
-
-    monkeypatch.setattr(waveform_stream, "start_pcm_decoder", fake_start)
-    snapshots = []
-    result = await waveform_stream.analyze_stream(
-        "https://example.test/x", 2.0, width=60,
-        on_snapshot=snapshots.append, temp_dir=str(tmp_path))
-
-    assert Path(result["temp_wav_path"]).exists()
-    with wavemod.open(result["temp_wav_path"], "rb") as w:
-        assert w.getframerate() == 44100
-        assert w.getsampwidth() == 2
-        assert w.getnchannels() == 1
-        assert w.getnframes() == len(pcm) // 2
-    assert snapshots[-1]["complete"] is True
-    assert all(s["complete"] is False for s in snapshots[:-1])
-
-
-@pytest.mark.asyncio
-async def test_analyze_stream_cleans_up_on_decoder_error(tmp_path, monkeypatch):
-    class BoomStdout:
-        async def read(self, n):
-            raise RuntimeError("pipe died")
-
-    class BadProc:
-        stdout = BoomStdout()
-        killed = False
-
-        def kill(self):
-            self.killed = True
-
-        async def wait(self):
-            return 1
-
-    async def fake_start(url):
-        return BadProc()
-
-    monkeypatch.setattr(waveform_stream, "start_pcm_decoder", fake_start)
-    with pytest.raises(RuntimeError):
-        await waveform_stream.analyze_stream("u", 2.0, temp_dir=str(tmp_path))
-    assert not list(tmp_path.glob("*.wav"))  # temp WAV removed on failure
-
-
-@pytest.mark.asyncio
-async def test_analyze_stream_matches_full_file_build_waveform(tmp_path):
-    """Spec equivalence gate vs the legacy backend.waveform.build_waveform path."""
-    from backend.waveform import build_waveform
-
-    # Deterministic 8s mono test tone written as a real WAV file
-    rng = np.random.default_rng(7)
+    low  (<250Hz):   60 Hz sine
+    mid  (250-1200): 600 Hz sine
+    high (2000-3000): 2500 Hz sine
+    plus broadband noise so min/max windows are non-trivial. Seeded for
+    reproducibility (seed lives in the test, not the session).
+    """
     sr = 44100
-    t = np.arange(sr * 8)
-    sig = (9000 * np.sin(2 * np.pi * 180 * t / sr)
-           + 5000 * np.sin(2 * np.pi * 2500 * t / sr)
-           + rng.integers(-500, 500, t.size)).astype(np.int16)
-    wav_file = tmp_path / "fixture.wav"
-    with wavemod.open(str(wav_file), "wb") as w:
-        w.setnchannels(1); w.setsampwidth(2); w.setframerate(sr)
-        w.writeframes(sig.tobytes())
+    n = 6 * sr  # 6 seconds -> 600 pixels at width=600 (spp=441)
+    t = np.arange(n) / sr
+    rng = np.random.default_rng(20260727)
+    signal = (
+        0.5 * np.sin(2 * np.pi * 60 * t)
+        + 0.3 * np.sin(2 * np.pi * 600 * t)
+        + 0.3 * np.sin(2 * np.pi * 2500 * t)
+        + 0.1 * rng.standard_normal(n)
+    )
+    # Normalize to [-32768, 32767] int16 range.
+    signal = (signal / np.max(np.abs(signal)) * 32767).astype(np.int16)
+    return signal.astype(np.float64)
 
-    streaming = await waveform_stream.analyze_stream(str(wav_file), 8.0, width=600,
-                                                     temp_dir=str(tmp_path))
-    legacy = build_waveform(str(wav_file))
-    assert legacy.get("bands"), "legacy path returned empty"
+
+def test_chunked_output_matches_single_chunk_within_tolerance(fixture_samples):
+    one = StreamingWaveformGenerator.from_samples(fixture_samples, width=600)
+    chunked = StreamingWaveformGenerator.from_samples(
+        fixture_samples, width=600, chunk_sizes=[137, 4096, 8191, 73]
+    )
+    assert chunked.snapshot()['duration'] == pytest.approx(one.snapshot()['duration'])
+    assert set(chunked.snapshot()['bands'].keys()) == set(one.snapshot()['bands'].keys())
     for band in ("low", "mid", "high"):
-        a = np.array(streaming["bands"][band])
-        b = np.array(legacy["bands"][band])
-        assert len(a) > 0 and len(b) > 0
-        n = min(len(a), len(b))
-        assert len(a) == len(b), (
-            f"{band}: streaming {len(a)} pts vs legacy {len(b)} pts")
-        np.testing.assert_allclose(a[:n], b[:n], atol=0.02)
+        np.testing.assert_allclose(
+            chunked.snapshot()['bands'][band],
+            one.snapshot()['bands'][band],
+            atol=2 / 32768,
+        )
 
-    import os as _os
-    _os.unlink(streaming["temp_wav_path"])
+
+def test_filter_state_survives_chunk_boundary(fixture_samples):
+    generator = StreamingWaveformGenerator.from_samples(
+        fixture_samples, width=600, chunk_sizes=[1, 1, 1, 4096]
+    )
+    result = generator.snapshot()
+    assert len(result['bands']['low']) > 0
+    for band in ("low", "mid", "high"):
+        band_vals = result['bands'][band]
+        assert len(band_vals) > 0
+        assert np.isfinite(band_vals).all()
+
+
+def test_feed_returns_only_newly_completed_points(fixture_samples):
+    """feed() must return the delta, not the whole accumulated list."""
+    spp = 441  # width 600 over 6s @ 44100
+    gen = StreamingWaveformGenerator(44100, 1, len(fixture_samples), 600,
+                                     bands=club_bands(44100))
+    # An incomplete chunk (less than one pixel) yields no new points yet.
+    new = gen.feed(fixture_samples[:spp - 5])
+    for band in ("low", "mid", "high"):
+        assert new[band] == []
+    # The next chunk crosses the first pixel boundary -> one new point per band.
+    new = gen.feed(fixture_samples[spp - 5:spp + 3])
+    for band in ("low", "mid", "high"):
+        assert len(new[band]) == 1
+    assert not gen.snapshot()['complete']
+
+
+def test_snapshot_reports_complete_after_finish(fixture_samples):
+    gen = StreamingWaveformGenerator.from_samples(fixture_samples, width=600)
+    snap = gen.snapshot()
+    assert snap['complete'] is True
+    # Final normalized per-band output is bounded to [0, 1].
+    for band in ("low", "mid", "high"):
+        vals = np.asarray(snap['bands'][band])
+        assert vals.size > 0
+        assert vals.min() >= 0.0 and vals.max() <= 1.0 + 1e-9
+
+
+# ---------------------------------------------------------------------------
+# Task 2: analyze_stream -- ffmpeg PCM reader + one temp WAV + snapshots
+# ---------------------------------------------------------------------------
 
 
 @pytest.mark.asyncio
-async def test_analyze_stream_cleans_up_when_spawn_fails(tmp_path, monkeypatch):
-    async def failing_start(url):
-        raise RuntimeError("ffmpeg binary missing")
+async def test_analyze_stream_writes_wav_and_emits_snapshots(monkeypatch, tmp_path):
+    """analyze_stream writes one temp WAV, emits progressive snapshots (first
+    incomplete, last complete), with caller-owned temp-path in the result."""
+    # Deterministic mono s16le PCM: 3 s of an 80 Hz sine (lives in the low band).
+    sr = 44100
+    n = 3 * sr
+    t = np.arange(n) / sr
+    signal = (0.9 * np.sin(2 * np.pi * 80 * t) * 32767).astype(np.int16)
+    pcm_bytes = signal.tobytes()  # native int16 little-endian on this platform
 
-    monkeypatch.setattr(waveform_stream, "start_pcm_decoder", failing_start)
-    with pytest.raises(RuntimeError):
-        await waveform_stream.analyze_stream("u", 2.0, temp_dir=str(tmp_path))
-    assert not list(tmp_path.glob("*.wav"))  # no orphaned wav on spawn failure
+    # Block size NOT aligned to 2-byte samples, proving analyze_stream aligns.
+    block = 819
+
+    async def fake_pcm_decoder(stream_url: str):
+        """Async generator yielding raw s16le byte blocks (ffmpeg stand-in)."""
+        for offset in range(0, len(pcm_bytes), block):
+            yield pcm_bytes[offset:offset + block]
+
+    monkeypatch.setattr(waveform_stream, "start_pcm_decoder", fake_pcm_decoder)
+
+    snapshots = []
+    result = await analyze_stream(
+        "https://example.test/track", duration=12.0, width=60,
+        on_snapshot=snapshots.append,
+    )
+
+    # Caller owns the temp WAV path; it exists and is a real WAV.
+    assert result["temp_wav_path"] is not None
+    from pathlib import Path
+    assert Path(result["temp_wav_path"]).is_file()
+
+    # Progressive snapshots were emitted, ending in the complete one.
+    assert len(snapshots) >= 2
+    assert snapshots[0]["complete"] is False
+    assert snapshots[-1]["complete"] is True
+
+    # The result carries the final bands + duration.
+    assert set(result["bands"].keys()) == {"low", "mid", "high"}
+    for band in ("low", "mid", "high"):
+        assert len(result["bands"][band]) > 0
+
+    # The temp WAV is a valid s16le mono 44100Hz file matching the streamed
+    # samples (single media tee: key detection will read this, not re-fetch).
+    from scipy.io import wavfile
+    rate, data = wavfile.read(result["temp_wav_path"])
+    assert rate == sr
+    assert data.ndim == 1
+    assert len(data) == n
+
+
+@pytest.mark.asyncio
+async def test_analyze_stream_cleans_up_on_failure(monkeypatch, tmp_path):
+    """If the decoder blows up, no temp WAV is left behind and no snapshot claims
+    a complete state."""
+    async def failing_decoder(stream_url: str):
+        raise RuntimeError("ffmpeg exploded")
+        yield  # pragma: no cover - make this an async generator
+
+    monkeypatch.setattr(waveform_stream, "start_pcm_decoder", failing_decoder)
+    snapshots = []
+    result = await analyze_stream(
+        "https://example.test/track", duration=10.0, width=60,
+        on_snapshot=snapshots.append,
+    )
+    # Analyzer returns bands + duration (empty) and NO temp wav path on failure.
+    assert result["temp_wav_path"] is None
+    assert result["bands"] == {"low": [], "mid": [], "high": []}
+    # No complete snapshot emitted for a track that never produced output.
+    assert all(s["complete"] is False for s in snapshots)
+

@@ -111,8 +111,29 @@ class PreviewJobManager:
             if job is None:
                 return
             self._update_snapshot_locked(job, status="processing")
+
+        # Create a progressive snapshot callback that the analyzer can call
+        # to publish intermediate waveform data before the final result arrives.
+        async def _on_progress(snapshot: dict) -> None:
+            with self._lock:
+                current_job = self._jobs.get(track_id)
+                if current_job is not None:
+                    bands = snapshot.get("bands")
+                    duration = snapshot.get("duration")
+                    # Wrap bands in the frontend WaveformData contract:
+                    # { bands: {low,mid,high}, duration }.
+                    waveform = {"bands": bands, "duration": duration} if bands is not None else None
+                    # Push "complete" on the terminal snapshot so the frontend
+                    # sees the final waveform; keep "processing" for intermediate
+                    # snapshots.
+                    status = "complete" if snapshot.get("complete") else "processing"
+                    self._update_snapshot_locked(current_job, status=status, waveform=waveform)
+
         try:
-            result = self.analyzer(job.track_id, job.stream_url, job.duration)
+            result = self.analyzer(
+                job.stream_url, job.duration, job.track_id,
+                on_snapshot=_on_progress,
+            )
             if inspect.isawaitable(result):
                 result = await result
             result_data = self._extract_result_data(result)

@@ -13,7 +13,8 @@ from backend.config import AppConfig
 from backend.models import Database
 from backend.quality import get_bitrate, bitrate_meets_threshold, QUALITY_PRESETS, QUALITY_PRESETS_ORDER
 from backend.converter import convert_format
-from backend.tagger import tag_file, tag_key
+from backend.tagger import tag_file, tag_dj_metadata
+from backend.freqblog import lookup_track_metadata
 from backend.search import get_album_tracks, get_playlist_tracks
 from backend.key_detection import detect_key as _detect_key, file_hash
 
@@ -31,6 +32,40 @@ FORMAT_EXT_MAP = {
     "MP3": ".mp3",
     "M4A": ".m4a",
 }
+
+AUTO_QUALITY = "auto_max"
+
+
+def _resolve_auto_quality(track) -> str:
+    """Pick the highest quality preset actually available for this track,
+    per Tidal's own mediaMetadata tags (no network probing needed)."""
+    if getattr(track, "is_hi_res_lossless", False):
+        return "hi_res_lossless"
+    if getattr(track, "is_lossless", False):
+        return "high_lossless"
+    return "low_320k"
+
+
+async def _resolve_dj_metadata(final_path: str, title: str, artist: str, tidal_bpm: float | None = None) -> dict:
+    """Resolve BPM + Camelot key for a downloaded track: FreqBlog first, then Tidal's own
+    BPM (if present) combined with local key analysis, then fully-local analysis as last resort."""
+    freq_result = await lookup_track_metadata(title, artist)
+    if freq_result and freq_result.get("bpm") and freq_result.get("camelot"):
+        return {
+            "key": freq_result["key"],
+            "camelot": freq_result["camelot"],
+            "bpm": freq_result["bpm"],
+            "confidence": freq_result.get("key_confidence") or 1.0,
+            "source": "freqblog",
+        }
+    local_result = await asyncio.to_thread(_detect_key, final_path)
+    return {
+        "key": local_result["key"],
+        "camelot": local_result["camelot"],
+        "bpm": tidal_bpm if tidal_bpm else local_result["bpm"],
+        "confidence": local_result["confidence"],
+        "source": "local",
+    }
 
 # Track metadata extraction function
 def extract_track_metadata(track) -> dict:
@@ -147,6 +182,9 @@ class DownloadOrchestrator:
         track = self.session.track(int(tidal_id))
         metadata = extract_track_metadata(track)
 
+        if quality_preset == AUTO_QUALITY:
+            quality_preset = _resolve_auto_quality(track)
+
         quality_enum = QUALITY_ENUM_MAP.get(quality_preset, Quality.high_lossless)
         self.session.audio_quality = quality_enum
         stream = track.get_stream()
@@ -195,6 +233,8 @@ class DownloadOrchestrator:
             final_path = await asyncio.to_thread(
                 convert_format, tmp_path, final_path, target_format.lower()
             )
+            if final_path != tmp_path and os.path.exists(tmp_path):
+                os.unlink(tmp_path)
         else:
             shutil.move(tmp_path, final_path)
 
@@ -214,12 +254,14 @@ class DownloadOrchestrator:
 
         if ext in (".flac", ".mp3", ".m4a"):
             try:
-                key_result = await asyncio.to_thread(_detect_key, final_path)
+                tidal_bpm = metadata.get("bpm") if metadata.get("bpm") else None
+                dj = await _resolve_dj_metadata(final_path, metadata["title"], metadata["artist"], tidal_bpm)
                 h = file_hash(final_path)
-                await self.db.set_key_cache(h, key_result["key"], key_result["camelot"], key_result["confidence"])
-                await asyncio.to_thread(tag_key, final_path, key_result["key"], key_result["camelot"])
+                await self.db.set_key_cache(h, dj["key"], dj["camelot"], dj["confidence"], bpm=dj["bpm"])
+                await asyncio.to_thread(tag_dj_metadata, final_path, dj["camelot"], dj["bpm"])
+                logger.info(f"DJ metadata ({dj['source']}): {final_path} — BPM={dj['bpm']}, Key={dj['camelot']}")
             except Exception as e:
-                logger.warning(f"Key detection failed for {final_path}: {e}")
+                logger.warning(f"DJ metadata tagging failed for {final_path}: {e}")
         await self.db.add_to_history(
             tidal_id=tidal_id, item_type=item_type, title=metadata["title"],
             artist=metadata["artist"], album=metadata["album"],

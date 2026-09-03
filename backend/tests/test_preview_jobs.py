@@ -29,7 +29,7 @@ def test_snapshot_reports_failed_job():
 async def test_start_or_get_runs_job_on_active_loop_without_test_pump():
     started = asyncio.Event()
 
-    async def analyzer(*_args):
+    async def analyzer(*_args, **kwargs):
         started.set()
         return {"waveform": {"points": [1, 2, 3]}, "bpm": 128.0}
 

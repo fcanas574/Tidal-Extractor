@@ -24,32 +24,38 @@ def tag_file(file_path: str, metadata: dict, cover_art_url: Optional[str] = None
         logger.warning(f"Unsupported format for tagging: {ext}")
 
 
-def tag_key(file_path: str, key: str, camelot: str):
-    """Embed detected key and Camelot notation into file metadata."""
-    from mutagen.id3 import TKEY, TXXX
+def tag_dj_metadata(file_path: str, camelot: Optional[str], bpm: Optional[float] = None):
+    """Write DJ-standard Key (Camelot notation) and BPM tags for Rekordbox/Serato/VirtualDJ."""
     ext = Path(file_path).suffix.lower()
+    bpm_int = round(bpm) if bpm else None
     try:
         if ext == ".flac":
             f = FLAC(file_path)
-            f["initialkey"] = [key]
-            f["camelot"] = [camelot]
+            if camelot:
+                f["initialkey"] = [camelot]
+            if bpm_int:
+                f["bpm"] = [str(bpm_int)]
             f.save()
         elif ext == ".mp3":
             f = MP3(file_path)
             if f.tags is None:
                 f.add_tags()
-            f.tags["TKEY"] = TKEY(encoding=3, text=key)
-            f.tags["TXXX:CAMELOT"] = TXXX(encoding=3, desc="CAMELOT", text=camelot)
+            if camelot:
+                f.tags["TKEY"] = TKEY(encoding=3, text=camelot)
+            if bpm_int:
+                f.tags["TBPM"] = TBPM(encoding=3, text=str(bpm_int))
             f.save()
         elif ext == ".m4a":
             f = MP4(file_path)
             if f.tags is None:
                 f.add_tags()
-            f.tags["----:com.apple.iTunes:initialkey"] = [key.encode("utf-8")]
-            f.tags["----:com.apple.iTunes:CAMELOT"] = [camelot.encode("utf-8")]
+            if camelot:
+                f.tags["----:com.apple.iTunes:initialkey"] = [camelot.encode("utf-8")]
+            if bpm_int:
+                f.tags["tmpo"] = [bpm_int]
             f.save()
     except Exception as e:
-        logger.warning(f"Failed to write key tags to {file_path}: {e}")
+        logger.warning(f"Failed to write DJ metadata tags to {file_path}: {e}")
 
 
 def _get_cover_bytes(metadata: dict, cover_art_url: Optional[str] = None) -> Optional[bytes]:

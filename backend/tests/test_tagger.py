@@ -1,7 +1,7 @@
 import subprocess
 import pytest
 import mutagen
-from backend.tagger import tag_file
+from backend.tagger import tag_file, tag_dj_metadata
 
 
 def _generate_test_flac(path: str):
@@ -32,6 +32,21 @@ def test_mp3(tmp_path):
     mp3_path = str(tmp_path / "test.mp3")
     _generate_test_mp3(mp3_path)
     return mp3_path
+
+
+def _generate_test_m4a(path: str):
+    subprocess.run(
+        ["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
+         "-t", "1", "-c:a", "aac", "-y", path],
+        capture_output=True, check=True,
+    )
+
+
+@pytest.fixture
+def test_m4a(tmp_path):
+    m4a_path = str(tmp_path / "test.m4a")
+    _generate_test_m4a(m4a_path)
+    return m4a_path
 
 
 METADATA = {
@@ -126,3 +141,50 @@ def test_tag_skips_none_values(test_flac):
     assert "genre" not in f
     assert "bpm" not in f
     assert "initialkey" not in f
+
+
+@pytest.mark.skipif(
+    subprocess.run(["ffmpeg", "-version"], capture_output=True).returncode != 0,
+    reason="ffmpeg not installed"
+)
+def test_tag_dj_metadata_flac(test_flac):
+    tag_dj_metadata(test_flac, "8A", 128.4)
+    f = mutagen.File(test_flac)
+    assert f["initialkey"][0] == "8A"
+    assert f["bpm"][0] == "128"
+    assert "camelot" not in f  # no redundant second field
+
+
+@pytest.mark.skipif(
+    subprocess.run(["ffmpeg", "-version"], capture_output=True).returncode != 0,
+    reason="ffmpeg not installed"
+)
+def test_tag_dj_metadata_mp3(test_mp3):
+    tag_dj_metadata(test_mp3, "8A", 128.4)
+    f = mutagen.File(test_mp3)
+    assert f["TKEY"][0] == "8A"
+    assert str(f["TBPM"][0]) == "128"
+    assert "TXXX:CAMELOT" not in f
+
+
+@pytest.mark.skipif(
+    subprocess.run(["ffmpeg", "-version"], capture_output=True).returncode != 0,
+    reason="ffmpeg not installed"
+)
+def test_tag_dj_metadata_m4a_rounds_float_bpm(test_m4a):
+    """MP4's tmpo atom requires an int — a raw float BPM must not raise."""
+    tag_dj_metadata(test_m4a, "8A", 127.85)
+    f = mutagen.File(test_m4a)
+    assert f["----:com.apple.iTunes:initialkey"][0] == b"8A"
+    assert f["tmpo"][0] == 128
+
+
+@pytest.mark.skipif(
+    subprocess.run(["ffmpeg", "-version"], capture_output=True).returncode != 0,
+    reason="ffmpeg not installed"
+)
+def test_tag_dj_metadata_skips_none_values(test_flac):
+    tag_dj_metadata(test_flac, None, None)
+    f = mutagen.File(test_flac)
+    assert "initialkey" not in f
+    assert "bpm" not in f
