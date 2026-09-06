@@ -19,7 +19,9 @@ class MockAudioInstance {
     (this.listeners[type] ??= []).push(listener)
   }
   removeEventListener = () => {}
-  play = () => Promise.resolve<void>(undefined)
+  play = function (this: unknown) {
+    return HTMLMediaElement.prototype.play.call(this as HTMLMediaElement)
+  }
   pause = () => {}
 }
 
