@@ -36,7 +36,7 @@ async def test_uses_one_stream_and_persists(monkeypatch):
     monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
     _fake_session_track(monkeypatch)
 
-    result = await main.preview_analyzer(7, "https://s/7", 240.0)
+    result = await main.preview_analyzer(stream_url="https://s/7", duration=240.0, track_id=7)
     assert calls == ["https://s/7"]                    # exactly one download
     assert saved["7"]["low"] == [0.1]                  # persisted by tidal id
     assert result["waveform"]["bands"]["mid"] == [0.2]
@@ -52,7 +52,7 @@ async def test_cache_hit_skips_download(monkeypatch):
 
     monkeypatch.setattr(main, "analyze_stream", boom)
     monkeypatch.setattr(main.db, "get_waveform_cache", hit)
-    result = await main.preview_analyzer(9, "https://s/9", 12.0)
+    result = await main.preview_analyzer(stream_url="https://s/9", duration=12.0, track_id=9)
     assert result["waveform"]["bands"]["high"] == [1.0]
 
 
@@ -89,7 +89,7 @@ async def test_local_key_detection_reads_temp_wav_not_network(monkeypatch):
     monkeypatch.setattr(main, "_remove_temp_file", fake_remove)
     _fake_session_track(monkeypatch)
 
-    result = await main.preview_analyzer(11, "https://s/11", 10.0)
+    result = await main.preview_analyzer(stream_url="https://s/11", duration=10.0, track_id=11)
     assert seen["path"] == "/tmp/fake.wav"
     assert deleted == ["/tmp/fake.wav"]
     assert result["camelot"] == "4A"
@@ -107,7 +107,7 @@ async def test_analysis_failure_raises_into_failed_snapshot(monkeypatch):
     monkeypatch.setattr(main.db, "get_waveform_cache", none)
     _fake_session_track(monkeypatch)
     with pytest.raises(RuntimeError):  # manager converts raised errors into failed snapshots
-        await main.preview_analyzer(13, "https://s/13", 5.0)
+        await main.preview_analyzer(stream_url="https://s/13", duration=5.0, track_id=13)
 
 
 @pytest.mark.asyncio
@@ -194,6 +194,6 @@ async def test_temp_wav_removed_even_when_db_write_fails(monkeypatch):
     _fake_session_track(monkeypatch)
 
     # DB failure must not propagate or block cleanup
-    result = await main.preview_analyzer(15, "https://s/15", 30.0)
+    result = await main.preview_analyzer(stream_url="https://s/15", duration=30.0, track_id=15)
     assert deleted == ["/tmp/fake.wav"]  # temp WAV removed despite DB error
     assert result["waveform"]["bands"]["low"] == [0.2]
