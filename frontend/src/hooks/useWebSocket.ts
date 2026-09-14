@@ -4,19 +4,29 @@ import type { WsMessage } from '../api';
 
 export function useWebSocket(onMessage: (msg: WsMessage) => void) {
   const wsRef = useRef<WebSocket | null>(null);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const disposedRef = useRef(false);
   const onMessageRef = useRef(onMessage);
   onMessageRef.current = onMessage;
   const { dispatch } = useApp();
 
   const connect = useCallback(() => {
+    if (disposedRef.current) return;
+    if (reconnectTimerRef.current !== null) {
+      clearTimeout(reconnectTimerRef.current);
+      reconnectTimerRef.current = null;
+    }
+
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const ws = new WebSocket(`${protocol}//${window.location.host}/ws`);
 
     ws.onopen = () => {
+      if (disposedRef.current || wsRef.current !== ws) return;
       dispatch({ type: 'SET_WS_CONNECTED', payload: true });
     };
 
     ws.onmessage = (event) => {
+      if (disposedRef.current || wsRef.current !== ws) return;
       try {
         const msg: WsMessage = JSON.parse(event.data);
         onMessageRef.current(msg);
@@ -26,11 +36,19 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
     };
 
     ws.onclose = () => {
+      if (disposedRef.current || wsRef.current !== ws) return;
       dispatch({ type: 'SET_WS_CONNECTED', payload: false });
-      setTimeout(connect, 3000);
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+      }
+      reconnectTimerRef.current = setTimeout(() => {
+        reconnectTimerRef.current = null;
+        if (!disposedRef.current) connect();
+      }, 3000);
     };
 
     ws.onerror = () => {
+      if (disposedRef.current || wsRef.current !== ws) return;
       dispatch({ type: 'SET_WS_CONNECTED', payload: false });
     };
 
@@ -38,9 +56,17 @@ export function useWebSocket(onMessage: (msg: WsMessage) => void) {
   }, [dispatch]);
 
   useEffect(() => {
+    disposedRef.current = false;
     connect();
     return () => {
-      wsRef.current?.close();
+      disposedRef.current = true;
+      if (reconnectTimerRef.current !== null) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      const ws = wsRef.current;
+      wsRef.current = null;
+      ws?.close();
     };
   }, [connect]);
 
