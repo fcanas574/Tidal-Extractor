@@ -81,6 +81,7 @@ export interface QueueItem {
   status: 'queued' | 'downloading' | 'complete' | 'failed';
   progress: number;
   error: string | null;
+  revision: number;
 }
 
 export interface Settings {
@@ -117,6 +118,7 @@ export interface HistoryItem {
 export interface WsMessage {
   type: 'progress' | 'quality' | 'complete' | 'error' | 'queue_update';
   id: string;
+  revision?: number;
   [key: string]: unknown;
 }
 

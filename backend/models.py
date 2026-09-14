@@ -26,6 +26,7 @@ class Database:
                 progress REAL NOT NULL DEFAULT 0.0,
                 error TEXT,
                 from_collection INTEGER NOT NULL DEFAULT 0,
+                revision INTEGER NOT NULL DEFAULT 0,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             );
             CREATE TABLE IF NOT EXISTS history (
@@ -69,14 +70,21 @@ class Database:
             );
         """)
         await self._conn.commit()
-        try:
-            await self._conn.execute("ALTER TABLE queue ADD COLUMN from_collection INTEGER NOT NULL DEFAULT 0")
-        except Exception:
-            pass
-        try:
+        queue_columns = await self._conn.execute_fetchall("PRAGMA table_info(queue)")
+        queue_column_names = {column["name"] for column in queue_columns}
+        if "from_collection" not in queue_column_names:
+            await self._conn.execute(
+                "ALTER TABLE queue ADD COLUMN from_collection INTEGER NOT NULL DEFAULT 0"
+            )
+        if "revision" not in queue_column_names:
+            await self._conn.execute(
+                "ALTER TABLE queue ADD COLUMN revision INTEGER NOT NULL DEFAULT 0"
+            )
+
+        key_cache_columns = await self._conn.execute_fetchall("PRAGMA table_info(key_cache)")
+        if "bpm" not in {column["name"] for column in key_cache_columns}:
             await self._conn.execute("ALTER TABLE key_cache ADD COLUMN bpm REAL")
-        except Exception:
-            pass  # Column already exists
+        await self._conn.commit()
 
     async def close(self):
         if self._conn:
@@ -84,8 +92,9 @@ class Database:
 
     async def add_to_queue(self, tidal_id, item_type, title, artist, album, quality, format, from_collection: bool = False):
         cursor = await self._conn.execute(
-            """INSERT INTO queue (tidal_id, item_type, title, artist, album, quality, format, from_collection)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            """INSERT INTO queue
+               (tidal_id, item_type, title, artist, album, quality, format, from_collection, revision)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)""",
             (tidal_id, item_type, title, artist, album, quality, format, int(from_collection)),
         )
         await self._conn.commit()
@@ -100,6 +109,12 @@ class Database:
         )
         return [dict(r) for r in rows]
 
+    async def get_queue_item(self, item_id: int):
+        rows = await self._conn.execute_fetchall(
+            "SELECT * FROM queue WHERE id = ?", (item_id,)
+        )
+        return dict(rows[0]) if rows else None
+
     async def update_queue_status(self, item_id: int, status: str, error: str = None, progress: float = None):
         parts = ["status = ?"]
         values = [status]
@@ -109,11 +124,13 @@ class Database:
         if progress is not None:
             parts.append("progress = ?")
             values.append(progress)
+        parts.append("revision = revision + 1")
         values.append(item_id)
         await self._conn.execute(
             f"UPDATE queue SET {', '.join(parts)} WHERE id = ?", values
         )
         await self._conn.commit()
+        return await self.get_queue_item(item_id)
 
     async def remove_from_queue(self, item_id: int):
         await self._conn.execute("DELETE FROM queue WHERE id = ?", (item_id,))

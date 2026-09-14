@@ -328,7 +328,9 @@ class DownloadOrchestrator:
 
                 try:
                     async def on_progress(item_id, pct, bytes_done, bytes_total):
-                        await self.db.update_queue_status(item_id, "downloading", progress=pct)
+                        updated_item = await self.db.update_queue_status(
+                            item_id, "downloading", progress=pct
+                        )
                         if self.ws_manager:
                             await self.ws_manager.broadcast({
                                 "type": "progress",
@@ -336,25 +338,31 @@ class DownloadOrchestrator:
                                 "pct": round(pct, 1),
                                 "bytes": bytes_done,
                                 "total": bytes_total,
+                                "revision": updated_item["revision"],
                             })
 
                     path = await self.download_track(item, on_progress=on_progress)
                     if self.ws_manager:
                         file_size = os.path.getsize(path)
+                        completed_item = await self.db.get_queue_item(item["id"])
                         await self.ws_manager.broadcast({
                             "type": "complete",
                             "id": str(item["id"]),
                             "path": path,
                             "size": file_size,
+                            "revision": completed_item["revision"],
                         })
                 except Exception as e:
                     logger.error(f"Download failed for item {item['id']}: {e}")
-                    await self.db.update_queue_status(item["id"], "failed", error=str(e))
+                    failed_item = await self.db.update_queue_status(
+                        item["id"], "failed", error=str(e)
+                    )
                     if self.ws_manager:
                         await self.ws_manager.broadcast({
                             "type": "error",
                             "id": str(item["id"]),
                             "reason": str(e),
+                            "revision": failed_item["revision"],
                         })
         finally:
             self._running = False
