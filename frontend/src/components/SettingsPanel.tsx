@@ -27,6 +27,8 @@ type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 export default function SettingsPanel() {
   const { state, dispatch } = useApp();
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const [draft, setDraft] = useState<Settings>(state.settings);
   const [saveState, setSaveState] = useState<SaveState>('idle');
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -35,18 +37,49 @@ export default function SettingsPanel() {
   const dirty = JSON.stringify(draft) !== JSON.stringify(state.settings);
 
   useEffect(() => {
-    if (!state.settingsPanelOpen) return;
+    if (!state.settingsPanelOpen) {
+      if (!state.activityPanelOpen) triggerRef.current?.focus();
+      triggerRef.current = null;
+      return;
+    }
+    const activeElement = document.activeElement;
+    triggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
     setDraft(state.settings);
     setSaveState('idle');
     setSaveError(null);
     closeButtonRef.current?.focus();
     quality.cache().then(setQualityCache).catch(() => undefined);
-  }, [state.settingsPanelOpen]);
+  }, [state.activityPanelOpen, state.settingsPanelOpen]);
 
   useEffect(() => {
     if (!state.settingsPanelOpen) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') dispatch({ type: 'TOGGLE_SETTINGS_PANEL' });
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        dispatch({ type: 'TOGGLE_SETTINGS_PANEL' });
+        return;
+      }
+      if (event.key !== 'Tab') return;
+
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), a[href], [tabindex]:not([tabindex="-1"])',
+      ));
+      if (focusable.length === 0) return;
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (!panel.contains(document.activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
@@ -97,7 +130,7 @@ export default function SettingsPanel() {
   return (
     <>
       <button type="button" className="fixed inset-0 z-40" aria-label="Dismiss settings overlay" onClick={close} style={{ background: 'rgba(4, 8, 18, 0.6)' }} />
-      <aside id="settings-panel" className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-[380px] animate-slide-in-right overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-describedby="settings-save-status" style={{ background: 'var(--bg-deep)', borderLeft: '1px solid var(--glass-border)', boxShadow: '-20px 0 60px rgba(0, 0, 0, 0.5)' }}>
+      <aside ref={panelRef} id="settings-panel" className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-[380px] animate-slide-in-right overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-describedby="settings-save-status" style={{ background: 'var(--bg-deep)', borderLeft: '1px solid var(--glass-border)', boxShadow: '-20px 0 60px rgba(0, 0, 0, 0.5)' }}>
         <div className="p-6">
           <div className="flex items-center justify-between mb-6"><div><h2 id="settings-title" className="text-sm font-semibold uppercase tracking-widest" style={{ color: 'var(--accent-primary)' }}>Settings</h2><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{dirty ? 'Unsaved changes' : 'Download preferences'}</p></div><button ref={closeButtonRef} type="button" onClick={close} className="btn-ghost p-2" aria-label="Close settings"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg></button></div>
           <div className="glow-line mb-6" />

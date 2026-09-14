@@ -23,7 +23,11 @@ interface QueueMeta {
   revision: number;
   lastProgressAt: number | null;
   terminal?: { revision: number; status: 'complete' | 'failed' };
+  optimisticAt?: number;
 }
+
+const OPTIMISTIC_QUEUE_TTL = 30_000;
+const MAX_OPTIMISTIC_QUEUE_ITEMS = 50;
 
 export interface AppState {
   auth: AuthStatus;
@@ -137,12 +141,27 @@ function reconcileItem(
 
 function mergeQueueSnapshot(state: AppState, incomingItems: QueueItem[]): Pick<AppState, 'queue' | 'queueMeta'> {
   const queueMeta: Record<number, QueueMeta> = {};
+  const incomingIds = new Set(incomingItems.map((item) => item.id));
+  const now = Date.now();
+  const optimisticItems = state.queue
+    .filter((item) => {
+      const meta = state.queueMeta[item.id];
+      return !incomingIds.has(item.id)
+        && meta?.optimisticAt !== undefined
+        && now - meta.optimisticAt < OPTIMISTIC_QUEUE_TTL;
+    })
+    .slice(-MAX_OPTIMISTIC_QUEUE_ITEMS);
   const queueItems = incomingItems.map((incoming) => {
     const current = state.queue.find((item) => item.id === incoming.id);
     const result = reconcileItem(current, incoming, state.queueMeta[incoming.id]);
     queueMeta[incoming.id] = result.meta;
     return result.item;
   });
+
+  for (const item of optimisticItems) {
+    queueItems.push(item);
+    queueMeta[item.id] = state.queueMeta[item.id];
+  }
 
   return { queue: queueItems, queueMeta };
 }
@@ -159,12 +178,13 @@ function reducer(state: AppState, action: Action): AppState {
     case 'UPDATE_QUEUE_ITEM': {
       const current = state.queue.find((item) => item.id === action.payload.id);
       const result = reconcileItem(current, action.payload, state.queueMeta[action.payload.id]);
+      const nextMeta = { ...result.meta, optimisticAt: Date.now() };
       return {
         ...state,
         queue: current
           ? state.queue.map((item) => item.id === action.payload.id ? result.item : item)
           : [...state.queue, result.item],
-        queueMeta: { ...state.queueMeta, [action.payload.id]: result.meta },
+        queueMeta: { ...state.queueMeta, [action.payload.id]: nextMeta },
       };
     }
     case 'REMOVE_QUEUE_ITEM':
@@ -221,9 +241,8 @@ function reducer(state: AppState, action: Action): AppState {
         if (messageRevision < currentRevision) return state;
 
         const terminal = { revision: Math.max(currentRevision, messageRevision), status: 'complete' as const };
-        const alreadyNotified = meta?.terminal?.revision === terminal.revision && meta.terminal.status === terminal.status;
+        if (meta?.terminal?.revision === terminal.revision && meta.terminal.status === terminal.status) return state;
         const nextItem = { ...item, status: 'complete' as const, progress: 100, error: null, revision: terminal.revision };
-        const toastId = `dl-${msg.id}`;
         return {
           ...state,
           queue: state.queue.map((candidate) => candidate.id === item.id ? nextItem : candidate),
@@ -231,10 +250,8 @@ function reducer(state: AppState, action: Action): AppState {
             ...state.queueMeta,
             [item.id]: { ...meta, revision: terminal.revision, lastProgressAt: meta?.lastProgressAt ?? null, terminal },
           },
-          toasts: alreadyNotified
-            ? state.toasts.filter((toast) => toast.id !== toastId)
-            : [
-                ...state.toasts.filter((toast) => toast.id !== toastId && toast.id !== `done-${msg.id}`),
+          toasts: [
+                ...state.toasts.filter((toast) => toast.id !== `dl-${msg.id}` && toast.id !== `done-${msg.id}`),
                 {
                   id: `done-${msg.id}`,
                   type: 'success' as const,
@@ -254,10 +271,9 @@ function reducer(state: AppState, action: Action): AppState {
         if (messageRevision < currentRevision) return state;
 
         const terminal = { revision: Math.max(currentRevision, messageRevision), status: 'failed' as const };
-        const alreadyNotified = meta?.terminal?.revision === terminal.revision && meta.terminal.status === terminal.status;
+        if (meta?.terminal?.revision === terminal.revision && meta.terminal.status === terminal.status) return state;
         const reason = (msg.reason as string) || 'Unknown error';
         const nextItem = { ...item, status: 'failed' as const, error: reason, revision: terminal.revision };
-        const toastId = `dl-${msg.id}`;
         return {
           ...state,
           queue: state.queue.map((candidate) => candidate.id === item.id ? nextItem : candidate),
@@ -265,10 +281,8 @@ function reducer(state: AppState, action: Action): AppState {
             ...state.queueMeta,
             [item.id]: { ...meta, revision: terminal.revision, lastProgressAt: meta?.lastProgressAt ?? null, terminal },
           },
-          toasts: alreadyNotified
-            ? state.toasts.filter((toast) => toast.id !== toastId)
-            : [
-                ...state.toasts.filter((toast) => toast.id !== toastId && toast.id !== `err-${msg.id}`),
+          toasts: [
+                ...state.toasts.filter((toast) => toast.id !== `dl-${msg.id}` && toast.id !== `err-${msg.id}`),
                 {
                   id: `err-${msg.id}`,
                   type: 'error' as const,

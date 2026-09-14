@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useApp } from '../context/AppContext';
 import type { QueueItem } from '../api';
@@ -48,7 +48,9 @@ function renderPanel(item: QueueItem, connected = true) {
   act(() => {
     screen.getByRole('button', { name: 'Set queue' }).click();
     screen.getByRole('button', { name: 'Set connection' }).click();
-    screen.getByRole('button', { name: 'Open activity' }).click();
+    const trigger = screen.getByRole('button', { name: 'Open activity' });
+    trigger.focus();
+    trigger.click();
   });
 }
 
@@ -93,5 +95,24 @@ describe('DownloadActivityPanel', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Cancel download' }));
     expect(queue.remove).toHaveBeenCalledWith(1);
     await act(async () => {});
+  });
+
+  it('focuses close on open, restores the trigger, and closes on Escape without being modal', () => {
+    renderPanel(makeItem());
+
+    const dialog = screen.getByRole('dialog', { name: 'Download activity' });
+    const closeButton = within(dialog).getByRole('button', { name: 'Close download activity' });
+    const trigger = screen.getByRole('button', { name: 'Open activity' });
+    expect(dialog).toHaveAttribute('aria-modal', 'false');
+    expect(closeButton).toHaveFocus();
+
+    fireEvent.click(closeButton);
+    expect(trigger).toHaveFocus();
+
+    fireEvent.click(trigger);
+    expect(within(screen.getByRole('dialog', { name: 'Download activity' })).getByRole('button', { name: 'Close download activity' })).toHaveFocus();
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(screen.queryByRole('dialog', { name: 'Download activity' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 });

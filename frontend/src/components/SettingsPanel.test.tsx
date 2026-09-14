@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen } from '@testing-library/react';
+import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useApp } from '../context/AppContext';
 import { quality, settings } from '../api';
@@ -18,19 +18,37 @@ function Harness() {
 
 function renderPanel() {
   render(<AppProvider><Harness /></AppProvider>);
-  act(() => { screen.getByRole('button', { name: 'Set settings' }).click(); screen.getByRole('button', { name: 'Open settings' }).click(); });
+  act(() => {
+    screen.getByRole('button', { name: 'Set settings' }).click();
+    const trigger = screen.getByRole('button', { name: 'Open settings' });
+    trigger.focus();
+    trigger.click();
+  });
 }
 
 afterEach(() => vi.clearAllMocks());
 
 describe('SettingsPanel', () => {
-  it('exposes dialog semantics, Escape, and a focusable close action', () => {
+  it('traps focus, restores the trigger, and closes on Escape', async () => {
     vi.mocked(quality.cache).mockResolvedValue(null);
     renderPanel();
-    expect(screen.getByRole('dialog', { name: 'Settings' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Close settings' })).toHaveFocus();
+    await act(async () => {});
+    const dialog = screen.getByRole('dialog', { name: 'Settings' });
+    const closeButton = within(dialog).getByRole('button', { name: 'Close settings' });
+    const trigger = screen.getByRole('button', { name: 'Open settings' });
+    expect(dialog).toBeInTheDocument();
+    expect(closeButton).toHaveFocus();
+    fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
+    expect(screen.getByRole('button', { name: 'Disconnect account' })).toHaveFocus();
+    fireEvent.click(closeButton);
+    expect(trigger).toHaveFocus();
+
+    fireEvent.click(trigger);
+    await act(async () => {});
+    expect(within(screen.getByRole('dialog', { name: 'Settings' })).getByRole('button', { name: 'Close settings' })).toHaveFocus();
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
+    expect(trigger).toHaveFocus();
   });
 
   it('keeps edited values after save failure and offers inline retry', async () => {

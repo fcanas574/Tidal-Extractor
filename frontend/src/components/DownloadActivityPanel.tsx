@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { queue } from '../api';
 import type { QueueItem } from '../api';
 import { useApp } from '../context/AppContext';
@@ -32,6 +32,8 @@ function itemDetails(item: QueueItem) {
 
 export default function DownloadActivityPanel() {
   const { state, dispatch } = useApp();
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const triggerRef = useRef<HTMLElement | null>(null);
   const [now, setNow] = useState(() => Date.now());
   const [completedCollapsed, setCompletedCollapsed] = useState(true);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
@@ -40,6 +42,28 @@ export default function DownloadActivityPanel() {
   const failedItems = state.queue.filter((item) => item.status === 'failed');
   const completedItems = state.queue.filter((item) => item.status === 'complete');
   const hasActiveWork = activeItems.length > 0;
+
+  useEffect(() => {
+    if (!state.activityPanelOpen) {
+      if (!state.settingsPanelOpen) triggerRef.current?.focus();
+      triggerRef.current = null;
+      return;
+    }
+    const activeElement = document.activeElement;
+    triggerRef.current = activeElement instanceof HTMLElement ? activeElement : null;
+    closeButtonRef.current?.focus();
+  }, [state.activityPanelOpen, state.settingsPanelOpen]);
+
+  useEffect(() => {
+    if (!state.activityPanelOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      event.preventDefault();
+      dispatch({ type: 'TOGGLE_ACTIVITY_PANEL' });
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [dispatch, state.activityPanelOpen]);
 
   useEffect(() => {
     if (!hasActiveWork) return;
@@ -180,7 +204,7 @@ export default function DownloadActivityPanel() {
               {activeItems.length} active · {failedItems.length} failed
             </p>
           </div>
-          <button type="button" className="activity-close" onClick={() => dispatch({ type: 'TOGGLE_ACTIVITY_PANEL' })} aria-label="Close download activity">
+          <button ref={closeButtonRef} type="button" className="activity-close" onClick={() => dispatch({ type: 'TOGGLE_ACTIVITY_PANEL' })} aria-label="Close download activity">
             <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true"><path d="m4 4 8 8M12 4 4 12" /></svg>
           </button>
         </div>

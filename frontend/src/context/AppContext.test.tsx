@@ -125,4 +125,18 @@ describe('AppContext queue reconciliation', () => {
 
     expect(screen.getByTestId('queue-count')).toHaveTextContent('2');
   });
+
+  it('keeps a locally added item through a stale REST snapshot and reconciles it when it appears', () => {
+    renderHarness();
+
+    dispatch({ type: 'UPDATE_QUEUE_ITEM', payload: makeItem({ status: 'queued', revision: 1 }) });
+    dispatch({ type: 'SET_QUEUE', payload: [] });
+    expect(queueState()).toMatchObject({ id: 1, status: 'queued' });
+
+    dispatch({ type: 'SET_QUEUE', payload: [makeItem({ title: 'Server title', status: 'downloading', progress: 12, revision: 2 })] });
+    expect(queueState()).toMatchObject({ title: 'Server title', status: 'downloading', progress: 12, revision: 2 });
+
+    dispatch({ type: 'SET_QUEUE', payload: [] });
+    expect(screen.getByTestId('queue-count')).toHaveTextContent('0');
+  });
 });
