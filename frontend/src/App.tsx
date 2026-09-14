@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { useWebSocket } from './hooks/useWebSocket';
 import { queue, settings } from './api';
@@ -15,6 +15,7 @@ import type { WsMessage } from './api';
 
 function AppContent() {
   const { state, dispatch } = useApp();
+  const queueRequestInFlight = useRef(false);
 
   const handleWsMessage = useCallback((msg: WsMessage) => {
     dispatch({ type: 'WS_MESSAGE', payload: msg });
@@ -22,20 +23,31 @@ function AppContent() {
 
   useWebSocket(handleWsMessage);
 
-  useEffect(() => {
-    settings.get().then((s) => dispatch({ type: 'SET_SETTINGS', payload: s }));
-    queue.list().then((items) => dispatch({ type: 'SET_QUEUE', payload: items }));
+  const refreshQueue = useCallback(() => {
+    if (queueRequestInFlight.current) return;
+
+    queueRequestInFlight.current = true;
+    queue.list()
+      .then((items) => dispatch({ type: 'SET_QUEUE', payload: items }))
+      .catch(() => undefined)
+      .finally(() => {
+        queueRequestInFlight.current = false;
+      });
   }, [dispatch]);
 
   useEffect(() => {
-    if (!state.wsConnected) return;
+    settings.get().then((s) => dispatch({ type: 'SET_SETTINGS', payload: s }));
+    refreshQueue();
+  }, [dispatch, refreshQueue]);
 
-    const id = setInterval(() => {
-      queue.list().then((items) => dispatch({ type: 'SET_QUEUE', payload: items }));
-    }, 5000);
+  const hasActiveWork = state.queue.some((item) => item.status === 'queued' || item.status === 'downloading');
+  useEffect(() => {
+    if (!hasActiveWork) return;
+
+    const id = setInterval(refreshQueue, 5000);
 
     return () => clearInterval(id);
-  }, [state.wsConnected, dispatch]);
+  }, [hasActiveWork, refreshQueue]);
 
   // Keyboard shortcuts
   useEffect(() => {
