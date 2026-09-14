@@ -251,6 +251,7 @@ export default function AudioPlayerFooter() {
   const [keyCamelot, setKeyCamelot] = useState<string | null>(null);
   const [bpm, setBpm] = useState<number | null>(null);
   const [waveformFailed, setWaveformFailed] = useState(false);
+  const [mobileExpanded, setMobileExpanded] = useState(false);
 
   useEffect(() => {
     if (!previewTrack) return;
@@ -312,6 +313,10 @@ export default function AudioPlayerFooter() {
   }, [previewTrack]);
 
   useEffect(() => {
+    setMobileExpanded(false);
+  }, [previewTrack?.id]);
+
+  useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !waveform?.bands) return;
     const rect = canvas.getBoundingClientRect();
@@ -349,56 +354,91 @@ export default function AudioPlayerFooter() {
     dispatch({ type: 'CLEAR_PREVIEW' });
   }, [dispatch]);
 
-  const seek = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const seekToFraction = useCallback((fraction: number) => {
     const audio = audioRef.current;
-    const canvas = canvasRef.current;
-    if (!audio || !canvas) return;
+    if (!audio) return;
     const wfDuration = waveform?.duration || duration;
     if (!wfDuration) return;
-    const rect = canvas.getBoundingClientRect();
-    const fraction = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-    audio.currentTime = fraction * wfDuration;
+    audio.currentTime = Math.max(0, Math.min(1, fraction)) * wfDuration;
   }, [duration, waveform]);
+
+  const seek = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const rect = canvas.getBoundingClientRect();
+    seekToFraction((e.clientX - rect.left) / rect.width);
+  }, [seekToFraction]);
+
+  const seekWithKeyboard = useCallback((e: React.KeyboardEvent<HTMLCanvasElement>) => {
+    const wfDuration = waveform?.duration || duration;
+    if (!wfDuration) return;
+
+    let nextTime: number | null = null;
+    if (e.key === 'ArrowLeft') nextTime = currentTime - 5;
+    if (e.key === 'ArrowRight') nextTime = currentTime + 5;
+    if (e.key === 'Home') nextTime = 0;
+    if (e.key === 'End') nextTime = wfDuration;
+    if (nextTime === null) return;
+
+    e.preventDefault();
+    seekToFraction(nextTime / wfDuration);
+  }, [currentTime, duration, seekToFraction, waveform]);
 
   if (!previewTrack) return null;
 
   const waveformMode = (state.settings?.waveform_color as WaveformMode) || '3band';
+  const totalDuration = waveform?.duration || duration;
+  const detailVisibility = mobileExpanded ? 'block' : 'hidden md:block';
+  const secondaryVisibility = mobileExpanded ? 'flex' : 'hidden md:flex';
 
   return (
     <div
-      className="fixed bottom-0 left-0 right-0 z-50 px-4 py-2"
+      role="region"
+      aria-label={`Preview player: ${previewPlaying ? 'Playing' : 'Paused'} ${previewTrack.title} by ${previewTrack.artist}`}
+      className="fixed bottom-0 left-0 right-0 z-50 px-3 py-2 sm:px-4"
       style={{
-        background: '#060f24',
-        borderTop: '1px solid rgba(255,255,255,0.06)',
+        background: 'var(--glass-bg)',
+        borderTop: '1px solid var(--glass-border)',
+        boxShadow: '0 -12px 32px rgba(11, 13, 18, 0.24)',
         backdropFilter: 'blur(16px)',
       }}
     >
       <span data-testid="waveform-color-mode" className="hidden">{waveformMode}</span>
-      {waveform ? (
-        <canvas
-          ref={canvasRef}
-          onClick={seek}
-          onMouseMove={(e) => {
-            const c = canvasRef.current;
-            if (!c) return;
-            const r = c.getBoundingClientRect();
-            setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
-          }}
-          onMouseLeave={() => setHoverFraction(null)}
-          className="w-full mb-2 cursor-pointer rounded"
-          style={{ display: 'block', height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}
-        />
-      ) : waveformFailed ? (
-        <div className="w-full mb-2 rounded flex items-center justify-center" style={{ height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <span className="text-xs" style={{ color: 'var(--text-dim)' }}>waveform unavailable</span>
-        </div>
-      ) : (
-        <div className="w-full mb-2 rounded animate-pulse"
-             style={{ height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }} />
-      )}
+      <div id="preview-player-details" className={`${detailVisibility} mb-2`}>
+        {waveform ? (
+          <canvas
+            ref={canvasRef}
+            role="slider"
+            tabIndex={0}
+            aria-label={`Seek preview: ${previewTrack.title}`}
+            aria-valuemin={0}
+            aria-valuemax={totalDuration}
+            aria-valuenow={Math.min(currentTime, totalDuration)}
+            aria-valuetext={`${formatTime(currentTime)} of ${formatTime(totalDuration)}`}
+            onClick={seek}
+            onKeyDown={seekWithKeyboard}
+            onMouseMove={(e) => {
+              const c = canvasRef.current;
+              if (!c) return;
+              const r = c.getBoundingClientRect();
+              setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
+            }}
+            onMouseLeave={() => setHoverFraction(null)}
+            className="w-full cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-offset-2"
+            style={{ display: 'block', height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}
+          />
+        ) : waveformFailed ? (
+          <div className="w-full rounded flex items-center justify-center" role="status" aria-live="polite" style={{ height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}>
+            <span className="text-xs" style={{ color: 'var(--text-dim)' }}>waveform unavailable</span>
+          </div>
+        ) : (
+          <div className="w-full rounded animate-pulse" aria-label="Loading waveform" role="status"
+               style={{ height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }} />
+        )}
+      </div>
 
       <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3 flex-1 min-w-0">
+        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
           {previewTrack.cover_url ? (
             <img
               src={previewTrack.cover_url}
@@ -414,7 +454,7 @@ export default function AudioPlayerFooter() {
               &#9835;
             </div>
           )}
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
               {previewTrack.title}
             </p>
@@ -422,17 +462,38 @@ export default function AudioPlayerFooter() {
               {previewTrack.artist}
             </p>
           </div>
-          <KeyBadge camelot={keyCamelot} playing={previewPlaying} />
-          <BPMBadge bpm={bpm} playing={previewPlaying} />
+          <div id="preview-player-secondary" className={`${secondaryVisibility} items-center shrink-0`}>
+            <KeyBadge camelot={keyCamelot} playing={previewPlaying} />
+            <BPMBadge bpm={bpm} playing={previewPlaying} />
+          </div>
         </div>
 
-        <div className="flex items-center gap-3 shrink-0 ml-4">
-          <span className="mono text-xs" style={{ color: 'var(--text-dim)' }}>
+        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-2 sm:ml-4">
+          <span className={`${mobileExpanded ? 'inline' : 'hidden md:inline'} mono text-xs`} style={{ color: 'var(--text-dim)' }} aria-label={`Preview time ${formatTime(currentTime)} of ${formatTime(duration)}`}>
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
+          <span className="sr-only" aria-live="polite">
+            {previewPlaying ? 'Playing preview' : 'Preview paused'}
+          </span>
           <button
+            type="button"
+            onClick={() => setMobileExpanded((expanded) => !expanded)}
+            className="md:hidden p-2 rounded transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
+            aria-label={mobileExpanded ? 'Hide preview details' : 'Show preview details'}
+            aria-expanded={mobileExpanded}
+            aria-controls="preview-player-details preview-player-secondary"
+            style={{ color: 'var(--text-muted)', background: mobileExpanded ? 'var(--accent-dim)' : 'transparent' }}
+          >
+            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+              <polyline points={mobileExpanded ? '3,9 7,5 11,9' : '3,5 7,9 11,5'} />
+            </svg>
+          </button>
+          <button
+            type="button"
             onClick={togglePlay}
-            className="p-2 rounded-full transition-all duration-200"
+            className="p-2 rounded-full transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
+            aria-label={previewPlaying ? 'Pause preview' : 'Play preview'}
+            aria-pressed={previewPlaying}
             style={{
               color: 'var(--text-bright)',
               background: 'var(--accent-dim)',
@@ -451,8 +512,10 @@ export default function AudioPlayerFooter() {
             )}
           </button>
           <button
+            type="button"
             onClick={close}
-            className="p-2 rounded-full transition-all duration-200"
+            className="p-2 rounded-full transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
+            aria-label="Close preview player"
             style={{ color: 'var(--text-dim)' }}
           >
             <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">

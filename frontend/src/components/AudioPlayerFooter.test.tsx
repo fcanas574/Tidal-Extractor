@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { render, waitFor, cleanup, screen } from '@testing-library/react';
+import { fireEvent, render, waitFor, cleanup, screen } from '@testing-library/react';
 import * as api from '../api';
 
 let currentSettings: api.Settings = {
@@ -52,6 +52,21 @@ describe('AudioPlayerFooter fast lifecycle', () => {
 
   it('uses the 3Band palette by default', () => {
     expect(WAVEFORM_PALETTES['3band']).toEqual({ low: '#0054e2', mid: '#b3680a', high: '#f6ebd8' });
+  });
+
+  it('exposes an understandable compact player to assistive technology', () => {
+    (api.preview.getStream as any).mockImplementation(() => new Promise(() => {}));
+    render(<AudioPlayerFooter />);
+
+    expect(screen.getByRole('region', { name: 'Preview player: Playing T by A' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Pause preview' }).getAttribute('aria-pressed')).toBe('true');
+    expect(screen.getByRole('button', { name: 'Close preview player' })).toBeTruthy();
+    const detailsToggle = screen.getByRole('button', { name: 'Show preview details' });
+    expect(detailsToggle.getAttribute('aria-expanded')).toBe('false');
+    fireEvent.click(detailsToggle);
+    expect(screen.getByRole('button', { name: 'Hide preview details' }).getAttribute('aria-expanded')).toBe('true');
+    expect(screen.getByText('T')).toBeTruthy();
+    expect(screen.getByText('A')).toBeTruthy();
   });
 
   it('uses RGB colors without requesting new metadata', async () => {
