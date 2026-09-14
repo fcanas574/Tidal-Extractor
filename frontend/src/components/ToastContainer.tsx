@@ -1,46 +1,79 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useApp } from '../context/AppContext';
+import type { Toast } from '../context/AppContext';
 
-function ToastItem({ toast, onDismiss }: { toast: any; onDismiss: (id: string) => void }) {
-  const timerRef = useRef<ReturnType<typeof setTimeout>>();
+const EXIT_DURATION = 180;
+
+function ToastItem({ toast, onDismiss }: { toast: Toast; onDismiss: (id: string) => void }) {
+  const [exiting, setExiting] = useState(false);
+  const pausedRef = useRef(false);
+  const remainingRef = useRef<number | null>(toast.dismissAt ? Math.max(0, toast.dismissAt - Date.now()) : null);
+  const startedAtRef = useRef(0);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const exitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const beginExit = useCallback(() => {
+    if (exiting) return;
+    setExiting(true);
+    exitTimerRef.current = setTimeout(() => onDismiss(toast.id), EXIT_DURATION);
+  }, [exiting, onDismiss, toast.id]);
+
+  const scheduleDismiss = useCallback(() => {
+    if (pausedRef.current || remainingRef.current === null || exiting) return;
+    if (remainingRef.current <= 0) {
+      beginExit();
+      return;
+    }
+    startedAtRef.current = Date.now();
+    timerRef.current = setTimeout(beginExit, remainingRef.current);
+  }, [beginExit, exiting]);
 
   useEffect(() => {
-    if (toast.dismissAt) {
-      const delay = toast.dismissAt - Date.now();
-      if (delay > 0) {
-        timerRef.current = setTimeout(() => onDismiss(toast.id), delay);
-      } else {
-        onDismiss(toast.id);
-      }
+    remainingRef.current = toast.dismissAt ? Math.max(0, toast.dismissAt - Date.now()) : null;
+    scheduleDismiss();
+    return () => {
+      if (timerRef.current) clearTimeout(timerRef.current);
+      if (exitTimerRef.current) clearTimeout(exitTimerRef.current);
+    };
+  }, [toast.id, toast.dismissAt]);
+
+  const pauseDismiss = () => {
+    if (timerRef.current) clearTimeout(timerRef.current);
+    if (remainingRef.current !== null && startedAtRef.current) {
+      remainingRef.current = Math.max(0, remainingRef.current - (Date.now() - startedAtRef.current));
     }
-    return () => clearTimeout(timerRef.current);
-  }, [toast.id, toast.dismissAt, onDismiss]);
-
-  const iconMap: Record<string, string> = {
-    success: '✓',
-    error: '✕',
-    downloading: '↓',
-    info: '●',
+    startedAtRef.current = 0;
+    pausedRef.current = true;
   };
 
-  const colorMap: Record<string, { border: string; icon: string; glow: string }> = {
-    success: { border: 'rgba(0, 229, 199, 0.3)', icon: 'var(--accent-primary)', glow: 'rgba(0, 229, 199, 0.15)' },
-    error: { border: 'rgba(255, 64, 96, 0.3)', icon: 'var(--danger)', glow: 'rgba(255, 64, 96, 0.15)' },
-    downloading: { border: 'rgba(0, 184, 212, 0.3)', icon: 'var(--accent-secondary)', glow: 'rgba(0, 184, 212, 0.15)' },
-    info: { border: 'var(--glass-border)', icon: 'var(--text-muted)', glow: 'transparent' },
+  const resumeDismiss = () => {
+    pausedRef.current = false;
+    scheduleDismiss();
   };
 
-  const colors = colorMap[toast.type] || colorMap.info;
-  const icon = iconMap[toast.type] || '●';
+  const colors = toast.type === 'error'
+    ? { border: 'rgba(255, 129, 148, 0.45)', icon: 'var(--danger)', background: 'rgba(255, 129, 148, 0.12)', glyph: '!' }
+    : toast.type === 'success'
+      ? { border: 'rgba(141, 231, 213, 0.35)', icon: 'var(--success)', background: 'rgba(141, 231, 213, 0.12)', glyph: '✓' }
+      : { border: 'rgba(155, 200, 255, 0.3)', icon: 'var(--info)', background: 'rgba(155, 200, 255, 0.12)', glyph: '·' };
 
   return (
     <div
-      className="animate-toast-in mb-2"
+      className={`${exiting ? 'animate-toast-out' : 'animate-toast-in'} mb-2 toast-item`}
+      role={toast.type === 'error' ? 'alert' : 'status'}
+      onPointerEnter={pauseDismiss}
+      onPointerLeave={resumeDismiss}
+      onMouseEnter={pauseDismiss}
+      onMouseLeave={resumeDismiss}
+      onFocus={pauseDismiss}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) resumeDismiss();
+      }}
       style={{
-        background: 'var(--bg-mid)',
+        background: 'var(--graphite)',
         border: `1px solid ${colors.border}`,
         borderRadius: 'var(--radius-sm)',
-        boxShadow: `0 8px 32px rgba(0, 0, 0, 0.4), 0 0 24px ${colors.glow}`,
+        boxShadow: '0 8px 32px rgba(0, 0, 0, 0.4)',
         minWidth: '280px',
         maxWidth: '360px',
       }}
@@ -48,39 +81,26 @@ function ToastItem({ toast, onDismiss }: { toast: any; onDismiss: (id: string) =
       <div className="p-3 flex items-start gap-3">
         <div
           className="w-6 h-6 rounded-md flex items-center justify-center text-xs font-bold shrink-0 mt-0.5"
-          style={{ background: colors.glow, color: colors.icon }}
+          aria-hidden="true"
+          style={{ background: colors.background, color: colors.icon }}
         >
-          {icon}
+          {colors.glyph}
         </div>
         <div className="flex-1 min-w-0">
-          <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
-            {toast.title}
-          </p>
-          {toast.detail && (
-            <p className="text-xs mt-0.5 truncate" style={{ color: 'var(--text-muted)' }}>
-              {toast.detail}
-            </p>
-          )}
-          {toast.type === 'downloading' && toast.progress !== undefined && (
-            <div className="progress-track mt-2">
-              <div
-                className="progress-fill active"
-                style={{ width: `${toast.progress}%` }}
-              />
-            </div>
-          )}
+          <p className="text-sm font-medium" style={{ color: 'var(--text-bright)' }}>{toast.title}</p>
+          {toast.detail && <p className="text-xs mt-0.5" style={{ color: 'var(--text-muted)' }}>{toast.detail}</p>}
         </div>
-        {!toast.dismissAt && toast.type !== 'downloading' && (
-          <button
-            onClick={() => onDismiss(toast.id)}
-            className="shrink-0 p-0.5 rounded transition-colors"
-            style={{ color: 'var(--text-dim)' }}
-          >
-            <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.5">
-              <path d="M3 3l6 6M9 3l-6 6"/>
-            </svg>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => beginExit()}
+          className="shrink-0 p-1 rounded transition-colors"
+          style={{ color: 'var(--text-muted)' }}
+          aria-label={`Dismiss ${toast.title}`}
+        >
+          <svg width="13" height="13" viewBox="0 0 13 13" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+            <path d="m3 3 7 7M10 3 3 10" />
+          </svg>
+        </button>
       </div>
     </div>
   );
@@ -88,21 +108,24 @@ function ToastItem({ toast, onDismiss }: { toast: any; onDismiss: (id: string) =
 
 export default function ToastContainer() {
   const { state, dispatch } = useApp();
+  const handleDismiss = useCallback((id: string) => {
+    dispatch({ type: 'REMOVE_TOAST', payload: id });
+  }, [dispatch]);
 
-  const handleDismiss = useCallback(
-    (id: string) => {
-      dispatch({ type: 'REMOVE_TOAST', payload: id });
-    },
-    [dispatch]
-  );
+  // Progress is represented by the activity panel. Legacy progress toasts are
+  // ignored here so the two surfaces cannot drift apart.
+  const candidates = state.toasts.filter((toast) => toast.type !== 'downloading');
+  const visibleToasts = candidates
+    .map((toast, index) => ({ toast, index }))
+    .sort((a, b) => Number(b.toast.type === 'error') - Number(a.toast.type === 'error') || b.index - a.index)
+    .slice(0, 3)
+    .map(({ toast }) => toast);
 
-  if (state.toasts.length === 0) return null;
+  if (visibleToasts.length === 0) return null;
 
   return (
-    <div className="fixed top-4 right-4 z-[100] flex flex-col items-end">
-      {state.toasts.map((toast) => (
-        <ToastItem key={toast.id} toast={toast} onDismiss={handleDismiss} />
-      ))}
+    <div className="fixed top-4 right-4 z-[100] flex flex-col items-end" aria-label="Notifications">
+      {visibleToasts.map((toast) => <ToastItem key={toast.id} toast={toast} onDismiss={handleDismiss} />)}
     </div>
   );
 }

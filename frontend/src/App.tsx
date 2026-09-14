@@ -10,6 +10,7 @@ import HistoryView from './components/HistoryView';
 import StatsView from './components/StatsView';
 import SettingsPanel from './components/SettingsPanel';
 import ToastContainer from './components/ToastContainer';
+import DownloadActivityPanel from './components/DownloadActivityPanel';
 import AudioPlayerFooter from './components/AudioPlayerFooter';
 import type { WsMessage } from './api';
 
@@ -91,9 +92,10 @@ function AppContent() {
 
   return (
     <AuthGate>
-      <div className="min-h-screen flex flex-col">
+      <div className={`min-h-screen flex flex-col${state.activityPanelOpen ? ' activity-open' : ''}`}>
         <NavBar />
-        <main className="flex-1" style={{ paddingBottom: state.previewTrack ? '120px' : 0 }}>{renderView()}</main>
+        <main className="flex-1 app-main" style={{ paddingBottom: state.previewTrack ? '120px' : 0 }}>{renderView()}</main>
+        <DownloadActivityPanel />
         <SettingsPanel />
         <ToastContainer />
         <AudioPlayerFooter />

@@ -71,12 +71,55 @@ export default function NavBar() {
         )}
 
         <div className="flex items-center gap-1">
-          {state.wsConnected && (
-            <div className="glow-dot" title="Connected" />
-          )}
+          <div
+            className="flex items-center gap-2 text-xs"
+            style={{ color: state.wsConnected ? 'var(--success)' : 'var(--warning)' }}
+            title={state.wsConnected ? 'Realtime connected' : 'Realtime reconnecting'}
+          >
+            <span className="glow-dot" style={{ background: state.wsConnected ? 'var(--success)' : 'var(--warning)' }} />
+            <span className="hidden sm:inline">{state.wsConnected ? 'Live' : 'Reconnecting'}</span>
+          </div>
 
           <button
-            onClick={() => dispatch({ type: 'TOGGLE_SETTINGS_PANEL' })}
+            type="button"
+            onClick={() => {
+              if (state.settingsPanelOpen) dispatch({ type: 'TOGGLE_SETTINGS_PANEL' });
+              dispatch({ type: 'TOGGLE_ACTIVITY_PANEL' });
+            }}
+            className="relative flex items-center gap-2 px-3 py-2 rounded-lg text-sm transition-all duration-200"
+            style={{
+              color: state.activityPanelOpen ? 'var(--accent-primary)' : 'var(--text-muted)',
+              background: state.activityPanelOpen ? 'var(--accent-dim)' : 'transparent',
+              border: state.activityPanelOpen ? '1px solid rgba(141, 231, 213, 0.2)' : '1px solid transparent',
+            }}
+            aria-expanded={state.activityPanelOpen}
+            aria-controls="download-activity-panel"
+            title="Download activity"
+          >
+            <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.6" aria-hidden="true">
+              <path d="M10 3v10m0 0 3.5-3.5M10 13 6.5 9.5M4 16.5h12" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+            <span className="hidden sm:inline">Activity</span>
+            {pendingCount > 0 && (
+              <span
+                className="mono text-[10px] min-w-5 px-1 py-0.5 rounded-md text-center"
+                style={{
+                  background: activeDownloads > 0 ? 'rgba(141, 231, 213, 0.15)' : 'var(--bg-surface)',
+                  color: activeDownloads > 0 ? 'var(--accent-primary)' : 'var(--text-muted)',
+                }}
+                aria-label={`${pendingCount} downloads needing attention`}
+              >
+                {pendingCount}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              if (state.activityPanelOpen) dispatch({ type: 'TOGGLE_ACTIVITY_PANEL' });
+              dispatch({ type: 'TOGGLE_SETTINGS_PANEL' });
+            }}
             className="p-2 rounded-lg transition-all duration-200"
             style={{
               color: state.settingsPanelOpen ? 'var(--accent-primary)' : 'var(--text-muted)',
@@ -84,6 +127,8 @@ export default function NavBar() {
               border: state.settingsPanelOpen ? '1px solid rgba(0, 229, 199, 0.15)' : '1px solid transparent',
             }}
             title="Settings"
+            aria-label="Settings"
+            aria-expanded={state.settingsPanelOpen}
           >
             <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5">
               <path d="M10 13a3 3 0 100-6 3 3 0 000 6z"/>
