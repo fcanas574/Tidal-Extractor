@@ -94,7 +94,13 @@ function AppContent() {
     <AuthGate>
       <div className={`min-h-screen flex flex-col${state.activityPanelOpen ? ' activity-open' : ''}`}>
         <NavBar />
-        <main className="flex-1 app-main" style={{ paddingBottom: state.previewTrack ? '120px' : 0 }}>{renderView()}</main>
+        <main
+          id="main-content"
+          className="app-main min-w-0 w-full max-w-[1280px] flex-1 mx-auto"
+          style={{ paddingBottom: state.previewTrack ? 'calc(120px + env(safe-area-inset-bottom))' : undefined }}
+        >
+          {renderView()}
+        </main>
         <DownloadActivityPanel />
         <SettingsPanel />
         <ToastContainer />
