@@ -1,87 +1,71 @@
-import { useEffect } from "react";
-import { stats as statsApi } from "../api";
-import { useApp } from "../context/AppContext";
+import { useCallback, useEffect, useState } from 'react';
+import { stats as statsApi } from '../api';
+import { useApp } from '../context/AppContext';
+
+function formatSize(bytes: number) {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
 
 export default function StatsView() {
   const { state, dispatch } = useApp();
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    statsApi.get().then((data) => {
-      dispatch({ type: "SET_STATS", payload: data });
-    });
+  const loadStats = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      dispatch({ type: 'SET_STATS', payload: await statsApi.get() });
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : 'Could not load statistics.');
+    } finally {
+      setLoading(false);
+    }
   }, [dispatch]);
 
-  const s = state.stats;
-  const totalTracks = s.total_tracks || 0;
-  const totalBytes = s.total_bytes || 0;
-  const qualityBreakdown = [
-    { label: "Hi-Res", value: s.quality_hi_res || 0, key: "quality_hi_res" },
-    { label: "Lossless", value: s.quality_lossless || 0, key: "quality_lossless" },
-    { label: "320k", value: s.quality_320k || 0, key: "quality_320k" },
-    { label: "96k", value: s.quality_96k || 0, key: "quality_96k" },
-  ];
-  const maxQuality = Math.max(...qualityBreakdown.map((q) => q.value), 1);
+  useEffect(() => { void loadStats(); }, [loadStats]);
 
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`;
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-    if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
-  };
+  const stats = state.stats;
+  const totalTracks = stats.total_tracks || 0;
+  const totalBytes = stats.total_bytes || 0;
+  const qualityBreakdown = [
+    { label: 'Hi-Res', value: stats.quality_hi_res || 0 },
+    { label: 'Lossless', value: stats.quality_lossless || 0 },
+    { label: '320k', value: stats.quality_320k || 0 },
+    { label: '96k', value: stats.quality_96k || 0 },
+  ];
+  const maxQuality = Math.max(...qualityBreakdown.map((quality) => quality.value), 1);
 
   return (
     <div className="max-w-4xl mx-auto px-6 py-8 animate-fade-in">
-      <h2 className="text-lg font-bold mb-6" style={{ color: "var(--text-bright)" }}>
-        Stats
-      </h2>
+      <div className="mb-6"><h1 className="text-lg font-bold" style={{ color: 'var(--text-bright)' }}>Stats</h1><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>A quiet view of your local download library.</p></div>
 
-      <div className="grid grid-cols-2 gap-4 mb-8">
-        <div className="glass p-6 text-center">
-          <p className="text-3xl font-bold" style={{ color: "var(--accent-primary)" }}>
-            {totalTracks}
-          </p>
-          <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            Total Tracks
-          </p>
-        </div>
-        <div className="glass p-6 text-center">
-          <p className="text-3xl font-bold" style={{ color: "var(--accent-secondary)" }}>
-            {formatSize(totalBytes)}
-          </p>
-          <p className="text-xs mt-1" style={{ color: "var(--text-muted)" }}>
-            Total Storage
-          </p>
-        </div>
-      </div>
-
-      <h3 className="text-sm font-medium mb-4" style={{ color: "var(--text-bright)" }}>
-        Quality Breakdown
-      </h3>
-      <div className="space-y-3">
-        {qualityBreakdown.map((q) => (
-          <div key={q.key} className="glass p-3">
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs" style={{ color: "var(--text-muted)" }}>{q.label}</span>
-              <span className="text-xs font-medium" style={{ color: "var(--text-bright)" }}>
-                {q.value}
-              </span>
+      {loading ? (
+        <div className="glass p-8 text-center" role="status" aria-live="polite"><span className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading stats…</span></div>
+      ) : error ? (
+        <div className="glass p-8 text-center" role="alert"><p className="text-sm" style={{ color: 'var(--text-bright)' }}>Could not load stats.</p><p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{error}</p><button type="button" className="btn-primary text-xs mt-4" onClick={() => void loadStats()}>Retry</button></div>
+      ) : (
+        <>
+          <section className="glass p-5 mb-7" aria-labelledby="stats-summary-heading">
+            <h2 id="stats-summary-heading" className="text-xs font-medium uppercase tracking-wider mb-5" style={{ color: 'var(--text-muted)' }}>Library summary</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
+              <div><p className="mono text-3xl font-semibold" style={{ color: 'var(--text-bright)' }}>{totalTracks.toLocaleString()}</p><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Downloaded tracks</p></div>
+              <div><p className="mono text-3xl font-semibold" style={{ color: 'var(--text-bright)' }}>{formatSize(totalBytes)}</p><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Storage used</p></div>
             </div>
-            <div className="progress-track" style={{ height: "6px" }}>
-              <div
-                className="progress-fill"
-                style={{
-                  width: `${(q.value / maxQuality) * 100}%`,
-                  background: "var(--accent-primary)",
-                }}
-              />
-            </div>
-          </div>
-        ))}
-      </div>
+          </section>
 
-      <p className="text-xs mt-6" style={{ color: "var(--text-dim)" }}>
-        Stats are stored device-wide and are not tied to your Tidal account.
-      </p>
+          <section aria-labelledby="quality-breakdown-heading"><div className="flex items-center justify-between mb-4"><h2 id="quality-breakdown-heading" className="text-sm font-medium" style={{ color: 'var(--text-bright)' }}>Quality distribution</h2><span className="text-xs" style={{ color: 'var(--text-dim)' }}>Tracks by format</span></div><div className="space-y-3">
+            {qualityBreakdown.map((quality) => {
+              const percent = totalTracks > 0 ? Math.round((quality.value / totalTracks) * 100) : 0;
+              return <div key={quality.label} className="glass p-3"><div className="flex items-center justify-between gap-4 mb-2"><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{quality.label}</span><span className="mono text-xs" style={{ color: 'var(--text-bright)' }}>{quality.value.toLocaleString()} <span style={{ color: 'var(--text-dim)' }}>({percent}%)</span></span></div><div className="progress-track" role="progressbar" aria-label={`${quality.label} quality distribution`} aria-valuemin={0} aria-valuemax={maxQuality} aria-valuenow={quality.value}><div className="progress-fill" style={{ width: `${(quality.value / maxQuality) * 100}%`, background: 'var(--accent-primary)' }} /></div></div>;
+            })}
+          </div></section>
+          <p className="text-xs mt-6" style={{ color: 'var(--text-dim)' }}>Stats are stored device-wide and are not tied to your Tidal account.</p>
+        </>
+      )}
     </div>
   );
 }

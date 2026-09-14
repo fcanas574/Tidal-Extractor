@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { settings, quality, auth } from '../api';
+import type { Settings } from '../api';
 import { useApp } from '../context/AppContext';
 
 const QUALITY_OPTIONS = [
@@ -16,30 +17,59 @@ const FORMAT_OPTIONS = [
   { value: 'M4A', label: 'M4A', desc: '320kbps, Apple ecosystem' },
 ];
 
-const WAVEFORM_OPTIONS: { value: '3band' | 'rgb'; label: string; desc: string }[] = [
+const WAVEFORM_OPTIONS: { value: Settings['waveform_color']; label: string; desc: string }[] = [
   { value: '3band', label: '3Band (Rekordbox)', desc: 'Blue / orange / white' },
   { value: 'rgb', label: 'RGB', desc: 'Red / green / blue blend' },
 ];
 
+type SaveState = 'idle' | 'saving' | 'saved' | 'error';
+
 export default function SettingsPanel() {
   const { state, dispatch } = useApp();
-  const [saving, setSaving] = useState(false);
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const [draft, setDraft] = useState<Settings>(state.settings);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
+  const [saveError, setSaveError] = useState<string | null>(null);
   const [qualityCache, setQualityCache] = useState<{ preset: string; bitrate: number } | null>(null);
   const [probing, setProbing] = useState(false);
+  const dirty = JSON.stringify(draft) !== JSON.stringify(state.settings);
 
   useEffect(() => {
-    if (state.settingsPanelOpen) {
-      quality.cache().then(setQualityCache).catch(() => {});
-    }
+    if (!state.settingsPanelOpen) return;
+    setDraft(state.settings);
+    setSaveState('idle');
+    setSaveError(null);
+    closeButtonRef.current?.focus();
+    quality.cache().then(setQualityCache).catch(() => undefined);
   }, [state.settingsPanelOpen]);
 
+  useEffect(() => {
+    if (!state.settingsPanelOpen) return undefined;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') dispatch({ type: 'TOGGLE_SETTINGS_PANEL' });
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [dispatch, state.settingsPanelOpen]);
+
+  const close = () => dispatch({ type: 'TOGGLE_SETTINGS_PANEL' });
+  const updateDraft = (changes: Partial<Settings>) => {
+    setDraft((previous) => ({ ...previous, ...changes }));
+    setSaveState('idle');
+    setSaveError(null);
+  };
+
   const handleSave = async () => {
-    setSaving(true);
+    setSaveState('saving');
+    setSaveError(null);
     try {
-      const updated = await settings.update(state.settings);
+      const updated = await settings.update(draft);
       dispatch({ type: 'SET_SETTINGS', payload: updated });
-    } finally {
-      setSaving(false);
+      setDraft(updated);
+      setSaveState('saved');
+    } catch (error) {
+      setSaveState('error');
+      setSaveError(error instanceof Error ? error.message : 'Could not save settings.');
     }
   };
 
@@ -48,26 +78,9 @@ export default function SettingsPanel() {
     try {
       const result = await quality.probe();
       setQualityCache(result);
-      dispatch({
-        type: 'ADD_TOAST',
-        payload: {
-          id: `probe-${Date.now()}`,
-          type: 'success',
-          title: 'Quality detected',
-          detail: `${result.preset} · ${result.bitrate} kbps`,
-          dismissAt: Date.now() + 4000,
-        },
-      });
-    } catch {
-      dispatch({
-        type: 'ADD_TOAST',
-        payload: {
-          id: `probe-err-${Date.now()}`,
-          type: 'error',
-          title: 'Quality probe failed',
-          dismissAt: Date.now() + 4000,
-        },
-      });
+      dispatch({ type: 'ADD_TOAST', payload: { id: `probe-${Date.now()}`, type: 'success', title: 'Quality detected', detail: `${result.preset} · ${result.bitrate} kbps`, dismissAt: Date.now() + 4000 } });
+    } catch (error) {
+      dispatch({ type: 'ADD_TOAST', payload: { id: `probe-err-${Date.now()}`, type: 'error', title: 'Quality probe failed', detail: error instanceof Error ? error.message : undefined, dismissAt: Date.now() + 5000 } });
     } finally {
       setProbing(false);
     }
@@ -76,275 +89,34 @@ export default function SettingsPanel() {
   const handleLogout = async () => {
     await auth.logout();
     dispatch({ type: 'SET_AUTH', payload: { authenticated: false, username: null } });
-    dispatch({ type: 'TOGGLE_SETTINGS_PANEL' });
+    close();
   };
 
   if (!state.settingsPanelOpen) return null;
 
   return (
     <>
-      <div
-        className="fixed inset-0 z-40"
-        style={{ background: 'rgba(4, 8, 18, 0.6)' }}
-        onClick={() => dispatch({ type: 'TOGGLE_SETTINGS_PANEL' })}
-      />
-      <aside
-        className="fixed top-0 right-0 bottom-0 z-50 w-[340px] animate-slide-in-right overflow-y-auto"
-        style={{
-          background: 'var(--bg-deep)',
-          borderLeft: '1px solid var(--glass-border)',
-          boxShadow: '-20px 0 60px rgba(0, 0, 0, 0.5)',
-        }}
-      >
+      <button type="button" className="fixed inset-0 z-40" aria-label="Dismiss settings overlay" onClick={close} style={{ background: 'rgba(4, 8, 18, 0.6)' }} />
+      <aside id="settings-panel" className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-[380px] animate-slide-in-right overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-describedby="settings-save-status" style={{ background: 'var(--bg-deep)', borderLeft: '1px solid var(--glass-border)', boxShadow: '-20px 0 60px rgba(0, 0, 0, 0.5)' }}>
         <div className="p-6">
-          <div className="flex items-center justify-between mb-6">
-            <h2 className="text-sm font-semibold uppercase tracking-widest" style={{ color: 'var(--accent-primary)' }}>
-              Settings
-            </h2>
-            <button
-              onClick={() => dispatch({ type: 'TOGGLE_SETTINGS_PANEL' })}
-              className="p-1 rounded transition-colors"
-              style={{ color: 'var(--text-muted)' }}
-            >
-              <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2">
-                <path d="M4 4l8 8M12 4l-8 8"/>
-              </svg>
-            </button>
-          </div>
-
+          <div className="flex items-center justify-between mb-6"><div><h2 id="settings-title" className="text-sm font-semibold uppercase tracking-widest" style={{ color: 'var(--accent-primary)' }}>Settings</h2><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{dirty ? 'Unsaved changes' : 'Download preferences'}</p></div><button ref={closeButtonRef} type="button" onClick={close} className="btn-ghost p-2" aria-label="Close settings"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg></button></div>
           <div className="glow-line mb-6" />
 
-          {/* Account */}
-          <section className="mb-6">
-            <h3 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>
-              Account
-            </h3>
-            <div className="glass p-4">
-              <div className="flex items-center gap-3">
-                <div
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold"
-                  style={{ background: 'var(--accent-dim)', color: 'var(--accent-primary)' }}
-                >
-                  {(state.auth.username || '?')[0].toUpperCase()}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
-                    {state.auth.username || 'Unknown'}
-                  </p>
-                  <p className="text-xs" style={{ color: 'var(--text-muted)' }}>Connected</p>
-                </div>
-              </div>
-            </div>
-          </section>
+          <section className="mb-7" aria-labelledby="settings-account-heading"><h3 id="settings-account-heading" className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>Account</h3><div className="glass p-4"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" aria-hidden="true" style={{ background: 'var(--accent-dim)', color: 'var(--accent-primary)' }}>{(state.auth.username || '?')[0].toUpperCase()}</div><div className="min-w-0"><p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{state.auth.username || 'Unknown'}</p><p className="text-xs" style={{ color: 'var(--text-muted)' }}>Connected</p></div></div></div></section>
 
-          {/* Detected Quality */}
-          {qualityCache && (
-            <section className="mb-6">
-              <h3 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>
-                Detected Quality
-              </h3>
-              <div className="glass p-4 flex items-center justify-between">
-                <div>
-                  <p className="text-sm font-medium" style={{ color: 'var(--text-bright)' }}>
-                    {qualityCache.preset}
-                  </p>
-                  <p className="mono text-xs" style={{ color: 'var(--text-muted)' }}>
-                    {qualityCache.bitrate} kbps
-                  </p>
-                </div>
-                <button
-                  onClick={handleProbeQuality}
-                  disabled={probing}
-                  className="btn-ghost text-xs"
-                  style={{ color: 'var(--accent-primary)' }}
-                >
-                  {probing ? 'Probing...' : 'Re-probe'}
-                </button>
-              </div>
-            </section>
-          )}
+          <section className="mb-7" aria-labelledby="settings-download-heading"><h3 id="settings-download-heading" className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>Download defaults</h3><div className="space-y-2">{QUALITY_OPTIONS.map((option) => { const selected = draft.default_quality === option.value; return <button key={option.value} type="button" onClick={() => updateDraft({ default_quality: option.value })} className="w-full glass glass-hover p-3 flex items-center justify-between text-left" aria-pressed={selected} style={{ borderColor: selected ? 'rgba(141, 231, 213, 0.4)' : undefined }}><span className="text-sm" style={{ color: 'var(--text-primary)' }}>{option.label}</span><span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: selected ? 'var(--accent-dim)' : 'var(--bg-surface)', color: selected ? 'var(--accent-primary)' : 'var(--text-dim)' }}>{option.badge}</span></button>; })}</div><div className="mt-4"><span className="block text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Default format</span><div className="grid grid-cols-3 gap-2">{FORMAT_OPTIONS.map((option) => { const selected = draft.default_format === option.value; return <button key={option.value} type="button" onClick={() => updateDraft({ default_format: option.value })} className="glass glass-hover p-3 text-center" aria-pressed={selected} style={{ borderColor: selected ? 'rgba(141, 231, 213, 0.4)' : undefined }}><span className="mono text-sm font-semibold" style={{ color: selected ? 'var(--accent-primary)' : 'var(--text-primary)' }}>{option.label}</span><span className="block text-[10px] mt-1" style={{ color: 'var(--text-dim)' }}>{option.desc}</span></button>; })}</div></div></section>
 
-          {!qualityCache && (
-            <section className="mb-6">
-              <button
-                onClick={handleProbeQuality}
-                disabled={probing}
-                className="btn-ghost w-full text-sm text-center py-3"
-                style={{ color: 'var(--accent-primary)', borderColor: 'var(--glass-border)' }}
-              >
-                {probing ? 'Probing quality...' : 'Probe Stream Quality'}
-              </button>
-            </section>
-          )}
+          <section className="mb-7" aria-labelledby="settings-preview-heading"><h3 id="settings-preview-heading" className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>Preview</h3><div className="grid grid-cols-2 gap-2">{WAVEFORM_OPTIONS.map((option) => { const selected = (draft.waveform_color || '3band') === option.value; return <button key={option.value} type="button" onClick={() => updateDraft({ waveform_color: option.value })} className="glass glass-hover p-3 text-center" aria-pressed={selected} style={{ borderColor: selected ? 'rgba(141, 231, 213, 0.4)' : undefined }}><span className="mono text-sm font-semibold" style={{ color: selected ? 'var(--accent-primary)' : 'var(--text-primary)' }}>{option.label}</span><span className="block text-[10px] mt-1" style={{ color: 'var(--text-dim)' }}>{option.desc}</span></button>; })}</div>{qualityCache ? <div className="glass p-4 mt-3 flex items-center justify-between"><div><p className="text-xs" style={{ color: 'var(--text-muted)' }}>Detected stream</p><p className="mono text-sm mt-1" style={{ color: 'var(--text-bright)' }}>{qualityCache.preset} · {qualityCache.bitrate} kbps</p></div><button type="button" className="btn-ghost text-xs" onClick={() => void handleProbeQuality()} disabled={probing}>{probing ? 'Probing…' : 'Re-probe'}</button></div> : <button type="button" onClick={() => void handleProbeQuality()} disabled={probing} className="btn-ghost w-full text-sm mt-3" style={{ borderColor: 'var(--glass-border)', color: 'var(--accent-primary)' }}>{probing ? 'Probing quality…' : 'Probe stream quality'}</button>}</section>
 
-          {/* Quality Preset */}
-          <section className="mb-6">
-            <h3 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>
-              Default Quality
-            </h3>
-            <div className="space-y-2">
-              {QUALITY_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() =>
-                    dispatch({
-                      type: 'SET_SETTINGS',
-                      payload: { ...state.settings, default_quality: opt.value },
-                    })
-                  }
-                  className="w-full glass glass-hover p-3 flex items-center justify-between transition-all"
-                  style={{
-                    borderColor:
-                      state.settings.default_quality === opt.value
-                        ? 'rgba(0, 229, 199, 0.3)'
-                        : undefined,
-                  }}
-                >
-                  <span className="text-sm" style={{ color: 'var(--text-primary)' }}>
-                    {opt.label}
-                  </span>
-                  <span
-                    className="mono text-[10px] px-1.5 py-0.5 rounded"
-                    style={{
-                      background:
-                        state.settings.default_quality === opt.value
-                          ? 'rgba(0, 229, 199, 0.15)'
-                          : 'var(--bg-surface)',
-                      color:
-                        state.settings.default_quality === opt.value
-                          ? 'var(--accent-primary)'
-                          : 'var(--text-dim)',
-                    }}
-                  >
-                    {opt.badge}
-                  </span>
-                </button>
-              ))}
-            </div>
-          </section>
+          <section className="mb-7" aria-labelledby="settings-output-heading"><h3 id="settings-output-heading" className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>Output</h3><label htmlFor="settings-output-dir" className="text-xs" style={{ color: 'var(--text-muted)' }}>Output directory</label><input id="settings-output-dir" type="text" value={draft.output_dir} onChange={(event) => updateDraft({ output_dir: event.target.value })} className="input-abyss text-sm mono mt-2" /></section>
 
-          {/* Format */}
-          <section className="mb-6">
-            <h3 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>
-              Default Format
-            </h3>
-            <div className="flex gap-2">
-              {FORMAT_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() =>
-                    dispatch({
-                      type: 'SET_SETTINGS',
-                      payload: { ...state.settings, default_format: opt.value },
-                    })
-                  }
-                  className="flex-1 glass glass-hover p-3 text-center transition-all"
-                  style={{
-                    borderColor:
-                      state.settings.default_format === opt.value
-                        ? 'rgba(0, 229, 199, 0.3)'
-                        : undefined,
-                  }}
-                >
-                  <p
-                    className="mono text-sm font-semibold"
-                    style={{
-                      color:
-                        state.settings.default_format === opt.value
-                          ? 'var(--accent-primary)'
-                          : 'var(--text-primary)',
-                    }}
-                  >
-                    {opt.label}
-                  </p>
-                  <p className="text-[10px] mt-1" style={{ color: 'var(--text-dim)' }}>
-                    {opt.desc}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Waveform Color */}
-          <section className="mb-6">
-            <h3 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>
-              Waveform Color
-            </h3>
-            <div className="flex gap-2">
-              {WAVEFORM_OPTIONS.map((opt) => (
-                <button
-                  key={opt.value}
-                  onClick={() =>
-                    dispatch({
-                      type: 'SET_SETTINGS',
-                      payload: { ...state.settings, waveform_color: opt.value },
-                    })
-                  }
-                  className="flex-1 glass glass-hover p-3 text-center transition-all"
-                  style={{
-                    borderColor:
-                      (state.settings.waveform_color || '3band') === opt.value
-                        ? 'rgba(0, 229, 199, 0.3)'
-                        : undefined,
-                  }}
-                >
-                  <p
-                    className="mono text-sm font-semibold"
-                    style={{
-                      color:
-                        (state.settings.waveform_color || '3band') === opt.value
-                          ? 'var(--accent-primary)'
-                          : 'var(--text-primary)',
-                    }}
-                  >
-                    {opt.label}
-                  </p>
-                  <p className="text-[10px] mt-1" style={{ color: 'var(--text-dim)' }}>
-                    {opt.desc}
-                  </p>
-                </button>
-              ))}
-            </div>
-          </section>
-
-          {/* Output Directory */}
-          <section className="mb-6">
-            <h3 className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>
-              Output Directory
-            </h3>
-            <input
-              type="text"
-              value={state.settings.output_dir}
-              onChange={(e) =>
-                dispatch({
-                  type: 'SET_SETTINGS',
-                  payload: { ...state.settings, output_dir: e.target.value },
-                })
-              }
-              className="input-abyss text-sm mono"
-            />
-          </section>
-
-          <div className="glow-line mb-6" />
-
-          {/* Save */}
-          <button
-            onClick={handleSave}
-            disabled={saving}
-            className="btn-primary w-full mb-4 text-sm"
-          >
-            {saving ? 'Saving...' : 'Save Settings'}
-          </button>
-
-          {/* Logout */}
-          <button
-            onClick={handleLogout}
-            className="btn-danger w-full text-center py-2"
-          >
-            Disconnect Account
-          </button>
+          <div className="glow-line mb-5" /><div id="settings-save-status" className="min-h-5 mb-2" aria-live="polite" role={saveState === 'error' ? 'alert' : 'status'}>{saveState === 'error' && <p className="text-xs" style={{ color: 'var(--danger)' }}>Could not save settings. {saveError}</p>}{saveState === 'saved' && <p className="text-xs" style={{ color: 'var(--success)' }}>Settings saved.</p>}</div><div className="flex gap-2 mb-5"><button type="button" onClick={() => void handleSave()} disabled={savingOrClean(saveState, dirty)} className="btn-primary flex-1 text-sm">{saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Retry save' : 'Save changes'}</button>{dirty && saveState !== 'saving' && <button type="button" className="btn-ghost text-xs" onClick={() => { setDraft(state.settings); setSaveState('idle'); setSaveError(null); }}>Discard</button>}</div><button type="button" onClick={() => void handleLogout()} className="btn-danger w-full text-center py-2">Disconnect account</button>
         </div>
       </aside>
     </>
   );
+}
+
+function savingOrClean(saveState: SaveState, dirty: boolean) {
+  return saveState === 'saving' || (!dirty && saveState !== 'error');
 }
