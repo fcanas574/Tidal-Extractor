@@ -1,3 +1,4 @@
 default_format: FLAC
-default_quality: high_lossless
+default_quality: auto_max
 output_dir: ~/Downloads
+waveform_color: 3band

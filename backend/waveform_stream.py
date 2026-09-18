@@ -284,36 +284,55 @@ async def start_pcm_decoder(stream_url: str) -> AsyncIterator[bytes]:
     ``analyze_stream`` aligns them. On cancellation/timeout the subprocess is
     terminated and waited on.
     """
-    proc = await asyncio.create_subprocess_exec(
+    ffmpeg_args = (
         "ffmpeg", "-i", stream_url,
         "-ac", "1", "-ar", str(SAMPLE_RATE),
         "-f", "s16le", "-acodec", "pcm_s16le",
         "-loglevel", "error", "pipe:1",
-        stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
     )
+    threaded_io = False
+    try:
+        proc = await asyncio.create_subprocess_exec(
+            *ffmpeg_args,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+    except NotImplementedError:
+        proc = subprocess.Popen(
+            ffmpeg_args,
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+        )
+        threaded_io = True
     try:
         assert proc.stdout is not None
+        read_stdout = (
+            lambda size: asyncio.to_thread(proc.stdout.read, size)
+            if threaded_io else proc.stdout.read(size)
+        )
+        wait_for_process = (
+            lambda: asyncio.to_thread(proc.wait)
+            if threaded_io else proc.wait()
+        )
         while True:
-            block = await asyncio.wait_for(proc.stdout.read(8192), _PCM_TIMEOUT)
+            block = await asyncio.wait_for(read_stdout(8192), _PCM_TIMEOUT)
             if not block:
                 break
             yield block
-        await asyncio.wait_for(proc.wait(), _PCM_TIMEOUT)
+        await asyncio.wait_for(wait_for_process(), _PCM_TIMEOUT)
     except (asyncio.TimeoutError, asyncio.CancelledError):
         with suppress_called_process_error():
             proc.terminate()
             try:
-                await asyncio.wait_for(proc.wait(), 5)
+                await asyncio.wait_for(wait_for_process(), 5)
             except (asyncio.TimeoutError, asyncio.CancelledError):
                 proc.kill()
                 with suppress_called_process_error():
-                    await proc.wait()
+                    await wait_for_process()
         raise
     finally:
         if proc.returncode is None:
             with suppress_called_process_error():
                 proc.kill()
-                await proc.wait()
+                await wait_for_process()
 
 
 class _SuppressCalledProcessError:
@@ -374,6 +393,7 @@ async def analyze_stream(
     tmp_fd, tmp_path = tempfile.mkstemp(suffix=".wav", prefix="preview_stream_")
     os.close(tmp_fd)
     wav_writer: wave.Wave_write | None = None
+    cleanup_path = True
     try:
         wav_writer = wave.open(tmp_path, "wb")
         wav_writer.setnchannels(_CHANNELS)
@@ -420,6 +440,7 @@ async def analyze_stream(
 
         gen.finish()
         await _emit(on_snapshot, gen.snapshot())
+        cleanup_path = False
         final = gen.snapshot()
         return {
             "bands": final["bands"],
@@ -428,13 +449,13 @@ async def analyze_stream(
         }
     except Exception as exc:  # pragma: no cover - exercised by failure test
         logger.warning("analyze_stream failed for %s: %s", stream_url, exc)
-        # Clean up the temp WAV on failure -- caller gets no path to own.
-        _safe_unlink(tmp_path)
         return {"bands": {"low": [], "mid": [], "high": []}, "duration": float(duration or 0), "temp_wav_path": None}
     finally:
         if wav_writer is not None:
             with suppress_called_process_error():
                 wav_writer.close()
+        if cleanup_path:
+            _safe_unlink(tmp_path)
 
 
 def _safe_unlink(path: str) -> None:

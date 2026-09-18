@@ -290,7 +290,7 @@ async def _preview_analyzer(
     temp_wav_path = result["temp_wav_path"]
 
     try:
-        track = auth_manager.session.track(track_id)
+        track = await asyncio.to_thread(auth_manager.session.track, track_id)
         key_data = await _detect_preview_key(
             stream_url, track_id, track,
             audio_path=temp_wav_path,
@@ -317,21 +317,24 @@ async def _preview_analyzer(
 preview_job_manager = PreviewJobManager(analyzer=_preview_analyzer)
 
 
+def _resolve_preview_track(track_id: int):
+    track = auth_manager.session.track(track_id)
+    orig_quality = auth_manager.session.config.quality
+    auth_manager.session.config.quality = "LOW"
+    try:
+        url = track.get_url()
+    finally:
+        auth_manager.session.config.quality = orig_quality
+    return track, url
+
+
 @app.get("/preview/{track_id}")
 async def preview_track(track_id: int):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        track = auth_manager.session.track(track_id)
+        track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
         logger.info(f"Preview track {track_id}: '{track.title}' by {track.artist.name if track.artist else 'Unknown'}")
-
-        # Use lowest quality for previews to save bandwidth
-        orig_quality = auth_manager.session.config.quality
-        auth_manager.session.config.quality = "LOW"
-        try:
-            url = track.get_url()
-        finally:
-            auth_manager.session.config.quality = orig_quality
         waveform = await asyncio.to_thread(get_waveform_cached, url)
 
         # Pass track object for FreqBlog metadata lookup
@@ -381,12 +384,15 @@ async def _remove_temp_file(path: str | None) -> None:
 async def preview_analyzer(stream_url: str, duration: float | None, track_id: int,
                            on_snapshot=None) -> dict:
     cached = await db.get_waveform_cache(str(track_id))
-    if cached:
+    bands = cached.get("bands") if isinstance(cached, dict) else None
+    if (isinstance(bands, dict)
+            and all(isinstance(bands.get(band), list) and bands[band]
+                    for band in ("low", "mid", "high"))):
         key_data = await _detect_preview_key_cached(track_id)
-        return {"waveform": {"bands": cached["bands"], "colors": _WAVEFORM_COLORS,
+        return {"waveform": {"bands": bands, "colors": _WAVEFORM_COLORS,
                              "duration": cached["duration"]}, **key_data}
 
-    track = auth_manager.session.track(track_id)
+    track = await asyncio.to_thread(auth_manager.session.track, track_id)
     title = getattr(track, "title", "") or ""
     artist = getattr(getattr(track, "artist", None), "name", "") or ""
 
@@ -398,6 +404,10 @@ async def preview_analyzer(stream_url: str, duration: float | None, track_id: in
     result = await analyze_stream(stream_url, duration, on_snapshot=on_snap)
     waveform = {"bands": result["bands"], "colors": _WAVEFORM_COLORS,
                 "duration": result["duration"]}
+    if not (isinstance(result["bands"], dict)
+            and all(isinstance(result["bands"].get(band), list) and result["bands"][band]
+                    for band in ("low", "mid", "high"))):
+        raise RuntimeError("Waveform analysis produced no samples")
     preview_job_manager.publish_progress(track_id, {"waveform": waveform})
 
     key_payload = {}
@@ -420,8 +430,12 @@ async def preview_analyzer(stream_url: str, duration: float | None, track_id: in
     finally:
         # Each cleanup step is isolated so one failure can't leak the temp WAV
         # or mask another error (including any exception from the body above).
-        with suppress(Exception):
-            await db.set_waveform_cache(str(track_id), result["bands"], result["duration"])
+        result_bands = result.get("bands") if isinstance(result, dict) else None
+        if (isinstance(result_bands, dict)
+                and all(isinstance(result_bands.get(band), list) and result_bands[band]
+                        for band in ("low", "mid", "high"))):
+            with suppress(Exception):
+                await db.set_waveform_cache(str(track_id), result_bands, result["duration"])
         with suppress(Exception):
             await _remove_temp_file(tmp_path)
     return {"waveform": waveform, **key_payload}
@@ -439,15 +453,7 @@ async def preview_stream(track_id: int):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        track = auth_manager.session.track(track_id)
-
-
-        orig_quality = auth_manager.session.config.quality
-        auth_manager.session.config.quality = "LOW"
-        try:
-            url = track.get_url()
-        finally:
-            auth_manager.session.config.quality = orig_quality
+        track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
 
         duration = getattr(track, "duration", None)
         return {
@@ -476,13 +482,7 @@ async def preview_metadata(track_id: int):
         if snap is None:
             # No job yet: resolve the stream URL once to kick one off. Subsequent
             # polls hit the snapshot above and never touch the session.
-            track = auth_manager.session.track(track_id)
-            orig_quality = auth_manager.session.config.quality
-            auth_manager.session.config.quality = "LOW"
-            try:
-                url = track.get_url()
-            finally:
-                auth_manager.session.config.quality = orig_quality
+            track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
             snap = preview_job_manager.start_or_get(track_id, url, getattr(track, "duration", None))
         return dataclasses.asdict(snap)
     except Exception as e:

@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="es"><head><meta charset="utf-8"/><meta content="width=device-width, initial-scale=1.0" name="viewport"/><link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet"/><link href="https://fonts.googleapis.com" rel="preconnect"/><link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/><link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/><style>@layer base{html,body{margin:0;padding:0;}body{overscroll-behavior:none;}main>:first-child{margin-top:0!important;}main>:last-child{margin-bottom:0!important;}}::-webkit-scrollbar{display:none;}
+.waveform-bar {
+  transition: transform 0.15s ease, opacity 0.2s ease;
+}
+.waveform-container:hover .waveform-bar {
+  filter: brightness(1.2);
+}
+</style><script src="https://cdn.tailwindcss.com"></script><script id="tailwind-config">
+  tailwind.config = {
+    darkMode: "class",
+    theme: {
+      extend: {
+        colors: {
+          "primary": "#ffffff",
+          "on-primary": "#121214",
+          "primary-container": "#27272a",
+          "on-primary-container": "#f4f4f5",
+          "secondary": "#a1a1aa",
+          "on-secondary": "#18181b",
+          "secondary-container": "#27272a",
+          "on-secondary-container": "#d4d4d8",
+          "tertiary": "#e4e4e7",
+          "on-tertiary": "#18181b",
+          "surface": "#0c0c0e",
+          "surface-dim": "#09090b",
+          "surface-container-lowest": "#050507",
+          "surface-container-low": "#111114",
+          "surface-container": "#18181c",
+          "surface-container-high": "#222226",
+          "surface-container-highest": "#2c2c32",
+          "on-surface": "#f4f4f5",
+          "on-surface-variant": "#8e8e99",
+          "outline": "#333338",
+          "outline-variant": "#232328"
+        },
+        fontFamily: {
+          "display": ["Geist", "sans-serif"],
+          "body": ["Geist", "sans-serif"],
+          "mono": ["JetBrains Mono", "monospace"]
+        }
+      }
+    }
+  }
+</script></head><body class="bg-surface text-on-surface font-body select-none antialiased selection:bg-white/20"><aside class="fixed left-0 top-0 h-[calc(100vh-80px)] w-64 bg-surface-container-low/95 backdrop-blur-2xl z-40 flex flex-col justify-between border-r border-outline-variant/60 shadow-[4px_0_24px_rgba(0,0,0,0.6)]"><div class="flex flex-col"><div class="h-16 px-5 flex items-center justify-between border-b border-outline-variant/40"><div class="flex items-center gap-3"><img alt="Tidal Extractor Logo" class="h-7 w-auto object-contain brightness-200 contrast-125 grayscale" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAKzZ-PtIRBYHPDfNMhTNqbdBI1iA_JQpwbMDi6lmpMmZOxQCwDJjoglpEbK30Vz7ImXpzq1o7vIiTwH-Lwt7z6uP6lmEC0dZ2lk4MbuNiDORZGN4R5Kv81AM3VIP4bZAkf-5nu3uGU5SZOMmBGPya9z5TKEgN-HkVEEofH-Xok6HL9DMLmhNJ-gDdW-nF-qF0Bj_tNH6KnjyCNCniLilSjbwAescTR_-zRJeyDwf1o7Xi3LB7RoHP9"/><div class="flex flex-col"><span class="text-sm font-semibold tracking-tight text-white">Tidal Extractor</span><span class="font-mono text-[9px] tracking-widest text-on-surface-variant uppercase font-medium">STUDIO EDITION</span></div></div><span class="px-2 py-0.5 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px] tracking-wider uppercase font-medium">HI-RES</span></div><nav class="flex flex-col px-3 gap-1 mt-4"><div class="px-3 pt-2 pb-1.5 font-mono text-[10px] uppercase tracking-widest text-zinc-500 font-medium">Música y Exploración</div><a class="flex items-center px-3 py-2 rounded-md text-zinc-400 hover:bg-surface-container-high hover:text-white transition-colors gap-3 text-xs font-medium" data-path="explorador-albumes" href="#"><span class="material-symbols-outlined text-[17px] text-zinc-400">explore</span><span>Explorador &amp; Álbumes</span></a><a class="flex items-center px-3 py-2 rounded-md text-zinc-400 hover:bg-surface-container-high hover:text-white transition-colors gap-3 text-xs font-medium" data-path="tidal-recientes" href="#"><span class="material-symbols-outlined text-zinc-400 text-[17px]">history</span><span>Tidal Recientes</span></a><a class="flex items-center px-3 py-2 rounded-md text-zinc-400 hover:bg-surface-container-high hover:text-white transition-colors gap-3 text-xs font-medium" data-path="artistas-generos" href="#"><span class="material-symbols-outlined text-zinc-400 text-[17px]">record_voice_over</span><span>Artistas y Géneros</span></a><div class="px-3 pt-4 pb-1.5 font-mono text-[10px] uppercase tracking-widest text-zinc-500 font-medium">Gestión y Descargas</div><a aria-current="page" class="flex items-center justify-between px-3 py-2 rounded-md transition-colors bg-white/10 text-white font-medium shadow-[inset_0_1px_0_rgba(255,255,255,0.1)]" data-path="cola-descargas" href="#"><div class="flex items-center gap-3"><span class="material-symbols-outlined text-white text-[17px]">download</span><span class="text-xs">Cola de Descargas</span></div><span class="font-mono text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white font-medium">3 activas</span></a><a class="flex items-center px-3 py-2 rounded-md text-zinc-400 hover:bg-surface-container-high hover:text-white transition-colors gap-3 text-xs font-medium" data-path="biblioteca-local" href="#"><span class="material-symbols-outlined text-zinc-400 text-[17px]">folder_special</span><span>Biblioteca Local</span></a><div class="px-3 pt-4 pb-1.5 font-mono text-[10px] uppercase tracking-widest text-zinc-500 font-medium">Configuración</div><a class="flex items-center px-3 py-2 rounded-md text-zinc-400 hover:bg-surface-container-high hover:text-white transition-colors gap-3 text-xs font-medium" data-path="preferencias-audio" href="#"><span class="material-symbols-outlined text-zinc-400 text-[17px]">tune</span><span>Preferencias de Audio</span></a><a class="flex items-center px-3 py-2 rounded-md text-zinc-400 hover:bg-surface-container-high hover:text-white transition-colors gap-3 text-xs font-medium" data-path="cuenta-token" href="#"><span class="material-symbols-outlined text-zinc-400 text-[17px]">vpn_key</span><span>Cuenta y Token</span></a></nav></div><div class="p-3.5 mx-3 mb-3 rounded-lg border border-outline-variant bg-surface-container/90 flex flex-col gap-2"><div class="flex items-center justify-between"><div class="flex items-center gap-2"><div class="w-1.5 h-1.5 rounded-full bg-white animate-pulse"></div><span class="font-mono text-[10px] uppercase text-zinc-200 font-semibold tracking-wider">FLAC Master Engine</span></div><span class="font-mono text-[9px] px-1.5 py-0.2 rounded border border-zinc-700 bg-zinc-800/80 text-zinc-300 font-semibold">ONLINE</span></div><div class="flex items-center justify-between text-zinc-400 font-mono text-[11px]"><span>24-bit / 192kHz</span><span>1.411 kbps</span></div><div class="mt-1 flex flex-col gap-1.5"><div class="flex justify-between text-[11px] text-zinc-400 font-medium"><span>SSD NVMe Local</span><span class="font-mono text-zinc-300">142 GB / 512 GB</span></div><div class="w-full h-1 rounded-full bg-zinc-800 overflow-hidden"><div class="h-full w-[28%] bg-zinc-300 rounded-full"></div></div></div></div></aside><div class="pl-64"><header class="fixed top-0 left-64 right-0 h-16 bg-surface/90 backdrop-blur-xl z-30 flex items-center justify-between px-8 border-b border-outline-variant/50"><div class="flex items-center gap-4 flex-1"><div class="flex items-center gap-1 text-zinc-400"><button class="w-7 h-7 rounded flex items-center justify-center hover:bg-surface-container-high hover:text-white transition-colors" type="button"><span class="material-symbols-outlined text-[17px]">arrow_back_ios_new</span></button><button class="w-7 h-7 rounded flex items-center justify-center hover:bg-surface-container-high hover:text-white transition-colors" type="button"><span class="material-symbols-outlined text-[17px]">arrow_forward_ios</span></button></div><div class="relative max-w-xl w-full"><span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-[18px]">search</span><input class="w-full bg-surface-container-low border border-outline-variant/60 rounded-md pl-9 pr-4 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500 focus:bg-surface-container transition-colors" placeholder="Pegar enlace de Tidal o buscar artista, álbum, pista..." type="text"/></div></div><div class="flex items-center gap-4 ml-6"><div class="flex items-center gap-2 px-2.5 py-1 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[11px] cursor-pointer hover:border-zinc-500 transition-colors"><span class="material-symbols-outlined text-[14px] text-zinc-400">graphic_eq</span><span>FLAC 24-bit/192kHz</span><span class="material-symbols-outlined text-[14px] text-zinc-500">expand_more</span></div><button class="flex items-center gap-2 px-3.5 py-1.5 rounded bg-white hover:bg-zinc-200 text-black font-medium text-xs transition-colors shadow-sm" type="button"><span class="material-symbols-outlined text-[16px]">downloading</span><span>Descarga Rápida</span></button><div class="flex items-center pl-2 border-l border-outline-variant"><img alt="Profile" class="w-7 h-7 rounded-full object-cover grayscale opacity-90 ring-1 ring-zinc-700 hover:ring-zinc-400 transition-all cursor-pointer" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRPRwFeC0PyoIc2gvq4ErVNvgdPnmlRfMCodPnE7mm-jubJRNd7PUVjtBU3K53pOu4_5jdk-zPgitQtWkmLZUJghcaLMnpCeUzkiYpDIjQB-Q3pcVl_0aOHv9k9D_2Ha1WbA7WBZpm-kqKeQIDJbl2thsnsuh8ZZigg8FvZqYuIYJ9xYN2htxz2ArXRkuMLM3JW7gQE68ohauJp5ADUcLEIMEGrlL54w_M5_Lrip1h-tGSdU-Rxagg"/></div></div></header><main class="w-full pt-20 pb-[96px] min-h-screen px-8 bg-surface"><div class="flex flex-col w-full max-w-7xl mx-auto">
+<!-- Telemetry & Extraction Overview Header Grid (Monochromatic, High-End Neutral) -->
+<section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+<!-- Metric Card 1: Active Streams & Queue -->
+<div class="relative bg-surface-container-low border border-outline-variant/70 p-4 rounded-lg flex flex-col justify-between">
+<div class="flex items-center justify-between mb-2">
+<span class="font-mono text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Estado de Cola</span>
+<span class="flex h-2 w-2 relative">
+<span class="relative inline-flex rounded-full h-1.5 w-1.5 bg-zinc-300"></span>
+</span>
+</div>
+<div class="flex items-baseline gap-2">
+<span class="text-2xl font-bold font-mono text-white">3</span>
+<span class="text-xs font-medium text-zinc-400 uppercase tracking-wide">Activas</span>
+<span class="text-zinc-500 font-mono text-xs ml-auto">12 en espera</span>
+</div>
+<div class="mt-3 pt-2.5 border-t border-outline-variant/40 flex items-center justify-between text-xs text-zinc-400">
+<span class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-[14px] text-zinc-400">check_circle</span>
+          48 completadas hoy
+        </span>
+<span class="font-mono text-[10px] text-zinc-300 bg-surface-container px-1.5 py-0.5 rounded border border-outline-variant font-medium">99.8% ÉXITO</span>
+</div>
+</div>
+<!-- Metric Card 2: Real-time Throughput (Neutral Monochrome Spectrum) -->
+<div class="relative bg-surface-container-low border border-outline-variant/70 p-4 rounded-lg flex flex-col justify-between">
+<div class="flex items-center justify-between mb-2">
+<span class="font-mono text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Ancho de Banda</span>
+<span class="material-symbols-outlined text-zinc-400 text-[18px]">speed</span>
+</div>
+<div class="flex items-baseline justify-between">
+<div class="flex items-baseline gap-1.5">
+<span class="text-2xl font-bold text-white font-mono">38.4</span>
+<span class="text-xs text-zinc-500 font-mono">MB/s</span>
+</div>
+<!-- Minimal Monochrome Spectrum Bars -->
+<div class="flex items-end gap-[3px] h-6 w-24 pb-0.5">
+<span class="w-[3px] bg-zinc-700 rounded-sm h-[30%]"></span>
+<span class="w-[3px] bg-zinc-600 rounded-sm h-[50%]"></span>
+<span class="w-[3px] bg-zinc-500 rounded-sm h-[40%]"></span>
+<span class="w-[3px] bg-zinc-400 rounded-sm h-[80%]"></span>
+<span class="w-[3px] bg-zinc-500 rounded-sm h-[65%]"></span>
+<span class="w-[3px] bg-zinc-300 rounded-sm h-[90%]"></span>
+<span class="w-[3px] bg-zinc-400 rounded-sm h-[60%]"></span>
+<span class="w-[3px] bg-white rounded-sm h-[100%]"></span>
+</div>
+</div>
+<div class="mt-3 pt-2.5 border-t border-outline-variant/40 flex items-center justify-between font-mono text-[11px] text-zinc-400">
+<span>Pico: 44.2 MB/s</span>
+<span class="text-zinc-200">307.2 Mbps</span>
+</div>
+</div>
+<!-- Metric Card 3: Remaining Session ETA -->
+<div class="relative bg-surface-container-low border border-outline-variant/70 p-4 rounded-lg flex flex-col justify-between">
+<div class="flex items-center justify-between mb-2">
+<span class="font-mono text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Tiempo Estimado</span>
+<span class="material-symbols-outlined text-zinc-400 text-[18px]">hourglass_top</span>
+</div>
+<div class="flex items-baseline gap-1.5">
+<span class="text-2xl font-bold text-white font-mono">02:14</span>
+<span class="text-xs text-zinc-500 font-mono">min</span>
+</div>
+<div class="mt-3 pt-2.5 border-t border-outline-variant/40 flex items-center justify-between text-xs text-zinc-400">
+<span>Restante: 296.7 MB</span>
+<span class="font-mono text-[10px] text-zinc-300 bg-surface-container px-1.5 py-0.5 rounded border border-outline-variant font-medium">BUFFER OK</span>
+</div>
+</div>
+<!-- Metric Card 4: Destination Directory Storage -->
+<div class="relative bg-surface-container-low border border-outline-variant/70 p-4 rounded-lg flex flex-col justify-between">
+<div class="flex items-center justify-between mb-2">
+<span class="font-mono text-[10px] uppercase tracking-widest text-zinc-400 font-semibold">Destino Local</span>
+<span class="material-symbols-outlined text-zinc-400 text-[18px]">folder_copy</span>
+</div>
+<div class="flex items-center gap-1.5 min-w-0">
+<span class="font-mono text-xs text-zinc-300 truncate">D:/Music/Hi-Res Tidal Extracted/</span>
+</div>
+<div class="mt-3 pt-2.5 border-t border-outline-variant/40 flex items-center justify-between text-xs">
+<span class="text-zinc-500">FLAC Studio Folder</span>
+<button class="text-zinc-300 hover:text-white flex items-center gap-1 transition-colors" type="button">
+<span>Cambiar</span>
+<span class="material-symbols-outlined text-[13px]">open_in_new</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Interactive Action & Rate Limiting Control Deck -->
+<section class="bg-surface-container-low border border-outline-variant/70 p-3 rounded-lg mb-6 flex flex-wrap items-center justify-between gap-3">
+<div class="flex flex-wrap items-center gap-2">
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded border border-outline-variant bg-surface-container hover:bg-surface-container-high text-zinc-200 text-xs font-medium transition-colors" id="btn-pause-all" type="button">
+<span class="material-symbols-outlined text-[15px] text-zinc-400">pause</span>
+<span>Pausar Todas</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded border border-outline-variant bg-surface-container hover:bg-surface-container-high text-zinc-200 text-xs font-medium transition-colors" id="btn-resume-all" type="button">
+<span class="material-symbols-outlined text-[15px] text-zinc-400">play_arrow</span>
+<span>Reanudar</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded border border-outline-variant bg-surface-container hover:bg-surface-container-high text-zinc-400 hover:text-zinc-200 text-xs font-medium transition-colors" type="button">
+<span class="material-symbols-outlined text-[15px]">clear_all</span>
+<span>Limpiar Completadas</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded border border-outline-variant bg-surface-container hover:bg-surface-container-high text-zinc-300 text-xs font-medium transition-colors" type="button">
+<span class="material-symbols-outlined text-[15px] text-zinc-400">folder_open</span>
+<span>Abrir Carpeta de Destino</span>
+</button>
+</div>
+<!-- Throttle / Velocity Cap Slider -->
+<div class="flex items-center gap-3 ml-auto bg-surface-container px-3 py-1.5 rounded border border-outline-variant">
+<div class="flex items-center gap-1.5 text-zinc-400">
+<span class="material-symbols-outlined text-[15px]">tune</span>
+<span class="text-xs font-medium">Límite de Red:</span>
+</div>
+<input class="w-24 h-1 bg-zinc-800 rounded appearance-none cursor-pointer accent-white" id="speed-slider" max="100" min="10" type="range" value="100"/>
+<span class="font-mono text-[10px] text-zinc-200 font-semibold min-w-14 text-right" id="speed-label">ILIMITADO</span>
+</div>
+</section>
+<!-- Main Active Downloads Stage (Clean Monochromatic Progress) -->
+<section class="flex flex-col gap-3 mb-8">
+<div class="flex items-center justify-between px-1 mb-1">
+<div class="flex items-center gap-2.5">
+<h2 class="text-sm font-semibold tracking-tight text-white uppercase font-mono">Descargas en Tiempo Real</h2>
+<span class="px-2 py-0.5 rounded border border-outline-variant bg-surface-container-high text-zinc-300 font-mono text-[10px] font-semibold">3 PROCESOS</span>
+</div>
+<span class="font-mono text-xs text-zinc-500">Decodificador Hi-Res 24-bit MQA/PCM</span>
+</div>
+<!-- Track 1: Daft Punk - Get Lucky -->
+<div class="bg-surface-container-low border border-outline-variant/70 hover:border-zinc-700 transition-colors rounded-lg p-4 flex flex-col gap-3 group">
+<div class="flex items-center justify-between gap-4">
+<div class="flex items-center gap-3.5 min-w-0">
+<img class="w-12 h-12 rounded object-cover shrink-0 grayscale group-hover:grayscale-0 transition-all border border-outline-variant/50" data-alt="Album art for Daft Punk featuring glowing retro helmets bathed in magenta and cyan neon lights against deep dark minimalist studio space" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAeBEq0x8MonNtHrY_Ge2hWFASEtlExBv2iIFwyHECyY1Ry7aBvHuRI2Jbg80Q7J7mLkjwmEZPuC61X0GPdZywOBKMdUh6gW8DVtchcWvry6lG9ELzCWDFVMesRm1XtqJ6-57VfWYeDgKzPGNdbBxazXR6HpLzv5Lya9NQN5errFRT4Q1Qg0jDM_rD0XbG69gVnWh7m5lKqZCRIVhzhfOehjBrY7iP0cqIAF6sBM9mkbqOtBUKDpTVy"/>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="text-sm font-medium text-white truncate">Get Lucky (feat. Pharrell Williams)</span>
+<span class="px-1.5 py-0.2 rounded border border-zinc-700 bg-surface-container text-zinc-300 font-mono text-[9px] font-medium tracking-wide">HI-RES LOSSLESS</span>
+</div>
+<div class="flex items-center gap-2 text-zinc-400 text-xs mt-0.5">
+<span class="text-zinc-300 font-medium">Daft Punk</span>
+<span class="text-zinc-600">•</span>
+<span class="truncate">Random Access Memories</span>
+<span class="text-zinc-600">•</span>
+<span class="font-mono text-zinc-300 text-[11px]">FLAC 24-bit / 96kHz</span>
+<span class="text-zinc-600">•</span>
+<span class="font-mono text-zinc-400 text-[11px]">89.4 MB</span>
+</div>
+</div>
+</div>
+<!-- Real-time metrics & Controls -->
+<div class="flex items-center gap-5 shrink-0">
+<div class="flex flex-col items-end">
+<span class="font-mono text-xs text-white font-medium">14.2 MB/s</span>
+<span class="font-mono text-[10px] text-zinc-500">69.8 MB / 89.4 MB</span>
+</div>
+<div class="text-base font-bold text-white font-mono w-12 text-right">78%</div>
+<div class="flex items-center gap-1">
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">pause</span>
+</button>
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Minimal Monochromatic Progress Bar -->
+<div class="flex flex-col gap-1.5">
+<div class="w-full h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+<div class="h-full w-[78%] bg-white rounded-full"></div>
+</div>
+<div class="flex items-center justify-between text-zinc-500 font-mono text-[11px]">
+<div class="flex items-center gap-2 text-zinc-400">
+<span class="inline-block w-1.5 h-1.5 rounded-full bg-white animate-pulse"></span>
+<span>Descargando flujo PCM estéreo... Bloque 1840/2360</span>
+</div>
+<span>ETA: 00:02 s</span>
+</div>
+</div>
+</div>
+<!-- Track 2: Daft Punk - Giorgio by Moroder -->
+<div class="bg-surface-container-low border border-outline-variant/70 hover:border-zinc-700 transition-colors rounded-lg p-4 flex flex-col gap-3 group">
+<div class="flex items-center justify-between gap-4">
+<div class="flex items-center gap-3.5 min-w-0">
+<img class="w-12 h-12 rounded object-cover shrink-0 grayscale group-hover:grayscale-0 transition-all border border-outline-variant/50" data-alt="Vintage modular synthesizer patch cords with glowing red LEDs and analog VU meters in dark audiophile listening room" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDt7rjzc0_eqKFlWKkjEWOMCa1gDHBlmscBmzJkE8a2SgFgc_Zyot-6nLMukOO88eXwKNSNFNWVfnaGTz4JnhiStzLp0_Nr4GI8lhACSey6SeZbLyivKweNBhSFLE9HAQah4L4kW6LASzj8wOrgYiFsjvTmNPC7IOL9Jxpw8R3qqJeEEz8WHFDBvSNQ6-BPjDs4I34HPC28usojoYB_065viadjSFE6jsK3LeuUNIzg7mVsOsG6X1ns"/>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="text-sm font-medium text-white truncate">Giorgio by Moroder</span>
+<span class="px-1.5 py-0.2 rounded border border-zinc-700 bg-surface-container text-zinc-300 font-mono text-[9px] font-medium tracking-wide">HI-RES LOSSLESS</span>
+</div>
+<div class="flex items-center gap-2 text-zinc-400 text-xs mt-0.5">
+<span class="text-zinc-300 font-medium">Daft Punk</span>
+<span class="text-zinc-600">•</span>
+<span class="truncate">Random Access Memories</span>
+<span class="text-zinc-600">•</span>
+<span class="font-mono text-zinc-300 text-[11px]">FLAC 24-bit / 96kHz</span>
+<span class="text-zinc-600">•</span>
+<span class="font-mono text-zinc-400 text-[11px]">142.1 MB</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-5 shrink-0">
+<div class="flex flex-col items-end">
+<span class="font-mono text-xs text-white font-medium">12.8 MB/s</span>
+<span class="font-mono text-[10px] text-zinc-500">59.6 MB / 142.1 MB</span>
+</div>
+<div class="text-base font-bold text-white font-mono w-12 text-right">42%</div>
+<div class="flex items-center gap-1">
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">pause</span>
+</button>
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-1.5">
+<div class="w-full h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+<div class="h-full w-[42%] bg-zinc-300 rounded-full"></div>
+</div>
+<div class="flex items-center justify-between text-zinc-500 font-mono text-[11px]">
+<div class="flex items-center gap-2 text-zinc-400">
+<span class="material-symbols-outlined text-[14px]">auto_fix_high</span>
+<span>Escribiendo metadatos Vorbis e incrustando carátula HD 3000x3000px...</span>
+</div>
+<span>ETA: 00:06 s</span>
+</div>
+</div>
+</div>
+<!-- Track 3: The Weeknd - Starboy -->
+<div class="bg-surface-container-low border border-outline-variant/70 hover:border-zinc-700 transition-colors rounded-lg p-4 flex flex-col gap-3 group">
+<div class="flex items-center justify-between gap-4">
+<div class="flex items-center gap-3.5 min-w-0">
+<img class="w-12 h-12 rounded object-cover shrink-0 grayscale group-hover:grayscale-0 transition-all border border-outline-variant/50" data-alt="Moody cinematic portrait enveloped in deep neon cobalt blue and vivid red rim light with high contrast shadows" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCVXs6DDyzfBJ7b-4G4XfIR7IExsn2xT8_-3y2JA7ZIbwlaU5FOu7OojfcUcWvE2UT9A26S5ogkLfxvo0ei6C0SBrWYvt4TDQHTqEX1aYwt25nTk8ZyyKSjKrug-sGNq42atzJv5z6oNKF21kN40VYHhL5Ml5t6WudzCLCOXBKRMR3xjiujkEVo3CKm7LCcM29RMSUUP-t4Zdb-tV4zwwvlgRKmjvOpCEPq2f6HbKifki1U4l5GGytf"/>
+<div class="flex flex-col min-w-0">
+<div class="flex items-center gap-2">
+<span class="text-sm font-medium text-white truncate">Starboy</span>
+<span class="px-1.5 py-0.2 rounded border border-zinc-700 bg-surface-container text-zinc-300 font-mono text-[9px] font-medium tracking-wide">MQA STUDIO</span>
+</div>
+<div class="flex items-center gap-2 text-zinc-400 text-xs mt-0.5">
+<span class="text-zinc-300 font-medium">The Weeknd</span>
+<span class="text-zinc-600">•</span>
+<span class="truncate">Starboy (Deluxe Edition)</span>
+<span class="text-zinc-600">•</span>
+<span class="font-mono text-zinc-300 text-[11px]">FLAC 24-bit / 44.1kHz</span>
+<span class="text-zinc-600">•</span>
+<span class="font-mono text-zinc-400 text-[11px]">65.2 MB</span>
+</div>
+</div>
+</div>
+<div class="flex items-center gap-5 shrink-0">
+<div class="flex flex-col items-end">
+<span class="font-mono text-xs text-white font-medium">11.4 MB/s</span>
+<span class="font-mono text-[10px] text-zinc-500">12.3 MB / 65.2 MB</span>
+</div>
+<div class="text-base font-bold text-white font-mono w-12 text-right">19%</div>
+<div class="flex items-center gap-1">
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">pause</span>
+</button>
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container flex items-center justify-center text-zinc-400 hover:text-white hover:border-zinc-500 transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px]">close</span>
+</button>
+</div>
+</div>
+</div>
+<div class="flex flex-col gap-1.5">
+<div class="w-full h-1.5 rounded-full bg-surface-container-highest overflow-hidden">
+<div class="h-full w-[19%] bg-zinc-400 rounded-full"></div>
+</div>
+<div class="flex items-center justify-between text-zinc-500 font-mono text-[11px]">
+<div class="flex items-center gap-2 text-zinc-400">
+<span class="material-symbols-outlined text-[14px]">lock_open</span>
+<span>Desencriptando audio Tidal Hi-Res vía token de sesión SSL...</span>
+</div>
+<span>ETA: 00:05 s</span>
+</div>
+</div>
+</div>
+</section>
+<!-- Split Stage: Queued Tracks & Post-Processing Verification -->
+<div class="grid grid-cols-1 lg:grid-cols-12 gap-4 mb-8">
+<!-- Next in Queue Table (7 cols) -->
+<div class="lg:col-span-7 flex flex-col bg-surface-container-low border border-outline-variant/70 rounded-lg p-4">
+<div class="flex items-center justify-between mb-3 pb-2 border-b border-outline-variant/40">
+<div class="flex items-center gap-2">
+<h3 class="text-xs font-semibold uppercase tracking-wider text-white font-mono">En Espera en Cola</h3>
+<span class="px-1.5 py-0.2 rounded border border-outline-variant bg-surface-container text-zinc-400 font-mono text-[10px]">12 PISTAS</span>
+</div>
+<div class="flex items-center gap-1 text-zinc-500 text-[11px]">
+<span class="material-symbols-outlined text-[13px]">drag_indicator</span>
+<span>Arrastra para priorizar</span>
+</div>
+</div>
+<div class="flex flex-col divide-y divide-outline-variant/30">
+<!-- Queue Item 1 -->
+<div class="flex items-center justify-between py-2 px-1 hover:bg-surface-container transition-colors group cursor-grab rounded">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="material-symbols-outlined text-zinc-600 group-hover:text-zinc-300 text-[16px]">drag_indicator</span>
+<span class="font-mono text-zinc-500 text-xs w-4">04</span>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-medium text-zinc-200 truncate">Instant Crush (feat. Julian Casablancas)</span>
+<span class="text-[11px] text-zinc-500 truncate">Daft Punk</span>
+</div>
+</div>
+<div class="flex items-center gap-4 shrink-0">
+<span class="px-1.5 py-0.2 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px]">24-bit/96kHz</span>
+<span class="font-mono text-xs text-zinc-500">74.5 MB</span>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-500 hover:text-zinc-200" type="button">
+<span class="material-symbols-outlined text-[15px]">delete</span>
+</button>
+</div>
+</div>
+<!-- Queue Item 2 -->
+<div class="flex items-center justify-between py-2 px-1 hover:bg-surface-container transition-colors group cursor-grab rounded">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="material-symbols-outlined text-zinc-600 group-hover:text-zinc-300 text-[16px]">drag_indicator</span>
+<span class="font-mono text-zinc-500 text-xs w-4">05</span>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-medium text-zinc-200 truncate">Lose Yourself to Dance</span>
+<span class="text-[11px] text-zinc-500 truncate">Daft Punk</span>
+</div>
+</div>
+<div class="flex items-center gap-4 shrink-0">
+<span class="px-1.5 py-0.2 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px]">24-bit/96kHz</span>
+<span class="font-mono text-xs text-zinc-500">88.1 MB</span>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-500 hover:text-zinc-200" type="button">
+<span class="material-symbols-outlined text-[15px]">delete</span>
+</button>
+</div>
+</div>
+<!-- Queue Item 3 -->
+<div class="flex items-center justify-between py-2 px-1 hover:bg-surface-container transition-colors group cursor-grab rounded">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="material-symbols-outlined text-zinc-600 group-hover:text-zinc-300 text-[16px]">drag_indicator</span>
+<span class="font-mono text-zinc-500 text-xs w-4">06</span>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-medium text-zinc-200 truncate">Touch (feat. Paul Williams)</span>
+<span class="text-[11px] text-zinc-500 truncate">Daft Punk</span>
+</div>
+</div>
+<div class="flex items-center gap-4 shrink-0">
+<span class="px-1.5 py-0.2 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px]">24-bit/96kHz</span>
+<span class="font-mono text-xs text-zinc-500">112.4 MB</span>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-500 hover:text-zinc-200" type="button">
+<span class="material-symbols-outlined text-[15px]">delete</span>
+</button>
+</div>
+</div>
+<!-- Queue Item 4 -->
+<div class="flex items-center justify-between py-2 px-1 hover:bg-surface-container transition-colors group cursor-grab rounded">
+<div class="flex items-center gap-2.5 min-w-0">
+<span class="material-symbols-outlined text-zinc-600 group-hover:text-zinc-300 text-[16px]">drag_indicator</span>
+<span class="font-mono text-zinc-500 text-xs w-4">07</span>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-medium text-zinc-200 truncate">I Feel It Coming</span>
+<span class="text-[11px] text-zinc-500 truncate">The Weeknd</span>
+</div>
+</div>
+<div class="flex items-center gap-4 shrink-0">
+<span class="px-1.5 py-0.2 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px]">16-bit/44.1kHz</span>
+<span class="font-mono text-xs text-zinc-500">42.8 MB</span>
+<button class="opacity-0 group-hover:opacity-100 transition-opacity text-zinc-500 hover:text-zinc-200" type="button">
+<span class="material-symbols-outlined text-[15px]">delete</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+<!-- Post-Processing & Audio Pipeline Telemetry (5 cols) -->
+<div class="lg:col-span-5 flex flex-col bg-surface-container-low border border-outline-variant/70 rounded-lg p-4 justify-between">
+<div>
+<div class="flex items-center justify-between mb-2">
+<h3 class="text-xs font-semibold uppercase tracking-wider text-white font-mono">Telemetría de Post-Proceso</h3>
+<span class="font-mono text-[10px] text-zinc-400 uppercase">MOTOR ACTIVO</span>
+</div>
+<p class="text-xs text-zinc-500 mb-3 leading-relaxed">
+          Inspección bit-perfect, verificación MD5 e inyección de metadatos ID3v2/Vorbis sin remuestreo con pérdidas.
+        </p>
+<!-- Verification Checklist -->
+<div class="flex flex-col gap-2">
+<div class="flex items-start gap-2.5 p-2 rounded bg-surface-container/70 border border-outline-variant/40">
+<span class="material-symbols-outlined text-zinc-300 text-[18px] shrink-0 mt-0.5">verified</span>
+<div class="flex flex-col">
+<span class="text-xs font-medium text-zinc-200">Verificación de Integridad FLAC (MD5)</span>
+<span class="font-mono text-[10px] text-zinc-500">c4ca4238a0b923820dcc509a6f75849b • 100% Sin Errores</span>
+</div>
+</div>
+<div class="flex items-start gap-2.5 p-2 rounded bg-surface-container/70 border border-outline-variant/40">
+<span class="material-symbols-outlined text-zinc-300 text-[18px] shrink-0 mt-0.5">image</span>
+<div class="flex flex-col">
+<span class="text-xs font-medium text-zinc-200">Incrustación de Portada HD</span>
+<span class="font-mono text-[10px] text-zinc-500">3000 x 3000 px • Color Space: sRGB IEC61966-2.1</span>
+</div>
+</div>
+<div class="flex items-start gap-2.5 p-2 rounded bg-surface-container/70 border border-outline-variant/40">
+<span class="material-symbols-outlined text-zinc-300 text-[18px] shrink-0 mt-0.5">subtitles</span>
+<div class="flex flex-col">
+<span class="text-xs font-medium text-zinc-200">Letras Sincronizadas (.lrc UTF-8)</span>
+<span class="font-mono text-[10px] text-zinc-500">Marcas temporales generadas al milisegundo</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Buffer & Resource Health -->
+<div class="mt-3 bg-surface-container rounded p-2.5 border border-outline-variant/50 flex items-center justify-between">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-[16px] text-zinc-400">memory</span>
+<span class="text-xs text-zinc-400">Buffer Asignado:</span>
+</div>
+<span class="font-mono text-xs text-zinc-300 font-medium">512 MB / 2048 MB (Segura)</span>
+</div>
+</div>
+</div>
+<!-- Completed Session Downloads -->
+<section class="flex flex-col bg-surface-container-low border border-outline-variant/70 rounded-lg p-4 mb-6">
+<div class="flex items-center justify-between mb-3 pb-2 border-b border-outline-variant/40">
+<div class="flex items-center gap-2">
+<h3 class="text-xs font-semibold uppercase tracking-wider text-white font-mono">Completadas Recientemente</h3>
+<span class="px-1.5 py-0.2 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px]">48 ARCHIVOS LISTOS</span>
+</div>
+<button class="text-xs font-medium text-zinc-400 hover:text-white flex items-center gap-1 transition-colors" type="button">
+<span>Ver Historial Completo</span>
+<span class="material-symbols-outlined text-[15px]">arrow_forward</span>
+</button>
+</div>
+<!-- Completed Tracks List -->
+<div class="flex flex-col divide-y divide-outline-variant/30">
+<!-- Item 1 -->
+<div class="flex items-center justify-between py-2.5 px-1 hover:bg-surface-container transition-colors rounded group">
+<div class="flex items-center gap-3 min-w-0">
+<span class="material-symbols-outlined text-zinc-400 text-[18px] shrink-0">check_circle</span>
+<img class="w-9 h-9 rounded object-cover shrink-0 grayscale group-hover:grayscale-0 transition-all border border-outline-variant/50" data-alt="Futuristic electronic concert stage with radiant red and cyan laser lights penetrating stadium fog" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAGoM6afq36Up_WJHfYJ4Oi-gFbaGCgJyMV-Cf5S5wt2tK95zPhNh_Xje889Ci6GHXnhS2Bi9Dsw28SaOs2IpOOvn3Gkq_HhBZ2Y4n5kksCRUxIviNRY3pRDjuX13BTM5Dlg5z_gADmy0nNyW2SZG4isRX58mytBVk74IdRuETI3e-kjHzvp_qqEPtRCuRwKYvgvuTLWPmUblYP_dyfXp4OIbTNvwqJeqPgsQ50E-oeJgP-dvJ8VSEO"/>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-medium text-zinc-200 truncate">Give Life Back to Music</span>
+<span class="text-[11px] text-zinc-500 truncate">Daft Punk • Random Access Memories</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="px-1.5 py-0.2 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px]">FLAC 24-BIT / 96kHz</span>
+<span class="font-mono text-xs text-zinc-500">92.4 MB</span>
+<span class="font-mono text-xs text-zinc-500">Hace 2m</span>
+<div class="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container hover:bg-white hover:text-black flex items-center justify-center text-zinc-300 transition-colors" title="Reproducir localmente" type="button">
+<span class="material-symbols-outlined text-[15px]">play_arrow</span>
+</button>
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container hover:bg-white hover:text-black flex items-center justify-center text-zinc-400 transition-colors" title="Mostrar en explorador de archivos" type="button">
+<span class="material-symbols-outlined text-[15px]">folder</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Item 2 -->
+<div class="flex items-center justify-between py-2.5 px-1 hover:bg-surface-container transition-colors rounded group">
+<div class="flex items-center gap-3 min-w-0">
+<span class="material-symbols-outlined text-zinc-400 text-[18px] shrink-0">check_circle</span>
+<img class="w-9 h-9 rounded object-cover shrink-0 grayscale group-hover:grayscale-0 transition-all border border-outline-variant/50" data-alt="Minimalist glowing metallic helmet on sleek pedestal with cinematic studio shadows" src="https://lh3.googleusercontent.com/aida-public/AB6AXuBGQDCuW0Z7DjR0GHy77RNUeSEtW7WBTGWyItnAayj0jLHULchXvGRLZ6in0bp2Ew5mubdnhM2HH81viUIXOjP1vqG7vs6XAZXwpPCnwcydwpqk2N0_PeU7kgAj6Y-9CxJal6ZlP4zADVwdRb5mQXCP4WdTUa1r-jVLpAI2o_PWFbRINCLkVVvp-5EyB3QZUXmT14NtKEippXEcnaOA47zo-0q3a3jsViCjzlW2UFggV-QPn6Wk1-QP"/>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-medium text-zinc-200 truncate">The Game of Love</span>
+<span class="text-[11px] text-zinc-500 truncate">Daft Punk • Random Access Memories</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="px-1.5 py-0.2 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px]">FLAC 24-BIT / 96kHz</span>
+<span class="font-mono text-xs text-zinc-500">83.1 MB</span>
+<span class="font-mono text-xs text-zinc-500">Hace 5m</span>
+<div class="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container hover:bg-white hover:text-black flex items-center justify-center text-zinc-300 transition-colors" title="Reproducir localmente" type="button">
+<span class="material-symbols-outlined text-[15px]">play_arrow</span>
+</button>
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container hover:bg-white hover:text-black flex items-center justify-center text-zinc-400 transition-colors" title="Mostrar en explorador de archivos" type="button">
+<span class="material-symbols-outlined text-[15px]">folder</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Item 3 -->
+<div class="flex items-center justify-between py-2.5 px-1 hover:bg-surface-container transition-colors rounded group">
+<div class="flex items-center gap-3 min-w-0">
+<span class="material-symbols-outlined text-zinc-400 text-[18px] shrink-0">check_circle</span>
+<img class="w-9 h-9 rounded object-cover shrink-0 grayscale group-hover:grayscale-0 transition-all border border-outline-variant/50" data-alt="Neon cross illuminated in rain drenched darkness with reflections of crimson and blue streetlights" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAQtHn_3vImUOh7_p52M-RQLL6DEEe8l-Aw08Mu9fxEpwr9L7RTSpity5jQwgOseXE0r1TPgQh9-GqMT9DtJN_lBirahCDs9kvWtKXQuA6B6oC53o6hxCXD_0JwlL7bvks-h5PiJ9IdyJItRRllxmBKb5gCIkSX0kZhuD0ukRHyCe2iWco3mSyUqwLcYsThIuFlknqXyH85PsMWfbQdHF2b0weqxAsbS9MDGKxF7XRSocagPeEJpb7R"/>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-medium text-zinc-200 truncate">Party Monster</span>
+<span class="text-[11px] text-zinc-500 truncate">The Weeknd • Starboy</span>
+</div>
+</div>
+<div class="flex items-center gap-4">
+<span class="px-1.5 py-0.2 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px]">FLAC 24-BIT / 44.1kHz</span>
+<span class="font-mono text-xs text-zinc-500">58.9 MB</span>
+<span class="font-mono text-xs text-zinc-500">Hace 8m</span>
+<div class="flex items-center gap-1 opacity-70 group-hover:opacity-100 transition-opacity">
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container hover:bg-white hover:text-black flex items-center justify-center text-zinc-300 transition-colors" title="Reproducir localmente" type="button">
+<span class="material-symbols-outlined text-[15px]">play_arrow</span>
+</button>
+<button class="w-7 h-7 rounded border border-outline-variant bg-surface-container hover:bg-white hover:text-black flex items-center justify-center text-zinc-400 transition-colors" title="Mostrar en explorador de archivos" type="button">
+<span class="material-symbols-outlined text-[15px]">folder</span>
+</button>
+</div>
+</div>
+</div>
+</div>
+</section>
+<!-- Dynamic client script for control responsiveness -->
+<script>
+    (function() {
+      const slider = document.getElementById('speed-slider');
+      const label = document.getElementById('speed-label');
+      if (slider && label) {
+        slider.addEventListener('input', (e) => {
+          const val = parseInt(e.target.value);
+          if (val >= 100) {
+            label.textContent = 'ILIMITADO';
+          } else {
+            label.textContent = val + ' MB/s';
+          }
+        });
+      }
+
+      const pauseBtn = document.getElementById('btn-pause-all');
+      const resumeBtn = document.getElementById('btn-resume-all');
+      if (pauseBtn && resumeBtn) {
+        pauseBtn.addEventListener('click', () => {
+          pauseBtn.classList.add('bg-white', 'text-black');
+          pauseBtn.classList.remove('bg-surface-container', 'text-zinc-200');
+          resumeBtn.classList.remove('bg-white', 'text-black');
+          resumeBtn.classList.add('bg-surface-container', 'text-zinc-200');
+        });
+        resumeBtn.addEventListener('click', () => {
+          resumeBtn.classList.add('bg-white', 'text-black');
+          resumeBtn.classList.remove('bg-surface-container', 'text-zinc-200');
+          pauseBtn.classList.remove('bg-white', 'text-black');
+          pauseBtn.classList.add('bg-surface-container', 'text-zinc-200');
+        });
+      }
+    })();
+  </script>
+</div></main></div><!-- Persistent Bottom Player with Audiophile Dynamic Waveform -->
+<footer class="fixed bottom-0 left-0 right-0 h-20 bg-surface-container-lowest/95 backdrop-blur-2xl z-50 flex items-center justify-between px-8 border-t border-outline-variant/60 shadow-[0_-4px_30px_rgba(0,0,0,0.8)]"><div class="flex items-center gap-3.5 w-72"><div class="relative w-11 h-11 rounded border border-outline-variant bg-surface-container-high overflow-hidden flex items-center justify-center shrink-0"><span class="material-symbols-outlined text-zinc-400 text-[22px]">album</span></div><div class="flex flex-col min-w-0"><span class="text-xs font-medium text-white truncate">Starboy (feat. Daft Punk)</span><span class="text-[11px] text-zinc-500 truncate">The Weeknd</span><span class="font-mono text-[9px] text-zinc-400 tracking-wider">FLAC 24-bit / 96kHz</span></div><button class="text-zinc-500 hover:text-white transition-colors ml-1" type="button"><span class="material-symbols-outlined text-[17px]">favorite</span></button></div><!-- Center: Waveform & Playback Navigation Controls --><div class="flex flex-col items-center flex-1 max-w-2xl px-6"><div class="flex items-center gap-5 mb-1.5"><button class="text-zinc-500 hover:text-zinc-300 transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">shuffle</span></button><button class="text-zinc-400 hover:text-white transition-colors" type="button"><span class="material-symbols-outlined text-[18px]">skip_previous</span></button><button class="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-sm" type="button"><span class="material-symbols-outlined text-[20px]">play_arrow</span></button><button class="text-zinc-400 hover:text-white transition-colors" type="button"><span class="material-symbols-outlined text-[18px]">skip_next</span></button><button class="text-zinc-500 hover:text-zinc-300 transition-colors" type="button"><span class="material-symbols-outlined text-[16px]">repeat</span></button></div><!-- Waveform Scrubber with Time Stamps --><div class="flex items-center gap-3 w-full"><span class="font-mono text-[10px] text-zinc-400 shrink-0">01:42</span><div class="waveform-container flex-1 h-7 flex items-center gap-[2px] cursor-pointer group py-1" title="Saltar posición en pista"><span class="waveform-bar w-1 rounded-full bg-white h-[35%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[55%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[40%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[75%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[90%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[60%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[85%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[70%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[95%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[80%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[65%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[50%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[75%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[90%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[100%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[85%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[70%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[92%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[60%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[45%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[80%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[65%]"></span><span class="waveform-bar w-1 rounded-full bg-white h-[50%]"></span><!-- Current Playhead position indicator line --><span class="waveform-bar w-[2px] rounded-full bg-white h-[100%] shadow-[0_0_8px_rgba(255,255,255,0.8)]"></span><!-- Unplayed Waveform (Dark Graphite / Charcoal) --><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[75%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[60%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[88%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[70%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[52%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[82%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[95%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[68%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[45%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[78%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[85%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[60%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[42%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[70%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[85%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[65%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[50%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[38%]"></span><span class="waveform-bar w-1 rounded-full bg-zinc-700/80 group-hover:bg-zinc-600 h-[25%]"></span></div><span class="font-mono text-[10px] text-zinc-500 shrink-0">03:50</span></div></div><!-- Right: Audio Master Spec & Volume --><div class="flex items-center justify-end gap-4 w-72"><span class="px-2 py-0.5 rounded border border-outline-variant bg-surface-container text-zinc-300 font-mono text-[10px] tracking-wider font-medium">24-BIT/96kHz FLAC</span><div class="flex items-center gap-2 w-28"><button class="text-zinc-400 hover:text-white transition-colors" type="button"><span class="material-symbols-outlined text-[17px]">volume_up</span></button><div class="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden cursor-pointer"><div class="h-full w-[75%] bg-zinc-300 hover:bg-white transition-colors rounded-full"></div></div></div><button class="text-zinc-400 hover:text-white transition-colors" type="button"><span class="material-symbols-outlined text-[17px]">queue_music</span></button></div></footer></body></html>

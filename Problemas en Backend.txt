@@ -1,0 +1,86 @@
+INFO:     Will watch for changes in these directories: ['D:\\Proyectos\\Visual Studio Projects\\Tidal-Extractor']
+INFO:     Uvicorn running on http://127.0.0.1:8000 (Press CTRL+C to quit)
+INFO:     Started reloader process [10108] using WatchFiles
+DEBUG:asyncio:Using selector: SelectSelector
+DEBUG:asyncio:Using selector: SelectSelector
+INFO:     Started server process [22308]
+INFO:     Waiting for application startup.
+DEBUG:aiosqlite:executing <function connect.<locals>.connector at 0x000002739177B320>
+DEBUG:aiosqlite:operation <function connect.<locals>.connector at 0x000002739177B320> completed
+DEBUG:aiosqlite:executing functools.partial(<built-in method execute of sqlite3.Connection object at 0x00000273B2D7E980>, 'PRAGMA journal_mode=WAL', [])
+DEBUG:aiosqlite:operation functools.partial(<built-in method execute of sqlite3.Connection object at 0x00000273B2D7E980>, 'PRAGMA journal_mode=WAL', []) completed
+DEBUG:aiosqlite:executing functools.partial(<built-in method executescript of sqlite3.Connection object at 0x00000273B2D7E980>, "\n            CREATE TABLE IF NOT EXISTS queue (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                tidal_id TEXT NOT NULL,\n                item_type TEXT NOT NULL DEFAULT 'track',\n                title TEXT NOT NULL,\n                artist TEXT NOT NULL DEFAULT '',\n                album TEXT NOT NULL DEFAULT '',\n                quality TEXT NOT NULL DEFAULT 'high_lossless',\n                format TEXT NOT NULL DEFAULT 'FLAC',\n                status TEXT NOT NULL DEFAULT 'queued',\n                progress REAL NOT NULL DEFAULT 0.0,\n                error TEXT,\n                from_collection INTEGER NOT NULL DEFAULT 0,\n                revision INTEGER NOT NULL DEFAULT 0,\n                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS history (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                tidal_id TEXT NOT NULL,\n                item_type TEXT NOT NULL DEFAULT 'track',\n                title TEXT NOT NULL,\n                artist TEXT NOT NULL DEFAULT '',\n                album TEXT NOT NULL DEFAULT '',\n                quality TEXT NOT NULL,\n                format TEXT NOT NULL,\n                file_path TEXT NOT NULL,\n                file_size INTEGER NOT NULL DEFAULT 0,\n                actual_bitrate INTEGER NOT NULL DEFAULT 0,\n                downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS device_stats (\n                key TEXT PRIMARY KEY,\n                value INTEGER NOT NULL DEFAULT 0,\n                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS quality_cache (\n                id INTEGER PRIMARY KEY CHECK (id = 1),\n                preset TEXT NOT NULL,\n                bitrate INTEGER NOT NULL,\n                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS key_cache (\n                file_hash TEXT PRIMARY KEY,\n                key TEXT,\n                camelot TEXT,\n                confidence REAL,\n                bpm REAL,\n                detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS waveform_cache (\n                tidal_id TEXT PRIMARY KEY,\n                bands_json TEXT NOT NULL,\n                duration REAL,\n                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n        ")
+DEBUG:aiosqlite:operation functools.partial(<built-in method executescript of sqlite3.Connection object at 0x00000273B2D7E980>, "\n            CREATE TABLE IF NOT EXISTS queue (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                tidal_id TEXT NOT NULL,\n                item_type TEXT NOT NULL DEFAULT 'track',\n                title TEXT NOT NULL,\n                artist TEXT NOT NULL DEFAULT '',\n                album TEXT NOT NULL DEFAULT '',\n                quality TEXT NOT NULL DEFAULT 'high_lossless',\n                format TEXT NOT NULL DEFAULT 'FLAC',\n                status TEXT NOT NULL DEFAULT 'queued',\n                progress REAL NOT NULL DEFAULT 0.0,\n                error TEXT,\n                from_collection INTEGER NOT NULL DEFAULT 0,\n                revision INTEGER NOT NULL DEFAULT 0,\n                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS history (\n                id INTEGER PRIMARY KEY AUTOINCREMENT,\n                tidal_id TEXT NOT NULL,\n                item_type TEXT NOT NULL DEFAULT 'track',\n                title TEXT NOT NULL,\n                artist TEXT NOT NULL DEFAULT '',\n                album TEXT NOT NULL DEFAULT '',\n                quality TEXT NOT NULL,\n                format TEXT NOT NULL,\n                file_path TEXT NOT NULL,\n                file_size INTEGER NOT NULL DEFAULT 0,\n                actual_bitrate INTEGER NOT NULL DEFAULT 0,\n                downloaded_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS device_stats (\n                key TEXT PRIMARY KEY,\n                value INTEGER NOT NULL DEFAULT 0,\n                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS quality_cache (\n                id INTEGER PRIMARY KEY CHECK (id = 1),\n                preset TEXT NOT NULL,\n                bitrate INTEGER NOT NULL,\n                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS key_cache (\n                file_hash TEXT PRIMARY KEY,\n                key TEXT,\n                camelot TEXT,\n                confidence REAL,\n                bpm REAL,\n                detected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n            CREATE TABLE IF NOT EXISTS waveform_cache (\n                tidal_id TEXT PRIMARY KEY,\n                bands_json TEXT NOT NULL,\n                duration REAL,\n                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP\n            );\n        ") completed
+DEBUG:aiosqlite:executing functools.partial(<built-in method commit of sqlite3.Connection object at 0x00000273B2D7E980>)
+DEBUG:aiosqlite:operation functools.partial(<built-in method commit of sqlite3.Connection object at 0x00000273B2D7E980>) completed
+DEBUG:aiosqlite:executing functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'PRAGMA table_info(queue)', [])
+DEBUG:aiosqlite:operation functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'PRAGMA table_info(queue)', []) completed
+DEBUG:aiosqlite:executing functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'PRAGMA table_info(key_cache)', [])
+DEBUG:aiosqlite:operation functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'PRAGMA table_info(key_cache)', []) completed
+DEBUG:aiosqlite:executing functools.partial(<built-in method commit of sqlite3.Connection object at 0x00000273B2D7E980>)
+DEBUG:aiosqlite:operation functools.partial(<built-in method commit of sqlite3.Connection object at 0x00000273B2D7E980>) completed
+INFO:tidalapi.session:Loading session from tidal-session.json...
+DEBUG:urllib3.connectionpool:Starting new HTTPS connection (1): api.tidal.com:443
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/sessions?limit=1000 HTTP/1.1" 200 261
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/sessions?limit=1000
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 441
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/users/209201051?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+INFO:tidalapi.session:TIDAL Login OK
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+INFO:backend.auth:Loaded saved Tidal session
+INFO:     Application startup complete.
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+INFO:     127.0.0.1:57008 - "GET /auth/status HTTP/1.1" 200 OK
+DEBUG:aiosqlite:executing functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'SELECT * FROM queue ORDER BY created_at ASC', [])
+INFO:     127.0.0.1:57009 - "GET /settings HTTP/1.1" 200 OK
+INFO:     ('127.0.0.1', 57011) - "WebSocket /ws" [accepted]
+INFO:backend.ws:WebSocket client connected. Total: 1
+INFO:     connection open
+INFO:     127.0.0.1:57015 - "GET /settings HTTP/1.1" 200 OK
+DEBUG:aiosqlite:operation functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'SELECT * FROM queue ORDER BY created_at ASC', []) completed
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+INFO:     127.0.0.1:57014 - "GET /auth/status HTTP/1.1" 200 OK
+INFO:     127.0.0.1:57010 - "GET /queue HTTP/1.1" 200 OK
+INFO:backend.ws:WebSocket client disconnected. Total: 0
+INFO:     ('127.0.0.1', 50342) - "WebSocket /ws" [accepted]
+INFO:backend.ws:WebSocket client connected. Total: 1
+INFO:     connection closed
+INFO:     connection open
+DEBUG:aiosqlite:executing functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'SELECT * FROM quality_cache WHERE id = 1', [])
+DEBUG:aiosqlite:operation functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'SELECT * FROM quality_cache WHERE id = 1', []) completed
+INFO:     127.0.0.1:50346 - "GET /quality/cache HTTP/1.1" 200 OK
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/search?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=500&query=Deadmau5&offset=0&types=tracks HTTP/1.1" 200 None
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/search?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=500&query=Deadmau5&offset=0&types=tracks
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/tracks/548342928?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 None
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/tracks/548342928?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/tracks/105196497?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 None
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/tracks/105196497?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/tracks/31097963?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 None
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/tracks/31097963?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/tracks/62079048?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 None
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/tracks/62079048?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/tracks/430770022?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 None
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/tracks/430770022?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000
+INFO:     127.0.0.1:56736 - "GET /search?q=Deadmau5&type=track&offset=0&limit=50 HTTP/1.1" 200 OK
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/tracks/430770022?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 None
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/tracks/430770022?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/tracks/430770022/urlpostpaywall?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000&urlusagemode=STREAM&audioquality=LOW&assetpresentation=FULL HTTP/1.1" 200 327
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/tracks/430770022/urlpostpaywall?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000&urlusagemode=STREAM&audioquality=LOW&assetpresentation=FULL
+INFO:     127.0.0.1:54627 - "GET /preview/430770022/stream HTTP/1.1" 200 OK
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/tracks/430770022?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 None
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/tracks/430770022?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/tracks/430770022/urlpostpaywall?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000&urlusagemode=STREAM&audioquality=LOW&assetpresentation=FULL HTTP/1.1" 200 327
+DEBUG:tidalapi.request:request: https://api.tidal.com/v1/tracks/430770022/urlpostpaywall?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000&urlusagemode=STREAM&audioquality=LOW&assetpresentation=FULL
+INFO:     127.0.0.1:51834 - "GET /preview/430770022/metadata HTTP/1.1" 200 OK
+DEBUG:aiosqlite:executing functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'SELECT bands_json, duration FROM waveform_cache WHERE tidal_id = ?', ('430770022',))
+DEBUG:aiosqlite:operation functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'SELECT bands_json, duration FROM waveform_cache WHERE tidal_id = ?', ('430770022',)) completed
+DEBUG:aiosqlite:executing functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'SELECT * FROM key_cache WHERE file_hash = ?', ('preview_key_430770022',))
+DEBUG:aiosqlite:operation functools.partial(<bound method Connection._execute_fetchall of <Connection(Thread-1, started 19304)>>, 'SELECT * FROM key_cache WHERE file_hash = ?', ('preview_key_430770022',)) completed
+DEBUG:urllib3.connectionpool:https://api.tidal.com:443 "GET /v1/users/209201051/subscription?sessionId=d50416c7-c18f-49c1-809f-cd5f43982617&countryCode=US&limit=1000 HTTP/1.1" 200 294
+INFO:     127.0.0.1:65223 - "GET /preview/430770022/metadata HTTP/1.1" 200 OK

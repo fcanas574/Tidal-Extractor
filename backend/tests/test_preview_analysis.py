@@ -1,3 +1,5 @@
+import threading
+
 import pytest
 import backend.main as main
 
@@ -54,6 +56,107 @@ async def test_cache_hit_skips_download(monkeypatch):
     monkeypatch.setattr(main.db, "get_waveform_cache", hit)
     result = await main.preview_analyzer(stream_url="https://s/9", duration=12.0, track_id=9)
     assert result["waveform"]["bands"]["high"] == [1.0]
+
+
+@pytest.mark.asyncio
+async def test_empty_waveform_cache_is_reanalyzed(monkeypatch):
+    calls = []
+
+    async def empty_cache(_):
+        return {"bands": {"low": [], "mid": [], "high": []}, "duration": 12.0}
+
+    async def fake_analyze(url, duration, **kw):
+        calls.append(url)
+        return {"bands": {"low": [0.1], "mid": [0.2], "high": [0.3]},
+                "duration": 12.0, "temp_wav_path": None}
+
+    async def fake_key_cache(_):
+        return {}
+
+    async def fake_fb(*a, **k):
+        return None
+
+    async def fake_set(*args):
+        pass
+
+    monkeypatch.setattr(main.db, "get_waveform_cache", empty_cache)
+    monkeypatch.setattr(main, "_detect_preview_key_cached", fake_key_cache)
+    monkeypatch.setattr(main, "analyze_stream", fake_analyze)
+    monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
+    monkeypatch.setattr(main.db, "set_waveform_cache", fake_set)
+    _fake_session_track(monkeypatch)
+
+    result = await main.preview_analyzer(stream_url="https://s/17", duration=12.0, track_id=17)
+
+    assert calls == ["https://s/17"]
+    assert result["waveform"]["bands"]["high"] == [0.3]
+
+
+@pytest.mark.asyncio
+async def test_empty_analysis_result_is_not_cached(monkeypatch):
+    saved = []
+
+    async def no_cache(_):
+        return None
+
+    async def empty_analysis(url, duration, **kw):
+        return {"bands": {"low": [], "mid": [], "high": []},
+                "duration": 12.0, "temp_wav_path": None}
+
+    async def fake_fb(*a, **k):
+        return None
+
+    async def record_cache(*args):
+        saved.append(args)
+
+    monkeypatch.setattr(main.db, "get_waveform_cache", no_cache)
+    monkeypatch.setattr(main, "analyze_stream", empty_analysis)
+    monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
+    monkeypatch.setattr(main.db, "set_waveform_cache", record_cache)
+    _fake_session_track(monkeypatch)
+
+    with pytest.raises(RuntimeError, match="no samples"):
+        await main.preview_analyzer(stream_url="https://s/18", duration=12.0, track_id=18)
+
+    assert saved == []
+
+
+@pytest.mark.asyncio
+async def test_preview_analyzer_resolves_track_off_event_loop(monkeypatch):
+    event_loop_thread = threading.get_ident()
+    call_threads = []
+
+    class Session:
+        def track(self, _track_id):
+            call_threads.append(threading.get_ident())
+            return type("T", (), {
+                "title": "t",
+                "artist": type("A", (), {"name": "a"})(),
+            })()
+
+    async def no_cache(_):
+        return None
+
+    async def valid_analysis(url, duration, **kw):
+        return {"bands": {"low": [0.1], "mid": [0.2], "high": [0.3]},
+                "duration": 12.0, "temp_wav_path": None}
+
+    async def fake_fb(*a, **k):
+        return None
+
+    async def fake_set(*args):
+        pass
+
+    monkeypatch.setattr(main.auth_manager, "session", Session())
+    monkeypatch.setattr(main.db, "get_waveform_cache", no_cache)
+    monkeypatch.setattr(main, "analyze_stream", valid_analysis)
+    monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
+    monkeypatch.setattr(main.db, "set_waveform_cache", fake_set)
+
+    await main.preview_analyzer("https://s/19", 12.0, 19)
+
+    assert call_threads
+    assert all(thread_id != event_loop_thread for thread_id in call_threads)
 
 
 @pytest.mark.asyncio

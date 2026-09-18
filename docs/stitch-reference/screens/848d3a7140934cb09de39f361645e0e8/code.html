@@ -1,0 +1,768 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            "background": "#0c0c0e",
+            "surface": "#0c0c0e",
+            "surface-container-lowest": "#08080a",
+            "surface-container-low": "#121215",
+            "surface-container": "#161618",
+            "surface-container-high": "#1e1e22",
+            "surface-container-highest": "#28282c",
+            "surface-bright": "#323238",
+            "on-surface": "#f4f4f6",
+            "on-surface-variant": "#9ca3af",
+            "outline": "#2e2e34",
+            "outline-variant": "#222226",
+            "primary": "#ffffff",
+            "on-primary": "#0c0c0e",
+            "primary-container": "#ffffff",
+            "on-primary-container": "#0c0c0e",
+            "secondary": "#d1d5db",
+            "on-secondary": "#111827",
+            "secondary-container": "#242428",
+            "on-secondary-container": "#e5e7eb",
+            "tertiary": "#e5e7eb",
+            "tertiary-container": "#1f1f23"
+          },
+          fontFamily: {
+            "sans": ["Geist", "sans-serif"],
+            "mono": ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    @layer base {
+      html, body {
+        margin: 0;
+        padding: 0;
+        background-color: #0c0c0e;
+        color: #f4f4f6;
+        font-family: 'Geist', sans-serif;
+      }
+      body {
+        overscroll-behavior: none;
+      }
+    }
+    ::-webkit-scrollbar {
+      display: none;
+    }
+  </style>
+</head>
+<body class="bg-background text-on-surface font-sans select-none antialiased">
+<!-- Left Sidebar -->
+<aside class="fixed left-0 top-0 h-[calc(100vh-80px)] w-64 bg-surface-container-low/95 border-r border-outline-variant/60 backdrop-blur-xl z-40 flex flex-col justify-between">
+<div class="flex flex-col">
+<!-- App Header / Logo -->
+<div class="h-16 px-4 flex items-center justify-between border-b border-outline-variant/40">
+<div class="flex items-center gap-2.5">
+<img alt="Tidal Extractor Logo" class="h-7 w-auto object-contain brightness-110 filter" src="https://lh3.googleusercontent.com/aida-public/AB6AXuAKzZ-PtIRBYHPDfNMhTNqbdBI1iA_JQpwbMDi6lmpMmZOxQCwDJjoglpEbK30Vz7ImXpzq1o7vIiTwH-Lwt7z6uP6lmEC0dZ2lk4MbuNiDORZGN4R5Kv81AM3VIP4bZAkf-5nu3uGU5SZOMmBGPya9z5TKEgN-HkVEEofH-Xok6HL9DMLmhNJ-gDdW-nF-qF0Bj_tNH6KnjyCNCniLilSjbwAescTR_-zRJeyDwf1o7Xi3LB7RoHP9"/>
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-white tracking-tight leading-tight">Tidal Extractor</span>
+<span class="font-mono text-[10px] text-zinc-400 tracking-wider uppercase">Studio Edition</span>
+</div>
+</div>
+<span class="px-2 py-0.5 rounded border border-zinc-700/60 bg-surface-container text-zinc-300 font-mono text-[10px] tracking-wider uppercase font-semibold">Hi-Res</span>
+</div>
+<!-- Navigation -->
+<nav class="flex flex-col px-3 gap-1 mt-4">
+<div class="px-2 pt-2 pb-1 font-mono text-[10px] uppercase tracking-widest text-zinc-500 font-semibold">Música y Exploración</div>
+<a class="flex items-center px-2.5 py-2 rounded-md text-zinc-400 hover:bg-surface-container hover:text-white transition-all gap-2.5 text-xs font-medium" data-path="explorador-albumes" href="#">
+<span class="material-symbols-outlined text-[18px]">explore</span>
+<span>Explorador &amp; Álbumes</span>
+</a>
+<a class="flex items-center px-2.5 py-2 rounded-md text-zinc-400 hover:bg-surface-container hover:text-white transition-all gap-2.5 text-xs font-medium" data-path="tidal-recientes" href="#">
+<span class="material-symbols-outlined text-[18px]">history</span>
+<span>Tidal Recientes</span>
+</a>
+<a class="flex items-center px-2.5 py-2 rounded-md text-zinc-400 hover:bg-surface-container hover:text-white transition-all gap-2.5 text-xs font-medium" data-path="artistas-generos" href="#">
+<span class="material-symbols-outlined text-[18px]">record_voice_over</span>
+<span>Artistas y Géneros</span>
+</a>
+<div class="px-2 pt-4 pb-1 font-mono text-[10px] uppercase tracking-widest text-zinc-500 font-semibold">Gestión y Descargas</div>
+<a class="flex items-center justify-between px-2.5 py-2 rounded-md text-zinc-400 hover:bg-surface-container hover:text-white transition-all text-xs font-medium" data-path="cola-descargas" href="#">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px]">download</span>
+<span>Cola de Descargas</span>
+</div>
+<span class="font-mono text-[10px] px-1.5 py-0.5 rounded border border-zinc-700 bg-surface-container text-zinc-300 font-medium">3</span>
+</a>
+<a aria-current="page" class="flex items-center px-2.5 py-2 rounded-md transition-all gap-2.5 bg-surface-container text-white font-medium border border-zinc-700/60 shadow-sm" data-path="biblioteca-local" href="#">
+<span class="material-symbols-outlined text-white text-[18px]">folder_special</span>
+<span>Biblioteca Local</span>
+</a>
+<div class="px-2 pt-4 pb-1 font-mono text-[10px] uppercase tracking-widest text-zinc-500 font-semibold">Configuración</div>
+<a class="flex items-center px-2.5 py-2 rounded-md text-zinc-400 hover:bg-surface-container hover:text-white transition-all gap-2.5 text-xs font-medium" data-path="preferencias-audio" href="#">
+<span class="material-symbols-outlined text-[18px]">tune</span>
+<span>Preferencias de Audio</span>
+</a>
+<a class="flex items-center px-2.5 py-2 rounded-md text-zinc-400 hover:bg-surface-container hover:text-white transition-all gap-2.5 text-xs font-medium" data-path="cuenta-token" href="#">
+<span class="material-symbols-outlined text-[18px]">vpn_key</span>
+<span>Cuenta y Token</span>
+</a>
+</nav>
+</div>
+<!-- Engine / Hardware Status Card -->
+<div class="p-3 mx-3 mb-3 rounded-lg border border-outline-variant/60 bg-surface-container/60 backdrop-blur-md flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-zinc-300"></div>
+<span class="font-mono text-[10px] uppercase text-zinc-300 font-semibold tracking-wider">FLAC Master Engine</span>
+</div>
+<span class="font-mono text-[10px] text-zinc-400">READY</span>
+</div>
+<div class="flex items-center justify-between text-zinc-400 font-mono text-[11px]">
+<span>24-bit / 192kHz</span>
+<span>1.411 kbps</span>
+</div>
+<div class="flex flex-col gap-1 pt-1 border-t border-outline-variant/40">
+<div class="flex justify-between text-[11px] text-zinc-400 font-sans">
+<span>SSD NVMe Local</span>
+<span class="font-mono text-zinc-300">142 GB / 512 GB</span>
+</div>
+<div class="w-full h-1 rounded-full bg-surface-container-highest overflow-hidden">
+<div class="h-full w-[28%] bg-zinc-400 rounded-full"></div>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="pl-64">
+<!-- Top Header -->
+<header class="fixed top-0 left-64 right-0 h-16 bg-background/90 border-b border-outline-variant/50 backdrop-blur-xl z-30 flex items-center justify-between px-6">
+<div class="flex items-center gap-4 flex-1">
+<div class="flex items-center gap-1 text-zinc-500">
+<button class="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-container hover:text-white transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">arrow_back_ios_new</span>
+</button>
+<button class="w-7 h-7 rounded-md flex items-center justify-center hover:bg-surface-container hover:text-white transition-all" type="button">
+<span class="material-symbols-outlined text-[18px]">arrow_forward_ios</span>
+</button>
+</div>
+<div class="relative max-w-xl w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-zinc-500 text-[18px]">search</span>
+<input class="w-full bg-surface-container border border-outline-variant/60 rounded-md pl-9 pr-4 py-1.5 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500 transition-all font-sans" placeholder="Pegar enlace de Tidal o buscar artista, álbum, pista..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-3 ml-6">
+<div class="flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-outline-variant/80 bg-surface-container font-mono text-[11px] text-zinc-300 cursor-pointer hover:border-zinc-500 transition-all">
+<span class="material-symbols-outlined text-[14px]">graphic_eq</span>
+<span>FLAC 24-bit/192kHz</span>
+<span class="material-symbols-outlined text-[14px] text-zinc-500">expand_more</span>
+</div>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-md bg-white hover:bg-zinc-200 text-black text-xs font-semibold transition-all shadow-sm" type="button">
+<span class="material-symbols-outlined text-[17px]">downloading</span>
+<span>Descarga Rápida</span>
+</button>
+<div class="flex items-center pl-1">
+<img alt="Profile" class="w-7 h-7 rounded-full object-cover ring-1 ring-zinc-700 cursor-pointer hover:ring-zinc-400 transition-all" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDRPRwFeC0PyoIc2gvq4ErVNvgdPnmlRfMCodPnE7mm-jubJRNd7PUVjtBU3K53pOu4_5jdk-zPgitQtWkmLZUJghcaLMnpCeUzkiYpDIjQB-Q3pcVl_0aOHv9k9D_2Ha1WbA7WBZpm-kqKeQIDJbl2thsnsuh8ZZigg8FvZqYuIYJ9xYN2htxz2ArXRkuMLM3JW7gQE68ohauJp5ADUcLEIMEGrlL54w_M5_Lrip1h-tGSdU-Rxagg"/>
+</div>
+</div>
+</header>
+<!-- Main Content Workspace -->
+<main class="w-full pt-20 pb-[96px] min-h-screen px-6 bg-background">
+<div class="flex flex-col w-full max-w-[1600px] mx-auto">
+<!-- Top Command & Action Bar -->
+<div class="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-outline-variant/40">
+<div class="flex flex-col">
+<div class="flex items-center gap-2 text-zinc-500 font-mono text-[10px] tracking-wider uppercase mb-1">
+<span>ALMACENAMIENTO LOCAL</span>
+<span>/</span>
+<span class="text-zinc-400">NVME HIGH FIDELITY REPOSITORY</span>
+</div>
+<h1 class="text-xl font-semibold text-white tracking-tight">Biblioteca Local &amp; Gestor de Archivos</h1>
+</div>
+<div class="flex flex-wrap items-center gap-2.5">
+<!-- View Mode Switch -->
+<div class="flex items-center p-0.5 rounded-lg border border-outline-variant/70 bg-surface-container">
+<button class="flex items-center gap-1.5 px-3 py-1 rounded-md bg-surface-container-high text-white text-xs font-medium transition-all shadow-sm" id="btn-view-grid" onclick="switchView('grid')" type="button">
+<span class="material-symbols-outlined text-[15px]">grid_view</span>
+<span>Álbumes</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1 rounded-md text-zinc-400 hover:text-white text-xs font-medium transition-all" id="btn-view-list" onclick="switchView('list')" type="button">
+<span class="material-symbols-outlined text-[15px]">format_list_bulleted</span>
+<span>Canciones</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1 rounded-md text-zinc-400 hover:text-white text-xs font-medium transition-all" type="button">
+<span class="material-symbols-outlined text-[15px]">person</span>
+<span>Artistas</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-1 rounded-md text-zinc-400 hover:text-white text-xs font-medium transition-all" type="button">
+<span class="material-symbols-outlined text-[15px]">download_done</span>
+<span>Recientes</span>
+</button>
+</div>
+<!-- Scan folder CTA button -->
+<button class="flex items-center gap-1.5 px-3.5 py-1.5 rounded-md border border-outline-variant bg-surface-container hover:bg-surface-container-high text-white text-xs font-medium transition-all shadow-sm" type="button">
+<span class="material-symbols-outlined text-[16px] text-zinc-300">folder_open</span>
+<span>Escanear carpeta</span>
+</button>
+</div>
+</div>
+<!-- Summary Bar & Metrics Strip -->
+<div class="mt-4 p-3 rounded-lg border border-outline-variant/60 bg-surface-container flex flex-col md:flex-row md:items-center justify-between gap-3">
+<div class="flex items-center flex-wrap gap-4 text-xs">
+<div class="flex items-center gap-2 text-zinc-300 font-sans">
+<span class="material-symbols-outlined text-zinc-400 text-[18px]">library_music</span>
+<span class="font-semibold text-white">1.420</span> <span class="text-zinc-400">Canciones</span>
+<span class="text-zinc-600">•</span>
+<span class="font-semibold text-white">84</span> <span class="text-zinc-400">Álbumes</span>
+<span class="text-zinc-600">•</span>
+<span class="font-mono text-zinc-200 font-medium">112.4 GB</span> <span class="text-zinc-400">formato FLAC Hi-Res</span>
+</div>
+<div class="hidden lg:flex items-center gap-2 px-2.5 py-0.5 rounded border border-zinc-700/50 bg-surface-container-low font-mono text-[10px] text-zinc-400">
+<span class="w-1.5 h-1.5 rounded-full bg-zinc-300"></span>
+<span>INTEGRIDAD BIT-PERFECT: 100%</span>
+</div>
+</div>
+<!-- Filter Search in Local Library -->
+<div class="relative min-w-[240px] md:w-64">
+<span class="material-symbols-outlined absolute left-2.5 top-1/2 -translate-y-1/2 text-zinc-500 text-[15px]">filter_list</span>
+<input class="w-full bg-surface-container-low border border-outline-variant/70 rounded-md pl-8 pr-3 py-1 text-xs text-white placeholder:text-zinc-500 focus:outline-none focus:border-zinc-500 transition-all font-sans" id="library-filter" placeholder="Filtrar biblioteca..." type="text"/>
+</div>
+</div>
+<!-- Format Filter Pills (Monochromatic Refined Aesthetic) -->
+<div class="flex items-center gap-2 overflow-x-auto py-3 scrollbar-none">
+<button class="px-3 py-1 rounded-md bg-white text-black font-mono text-[11px] font-semibold uppercase tracking-wider shrink-0 shadow-sm" type="button">
+            Todos (84)
+          </button>
+<button class="px-3 py-1 rounded-md border border-outline-variant bg-surface-container hover:bg-surface-container-high text-zinc-300 hover:text-white font-mono text-[11px] uppercase tracking-wider shrink-0 transition-all flex items-center gap-1.5" type="button">
+<span class="w-1.5 h-1.5 rounded-full bg-zinc-400"></span>
+            24-bit Hi-Res (61)
+          </button>
+<button class="px-3 py-1 rounded-md border border-outline-variant bg-surface-container hover:bg-surface-container-high text-zinc-400 hover:text-white font-mono text-[11px] uppercase tracking-wider shrink-0 transition-all" type="button">
+            FLAC (78)
+          </button>
+<button class="px-3 py-1 rounded-md border border-outline-variant bg-surface-container hover:bg-surface-container-high text-zinc-400 hover:text-white font-mono text-[11px] uppercase tracking-wider shrink-0 transition-all" type="button">
+            ALAC (4)
+          </button>
+<button class="px-3 py-1 rounded-md border border-outline-variant bg-surface-container hover:bg-surface-container-high text-zinc-400 hover:text-white font-mono text-[11px] uppercase tracking-wider shrink-0 transition-all" type="button">
+            MQA / Master (12)
+          </button>
+<button class="px-3 py-1 rounded-md border border-outline-variant bg-surface-container hover:bg-surface-container-high text-zinc-400 hover:text-white font-mono text-[11px] uppercase tracking-wider shrink-0 transition-all" type="button">
+            DSD / DXD (2)
+          </button>
+</div>
+<!-- Main Workspace (Grid/List + Inspector) -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-5 items-start mt-1">
+<!-- Catalog Section -->
+<div class="xl:col-span-8 flex flex-col gap-4" id="catalog-section">
+<!-- Album Grid -->
+<div class="grid grid-cols-2 sm:grid-cols-3 gap-4" id="grid-view">
+<!-- Album Card 1 (Active) -->
+<div class="album-card group relative p-3 rounded-lg border border-zinc-600 bg-surface-container cursor-pointer shadow-sm transition-all duration-150" onclick="selectAlbum(1)">
+<div class="relative w-full aspect-square rounded-md overflow-hidden bg-surface-container-lowest">
+<img class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" data-alt="Album cover artwork for Daft Punk Random Access Memories featuring futuristic metallic dual chrome helmets against a stark dark studio background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuCXVYBNct4vn-zlXnaG4jDZLgacr8nDk9_rOt-V-GXBwRfZ-b0jydzf9ttgG_ixudAnLNhMhg04q1yIPxonnVPMuRM9cW2DvFuspi2anqDx2jcQ89Ib57YpuAII7osU5GCeEVPKVLCwBrOJx4loZKTLvT20gV_GkhjQaR0Q4EHuEVZXXx3wQWl24eWfoUFRV7_H83e55mVbaNVvtfD1nQ-9xV4YAKg868AXH7JXAN-QZLJtL51UI6ve"/>
+<!-- Monochromatic Minimal Badge -->
+<span class="absolute top-2 left-2 px-1.5 py-0.5 rounded border border-white/20 bg-black/80 backdrop-blur-md text-zinc-200 font-mono text-[10px] tracking-wider uppercase font-medium">
+                    96kHz / 24-bit
+                  </span>
+<div class="absolute bottom-2 right-2 px-1.5 py-0.5 rounded border border-white/10 bg-black/80 font-mono text-[10px] text-zinc-300">FLAC</div>
+<div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+<button class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center shadow-lg hover:scale-105 transition-transform" type="button">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+</div>
+</div>
+<div class="flex flex-col mt-2.5 min-w-0">
+<span class="text-sm font-semibold text-white truncate">Random Access Memories</span>
+<span class="text-xs text-zinc-400 truncate mt-0.5">Daft Punk • 2013</span>
+<div class="flex items-center justify-between mt-1.5 text-zinc-500 font-mono text-[11px]">
+<span>13 pistas</span>
+<span>1.84 GB</span>
+</div>
+</div>
+</div>
+<!-- Album Card 2 -->
+<div class="album-card group relative p-3 rounded-lg border border-outline-variant/60 bg-surface-container hover:border-zinc-600 cursor-pointer shadow-sm transition-all duration-150" onclick="selectAlbum(2)">
+<div class="relative w-full aspect-square rounded-md overflow-hidden bg-surface-container-lowest">
+<img class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" data-alt="Album artwork of The Weeknd After Hours with cinematic red neon street lights blurred in the background." src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0lwJ0UiwqkXik3RUcGogOngLLFjTXyjR2tyr3AE1khgZk24A_9d3DVgTfm692s-DWPyt0nTWgUPVgRtPq9sHr5LMfiqsZpcPZD89BKDBbU2s6PZboqKcIyDyxEGzVJ6IjmEd3EPhn_NpD-unUoKF5LRigNFHprldnRnFEL_pP4MfwEY1jbLICpFFM1Jl_cKZVeYkppsKNY7jfNiw0mMisjpqcdArUrWYyvuXcXgj33Mlfx1Us7CBn"/>
+<span class="absolute top-2 left-2 px-1.5 py-0.5 rounded border border-white/20 bg-black/80 backdrop-blur-md text-zinc-200 font-mono text-[10px] tracking-wider uppercase font-medium">
+                    48kHz / 24-bit
+                  </span>
+<div class="absolute bottom-2 right-2 px-1.5 py-0.5 rounded border border-white/10 bg-black/80 font-mono text-[10px] text-zinc-300">FLAC</div>
+<div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+<button class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center shadow-lg hover:scale-105 transition-transform" type="button">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+</div>
+</div>
+<div class="flex flex-col mt-2.5 min-w-0">
+<span class="text-sm font-semibold text-white truncate">After Hours</span>
+<span class="text-xs text-zinc-400 truncate mt-0.5">The Weeknd • 2020</span>
+<div class="flex items-center justify-between mt-1.5 text-zinc-500 font-mono text-[11px]">
+<span>14 pistas</span>
+<span>890 MB</span>
+</div>
+</div>
+</div>
+<!-- Album Card 3 -->
+<div class="album-card group relative p-3 rounded-lg border border-outline-variant/60 bg-surface-container hover:border-zinc-600 cursor-pointer shadow-sm transition-all duration-150" onclick="selectAlbum(3)">
+<div class="relative w-full aspect-square rounded-md overflow-hidden bg-surface-container-lowest">
+<img class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" data-alt="Steely Dan Aja classic audiophile master album artwork." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAPVuO7TPuEwKvWIeqcyZZlt2nlI9_XNhLyfbbudDxTkcJZrxguMlRuhLjdRF9nucygS97CR5qFVJfEvnh_qdPBMwgQLJPmufOP6jcYPquNthdVk20pcOG6iAEs9Qwf19O7_TjtXGSLJ0pet6wzVbCEetXFIy7CQJwi-Y68n3hABKra9rmbdMHHhonbAp1AnHn1HPYznZcImdonRWS_ZaSBI9AqC-en-cgCwJZSXs1VyzVdYXwI-A8B"/>
+<span class="absolute top-2 left-2 px-1.5 py-0.5 rounded border border-white/20 bg-black/80 backdrop-blur-md text-zinc-200 font-mono text-[10px] tracking-wider uppercase font-medium">
+                    192kHz Master
+                  </span>
+<div class="absolute bottom-2 right-2 px-1.5 py-0.5 rounded border border-white/10 bg-black/80 font-mono text-[10px] text-zinc-300">MASTER</div>
+<div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+<button class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center shadow-lg hover:scale-105 transition-transform" type="button">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+</div>
+</div>
+<div class="flex flex-col mt-2.5 min-w-0">
+<span class="text-sm font-semibold text-white truncate">Aja (Remastered)</span>
+<span class="text-xs text-zinc-400 truncate mt-0.5">Steely Dan • 1977</span>
+<div class="flex items-center justify-between mt-1.5 text-zinc-500 font-mono text-[11px]">
+<span>7 pistas</span>
+<span>2.41 GB</span>
+</div>
+</div>
+</div>
+<!-- Album Card 4 -->
+<div class="album-card group relative p-3 rounded-lg border border-outline-variant/60 bg-surface-container hover:border-zinc-600 cursor-pointer shadow-sm transition-all duration-150" onclick="selectAlbum(4)">
+<div class="relative w-full aspect-square rounded-md overflow-hidden bg-surface-container-lowest">
+<img class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" data-alt="Album cover style recreation of Abbey Road with iconic zebra crossing in London." src="https://lh3.googleusercontent.com/aida-public/AB6AXuBp5l2-eJTRWhxA77_rTIxlehuV6SAFuAMgcCFCr3K4cRQxXWEr7VsAa2vSHc10S9-DPPVjXYej4wnMYVJMDXVPnIbwaidpJbc8sg1UZ9UhaSn1x6VCIhOdI_-_WdA1bcgwhg8tD-uzW0icgorrqOQ4zm_Dz2Q7KAF4-LL40fny1eggKdvubdBXeJrf9KHmiOysF716zjuZVd-70kqI6YAqReffq_Mah5-C3yEoBwsMHctyFEn4A8GX"/>
+<span class="absolute top-2 left-2 px-1.5 py-0.5 rounded border border-white/20 bg-black/80 backdrop-blur-md text-zinc-200 font-mono text-[10px] tracking-wider uppercase font-medium">
+                    96kHz / 24-bit
+                  </span>
+<div class="absolute bottom-2 right-2 px-1.5 py-0.5 rounded border border-white/10 bg-black/80 font-mono text-[10px] text-zinc-300">FLAC</div>
+<div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+<button class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center shadow-lg hover:scale-105 transition-transform" type="button">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+</div>
+</div>
+<div class="flex flex-col mt-2.5 min-w-0">
+<span class="text-sm font-semibold text-white truncate">Abbey Road (Super Deluxe)</span>
+<span class="text-xs text-zinc-400 truncate mt-0.5">The Beatles • 1969</span>
+<div class="flex items-center justify-between mt-1.5 text-zinc-500 font-mono text-[11px]">
+<span>17 pistas</span>
+<span>2.15 GB</span>
+</div>
+</div>
+</div>
+<!-- Album Card 5 -->
+<div class="album-card group relative p-3 rounded-lg border border-outline-variant/60 bg-surface-container hover:border-zinc-600 cursor-pointer shadow-sm transition-all duration-150" onclick="selectAlbum(5)">
+<div class="relative w-full aspect-square rounded-md overflow-hidden bg-surface-container-lowest">
+<img class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" data-alt="Psych-rock album art of Tame Impala Currents." src="https://lh3.googleusercontent.com/aida-public/AB6AXuDOPhDxeo0_-EyUNZqhoUVR6RJWNYxNVb50FD949rpAXWjGK1AEpUQPFoM1j_K9nRtzhuRI0hB-gixpOKRQPJ0YQoz6RYPry4kBlPWv0ZCNa4pca3NhpVPNXSytFkOOCZlz8zEI3q0s3oyd3nVQnToJn8rfC4gagLNtZBu0WaZfSHjojU4oRa3b_VHCpVY4hmcMVez19ZSCuqKH5IVYaMa4W5en9dp41sJ5klqzYfWzm8e_qIFtN2gC"/>
+<span class="absolute top-2 left-2 px-1.5 py-0.5 rounded border border-white/20 bg-black/80 backdrop-blur-md text-zinc-200 font-mono text-[10px] tracking-wider uppercase font-medium">
+                    44.1kHz / 24-bit
+                  </span>
+<div class="absolute bottom-2 right-2 px-1.5 py-0.5 rounded border border-white/10 bg-black/80 font-mono text-[10px] text-zinc-300">FLAC</div>
+<div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+<button class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center shadow-lg hover:scale-105 transition-transform" type="button">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+</div>
+</div>
+<div class="flex flex-col mt-2.5 min-w-0">
+<span class="text-sm font-semibold text-white truncate">Currents</span>
+<span class="text-xs text-zinc-400 truncate mt-0.5">Tame Impala • 2015</span>
+<div class="flex items-center justify-between mt-1.5 text-zinc-500 font-mono text-[11px]">
+<span>13 pistas</span>
+<span>650 MB</span>
+</div>
+</div>
+</div>
+<!-- Album Card 6 -->
+<div class="album-card group relative p-3 rounded-lg border border-outline-variant/60 bg-surface-container hover:border-zinc-600 cursor-pointer shadow-sm transition-all duration-150" onclick="selectAlbum(6)">
+<div class="relative w-full aspect-square rounded-md overflow-hidden bg-surface-container-lowest">
+<img class="w-full h-full object-cover transition-transform duration-300 group-hover:scale-102" data-alt="Album cover style of Miles Davis Kind of Blue, moody jazz portrait." src="https://lh3.googleusercontent.com/aida-public/AB6AXuAu0GUD2WJul-dLrXoWyfiZSb-Y3gyneEUVfQobBpL81LNllGyWcsEpa9OMCzFYAluPJp-j_FtUfR47YynQbyi9_D2KMeSm_bPXJKiaCeJK1veG6mRTYlo5pYtgtAafRkBBE8syd9Uxy3YG6OZqqsqkQ1q_9abTVni7fwoTTCmmHGPMWWvQUIdY-CqQ69f4aES6ZcSfekQ8x2VfxVvBiOBLqY4JZY830zl4-Svkp2aj8_BwDDVuXspE"/>
+<span class="absolute top-2 left-2 px-1.5 py-0.5 rounded border border-white/20 bg-black/80 backdrop-blur-md text-zinc-200 font-mono text-[10px] tracking-wider uppercase font-medium">
+                    192kHz Master
+                  </span>
+<div class="absolute bottom-2 right-2 px-1.5 py-0.5 rounded border border-white/10 bg-black/80 font-mono text-[10px] text-zinc-300">DSD/DXD</div>
+<div class="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 flex items-center justify-center transition-opacity">
+<button class="w-10 h-10 rounded-full bg-white text-black flex items-center justify-center shadow-lg hover:scale-105 transition-transform" type="button">
+<span class="material-symbols-outlined text-[20px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+</div>
+</div>
+<div class="flex flex-col mt-2.5 min-w-0">
+<span class="text-sm font-semibold text-white truncate">Kind of Blue</span>
+<span class="text-xs text-zinc-400 truncate mt-0.5">Miles Davis • 1959</span>
+<div class="flex items-center justify-between mt-1.5 text-zinc-500 font-mono text-[11px]">
+<span>5 pistas</span>
+<span>3.10 GB</span>
+</div>
+</div>
+</div>
+</div>
+<!-- List View (Hidden by Default) -->
+<div class="hidden flex-col rounded-lg border border-outline-variant/60 bg-surface-container overflow-hidden shadow-sm" id="list-view">
+<div class="grid grid-cols-12 px-4 py-2.5 border-b border-outline-variant/50 bg-surface-container-low text-zinc-400 font-mono text-[11px] uppercase tracking-wider">
+<span class="col-span-1">#</span>
+<span class="col-span-5 font-sans">Título y Artista</span>
+<span class="col-span-3">Formato / Tasa</span>
+<span class="col-span-2 text-right">Tamaño</span>
+<span class="col-span-1 text-right">Duración</span>
+</div>
+<div class="divide-y divide-outline-variant/30 text-xs">
+<div class="grid grid-cols-12 px-4 py-2.5 hover:bg-surface-container-high items-center text-white cursor-pointer transition-colors">
+<span class="col-span-1 font-mono text-zinc-500">01</span>
+<div class="col-span-5 flex flex-col min-w-0 pr-2">
+<span class="font-medium truncate text-white">Give Life Back to Music</span>
+<span class="text-zinc-400 truncate text-[11px]">Daft Punk • Random Access Memories</span>
+</div>
+<div class="col-span-3">
+<span class="px-2 py-0.5 rounded border border-zinc-700 bg-surface-container-low text-zinc-300 font-mono text-[10px] uppercase">FLAC 24/96</span>
+</div>
+<span class="col-span-2 font-mono text-right text-zinc-400">112.5 MB</span>
+<span class="col-span-1 font-mono text-right text-zinc-200">04:34</span>
+</div>
+<div class="grid grid-cols-12 px-4 py-2.5 hover:bg-surface-container-high items-center text-white cursor-pointer transition-colors">
+<span class="col-span-1 font-mono text-zinc-500">02</span>
+<div class="col-span-5 flex flex-col min-w-0 pr-2">
+<span class="font-medium truncate text-white">Blinding Lights</span>
+<span class="text-zinc-400 truncate text-[11px]">The Weeknd • After Hours</span>
+</div>
+<div class="col-span-3">
+<span class="px-2 py-0.5 rounded border border-zinc-700 bg-surface-container-low text-zinc-300 font-mono text-[10px] uppercase">FLAC 24/48</span>
+</div>
+<span class="col-span-2 font-mono text-right text-zinc-400">68.2 MB</span>
+<span class="col-span-1 font-mono text-right text-zinc-200">03:20</span>
+</div>
+<div class="grid grid-cols-12 px-4 py-2.5 hover:bg-surface-container-high items-center text-white cursor-pointer transition-colors">
+<span class="col-span-1 font-mono text-zinc-500">03</span>
+<div class="col-span-5 flex flex-col min-w-0 pr-2">
+<span class="font-medium truncate text-white">Deacon Blues</span>
+<span class="text-zinc-400 truncate text-[11px]">Steely Dan • Aja</span>
+</div>
+<div class="col-span-3">
+<span class="px-2 py-0.5 rounded border border-zinc-700 bg-surface-container-low text-zinc-300 font-mono text-[10px] uppercase">FLAC 24/192</span>
+</div>
+<span class="col-span-2 font-mono text-right text-zinc-400">342.8 MB</span>
+<span class="col-span-1 font-mono text-right text-zinc-200">07:37</span>
+</div>
+<div class="grid grid-cols-12 px-4 py-2.5 hover:bg-surface-container-high items-center text-white cursor-pointer transition-colors">
+<span class="col-span-1 font-mono text-zinc-500">04</span>
+<div class="col-span-5 flex flex-col min-w-0 pr-2">
+<span class="font-medium truncate text-white">Come Together</span>
+<span class="text-zinc-400 truncate text-[11px]">The Beatles • Abbey Road</span>
+</div>
+<div class="col-span-3">
+<span class="px-2 py-0.5 rounded border border-zinc-700 bg-surface-container-low text-zinc-300 font-mono text-[10px] uppercase">FLAC 24/96</span>
+</div>
+<span class="col-span-2 font-mono text-right text-zinc-400">108.9 MB</span>
+<span class="col-span-1 font-mono text-right text-zinc-200">04:19</span>
+</div>
+<div class="grid grid-cols-12 px-4 py-2.5 hover:bg-surface-container-high items-center text-white cursor-pointer transition-colors">
+<span class="col-span-1 font-mono text-zinc-500">05</span>
+<div class="col-span-5 flex flex-col min-w-0 pr-2">
+<span class="font-medium truncate text-white">The Less I Know The Better</span>
+<span class="text-zinc-400 truncate text-[11px]">Tame Impala • Currents</span>
+</div>
+<div class="col-span-3">
+<span class="px-2 py-0.5 rounded border border-zinc-700 bg-surface-container-low text-zinc-300 font-mono text-[10px] uppercase">FLAC 24/44.1</span>
+</div>
+<span class="col-span-2 font-mono text-right text-zinc-400">52.1 MB</span>
+<span class="col-span-1 font-mono text-right text-zinc-200">03:36</span>
+</div>
+</div>
+</div>
+</div>
+<!-- Inspector Panel (Clean Charcoal & Silver Aesthetic) -->
+<div class="xl:col-span-4 flex flex-col gap-3 sticky top-20">
+<div class="p-4 rounded-lg border border-outline-variant/70 bg-surface-container flex flex-col">
+<!-- Inspector Header -->
+<div class="flex items-center justify-between pb-3 border-b border-outline-variant/50">
+<div class="flex items-center gap-2">
+<span class="material-symbols-outlined text-zinc-300 text-[18px]">info</span>
+<span class="text-xs font-semibold text-white uppercase tracking-wider">Inspector de Archivo</span>
+</div>
+<span class="px-2 py-0.5 rounded border border-zinc-700 bg-surface-container-low text-zinc-300 font-mono text-[10px] font-medium uppercase tracking-wider">
+                  STUDIO MASTER
+                </span>
+</div>
+<!-- Selected Album Preview -->
+<div class="flex items-center gap-3 p-2.5 rounded-md bg-surface-container-low border border-outline-variant/40 mt-3">
+<div class="w-14 h-14 rounded overflow-hidden shrink-0">
+<img class="w-full h-full object-cover" data-alt="Close up miniature artwork for Daft Punk Random Access Memories." id="detail-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuCbkRAyxmqMSOEDwRrWGevURnBHPBsuA5lLEPlPPRaNVxf4-1jcUzlv0JJp4omTvfi3eltl8t-Flh50auPhHMESvvGP9Sk0_0YWEWKJ0YZPfkJcOAT_nrDdzs50X1C7tEOhMybnJMp8EFgWbNusf4wNd93EV2-3BV2eC9T7pLyIxDTX1dhgVsMtKA0LeZm56I_CbB6rkkdDNrJqI_OmxxrprImsv_l_hsmDq__BjYUCYUGTQZ7NMP81"/>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-semibold text-white truncate" id="detail-title">Random Access Memories</span>
+<span class="text-[11px] text-zinc-400 truncate" id="detail-artist">Daft Punk • 2013</span>
+<span class="font-mono text-[10px] text-zinc-500 mt-0.5 truncate" id="detail-genre">Electronic / Synth-Pop / Disco</span>
+</div>
+</div>
+<!-- File Path -->
+<div class="flex flex-col mt-3 gap-1">
+<div class="flex items-center justify-between text-zinc-400 text-[11px]">
+<span>Directorio local</span>
+<button class="text-zinc-300 hover:text-white font-mono text-[10px] flex items-center gap-1" type="button">
+<span class="material-symbols-outlined text-[12px]">content_copy</span>
+                    Copiar
+                  </button>
+</div>
+<div class="p-2 rounded bg-surface-container-lowest border border-outline-variant/50 font-mono text-zinc-300 select-all break-all text-[10px] leading-relaxed">
+                  C:/Users/Audiophile/Music/Tidal/Daft Punk/Random Access Memories/
+                </div>
+</div>
+<!-- Technical Metrics Grid -->
+<div class="grid grid-cols-2 gap-2 mt-3">
+<div class="p-2.5 rounded-md border border-outline-variant/40 bg-surface-container-low flex flex-col">
+<span class="text-[10px] text-zinc-500 uppercase tracking-wider font-mono">Tamaño Total</span>
+<span class="font-mono font-medium text-white text-xs mt-0.5">1.84 GB</span>
+<span class="font-mono text-[10px] text-zinc-500">13 pistas FLAC</span>
+</div>
+<div class="p-2.5 rounded-md border border-outline-variant/40 bg-surface-container-low flex flex-col">
+<span class="text-[10px] text-zinc-500 uppercase tracking-wider font-mono">Rango Dinámico</span>
+<span class="font-mono font-medium text-zinc-200 text-xs mt-0.5">DR13 (Excelente)</span>
+<span class="font-mono text-[10px] text-zinc-500">Master no comprimido</span>
+</div>
+<div class="p-2.5 rounded-md border border-outline-variant/40 bg-surface-container-low flex flex-col">
+<span class="text-[10px] text-zinc-500 uppercase tracking-wider font-mono">Profundidad</span>
+<span class="font-mono font-medium text-white text-xs mt-0.5">24-bit True Lossless</span>
+<span class="font-mono text-[10px] text-zinc-500">144 dB headroom</span>
+</div>
+<div class="p-2.5 rounded-md border border-outline-variant/40 bg-surface-container-low flex flex-col">
+<span class="text-[10px] text-zinc-500 uppercase tracking-wider font-mono">Frecuencia</span>
+<span class="font-mono font-medium text-zinc-200 text-xs mt-0.5">96.000 Hz (96kHz)</span>
+<span class="font-mono text-[10px] text-zinc-500">Nyquist @ 48kHz</span>
+</div>
+</div>
+<!-- Spek Spectrogram Preview Graphic (Monochrome Minimal) -->
+<div class="flex flex-col mt-3">
+<div class="flex items-center justify-between pb-1.5 text-[11px] text-zinc-400">
+<div class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[14px] text-zinc-300">graphic_eq</span>
+<span>Espectro Acústico (Spek)</span>
+</div>
+<span class="font-mono text-[10px] text-zinc-400">Cutoff &gt; 44kHz</span>
+</div>
+<div class="w-full h-20 rounded border border-outline-variant/50 bg-surface-container-lowest p-2 relative overflow-hidden flex flex-col justify-end">
+<svg class="w-full h-full" preserveaspectratio="none" viewbox="0 0 300 70" xmlns="http://www.w3.org/2000/svg">
+<defs>
+<lineargradient id="monoSpectro" x1="0" x2="0" y1="0" y2="1">
+<stop offset="0%" stop-color="#ffffff" stop-opacity="0.85"></stop>
+<stop offset="50%" stop-color="#9ca3af" stop-opacity="0.5"></stop>
+<stop offset="100%" stop-color="#161618" stop-opacity="0.1"></stop>
+</lineargradient>
+</defs>
+<line stroke="#28282c" stroke-dasharray="2 2" stroke-width="0.5" x1="0" x2="300" y1="18" y2="18"></line>
+<line stroke="#28282c" stroke-dasharray="2 2" stroke-width="0.5" x1="0" x2="300" y1="40" y2="40"></line>
+<path d="M0,65 Q20,10 40,30 T80,15 T120,35 T160,8 T200,28 T240,12 T280,22 T300,65 Z" fill="url(#monoSpectro)"></path>
+<path d="M0,68 Q25,25 50,40 T100,20 T150,48 T200,16 T250,30 T300,68 Z" fill="#ffffff" fill-opacity="0.15"></path>
+</svg>
+<div class="flex justify-between font-mono text-[9px] text-zinc-500 pt-1">
+<span>0 kHz</span>
+<span>24 kHz</span>
+<span>48 kHz</span>
+</div>
+</div>
+</div>
+<!-- Actions -->
+<div class="flex flex-col gap-2 mt-4">
+<button class="w-full py-2 px-3 rounded-md bg-white hover:bg-zinc-200 text-black text-xs font-semibold flex items-center justify-center gap-1.5 transition-all shadow-sm" type="button">
+<span class="material-symbols-outlined text-[17px]">play_circle</span>
+<span>Reproducir álbum</span>
+</button>
+<div class="grid grid-cols-2 gap-2">
+<button class="py-1.5 px-2 rounded-md border border-outline-variant bg-surface-container-low hover:bg-surface-container-high text-zinc-300 text-xs font-medium flex items-center justify-center gap-1 transition-all" type="button">
+<span class="material-symbols-outlined text-[15px]">playlist_add</span>
+<span>Añadir a lista</span>
+</button>
+<button class="py-1.5 px-2 rounded-md border border-outline-variant bg-surface-container-low hover:bg-surface-container-high text-zinc-300 text-xs font-medium flex items-center justify-center gap-1 transition-all" type="button">
+<span class="material-symbols-outlined text-[15px]">usb</span>
+<span>Exportar DAP</span>
+</button>
+</div>
+<button class="w-full py-1.5 px-3 rounded-md border border-outline-variant/60 bg-transparent hover:bg-surface-container-low text-zinc-400 hover:text-white text-xs flex items-center justify-center gap-1.5 transition-all" type="button">
+<span class="material-symbols-outlined text-[15px]">edit_note</span>
+<span>Editar etiquetas ID3 &amp; Metadatos</span>
+</button>
+</div>
+</div>
+<!-- Target Device Info -->
+<div class="p-3 rounded-lg border border-outline-variant/60 bg-surface-container flex items-center justify-between">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-zinc-400 text-[18px]">hard_drive</span>
+<div class="flex flex-col">
+<span class="text-xs text-white font-medium">Disco Principal NVMe</span>
+<span class="font-mono text-[10px] text-zinc-400">NTFS • Libre: 370 GB</span>
+</div>
+</div>
+<button class="text-zinc-300 hover:text-white text-xs font-medium" type="button">Cambiar</button>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- Bottom Player Bar with Detailed Audio Waveform -->
+<footer class="fixed bottom-0 left-0 right-0 h-20 bg-[#0c0c0e]/95 border-t border-outline-variant/60 backdrop-blur-2xl z-50 flex items-center justify-between px-6">
+<!-- Left: Track Metadata -->
+<div class="flex items-center gap-3 w-[260px] shrink-0">
+<div class="relative w-11 h-11 rounded-md bg-surface-container overflow-hidden flex items-center justify-center shrink-0 border border-outline-variant">
+<img alt="Now playing album cover" class="w-full h-full object-cover" src="https://lh3.googleusercontent.com/aida-public/AB6AXuC0lwJ0UiwqkXik3RUcGogOngLLFjTXyjR2tyr3AE1khgZk24A_9d3DVgTfm692s-DWPyt0nTWgUPVgRtPq9sHr5LMfiqsZpcPZD89BKDBbU2s6PZboqKcIyDyxEGzVJ6IjmEd3EPhn_NpD-unUoKF5LRigNFHprldnRnFEL_pP4MfwEY1jbLICpFFM1Jl_cKZVeYkppsKNY7jfNiw0mMisjpqcdArUrWYyvuXcXgj33Mlfx1Us7CBn"/>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-semibold text-white truncate">Starboy (feat. Daft Punk)</span>
+<span class="text-[11px] text-zinc-400 truncate">The Weeknd</span>
+<span class="font-mono text-[9px] text-zinc-500 truncate tracking-wider">FLAC 24-bit / 96kHz</span>
+</div>
+<button class="text-zinc-500 hover:text-white transition-colors ml-1" type="button">
+<span class="material-symbols-outlined text-[17px]">favorite</span>
+</button>
+</div>
+<!-- Center: Playback Controls & Audio Amplitude Waveform Progress -->
+<div class="flex flex-col items-center flex-1 max-w-3xl px-6">
+<!-- Player Transport Controls -->
+<div class="flex items-center gap-4 mb-1.5">
+<button class="text-zinc-500 hover:text-zinc-300 transition-colors" title="Aleatorio" type="button">
+<span class="material-symbols-outlined text-[16px]">shuffle</span>
+</button>
+<button class="text-zinc-400 hover:text-white transition-colors" title="Anterior" type="button">
+<span class="material-symbols-outlined text-[18px]">skip_previous</span>
+</button>
+<button class="w-7 h-7 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 transition-all shadow-sm" title="Reproducir / Pausa" type="button">
+<span class="material-symbols-outlined text-[18px]" style="font-variation-settings: 'FILL' 1;">play_arrow</span>
+</button>
+<button class="text-zinc-400 hover:text-white transition-colors" title="Siguiente" type="button">
+<span class="material-symbols-outlined text-[18px]">skip_next</span>
+</button>
+<button class="text-zinc-500 hover:text-zinc-300 transition-colors" title="Repetir" type="button">
+<span class="material-symbols-outlined text-[16px]">repeat</span>
+</button>
+</div>
+<!-- Waveform Progress Scrubber -->
+<div class="flex items-center gap-3 w-full">
+<span class="font-mono text-[10px] text-zinc-400 tracking-tight shrink-0">01:42</span>
+<!-- Detailed Audio Waveform -->
+<div class="flex-1 h-7 flex items-center gap-[2px] cursor-pointer group py-1 relative select-none">
+<!-- 60 Amplitude Bars representing audio spectrum; first 27 bars active (white/silver), remaining 33 pending (dark gray) -->
+<!-- Played Section (White & Light Silver) -->
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-2"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-3"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-3"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-3"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-7"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-7"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-7"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-white group-hover:brightness-110 transition-all h-5"></span>
+<!-- Playhead Indicator Needle -->
+<div class="relative flex items-center justify-center">
+<span class="w-[3px] rounded-full bg-white h-7 shadow-[0_0_8px_rgba(255,255,255,0.8)]"></span>
+</div>
+<!-- Remaining / Unplayed Waveform Bars (Subtle Gray #2d2d34) -->
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-7"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-3"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-7"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-6"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-3"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-5"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-4"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-3"></span>
+<span class="w-[2.5px] rounded-full bg-zinc-700 hover:bg-zinc-500 transition-all h-2"></span>
+</div>
+<span class="font-mono text-[10px] text-zinc-500 tracking-tight shrink-0">03:50</span>
+</div>
+</div>
+<!-- Right: Audio Master Tag & Volume Controls -->
+<div class="flex items-center justify-end gap-3 w-[260px] shrink-0">
+<span class="px-2 py-0.5 rounded border border-zinc-700/60 bg-surface-container font-mono text-[10px] text-zinc-300 tracking-wider font-medium">
+        LOSSLESS 24-BIT/96kHz
+      </span>
+<div class="flex items-center gap-2 w-28">
+<button class="text-zinc-400 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">volume_up</span>
+</button>
+<div class="flex-1 h-1 bg-surface-container-highest rounded-full overflow-hidden cursor-pointer">
+<div class="h-full w-[75%] bg-zinc-300 rounded-full"></div>
+</div>
+</div>
+<button class="text-zinc-400 hover:text-white transition-colors" title="Cola de reproducción" type="button">
+<span class="material-symbols-outlined text-[17px]">queue_music</span>
+</button>
+</div>
+</footer>
+<!-- View Switching & Album Selection Script -->
+<script>
+    function switchView(mode) {
+      const gridView = document.getElementById('grid-view');
+      const listView = document.getElementById('list-view');
+      const btnGrid = document.getElementById('btn-view-grid');
+      const btnList = document.getElementById('btn-view-list');
+
+      if (mode === 'grid') {
+        gridView.classList.remove('hidden');
+        listView.classList.add('hidden');
+        btnGrid.className = 'flex items-center gap-1.5 px-3 py-1 rounded-md bg-surface-container-high text-white text-xs font-medium transition-all shadow-sm';
+        btnList.className = 'flex items-center gap-1.5 px-3 py-1 rounded-md text-zinc-400 hover:text-white text-xs font-medium transition-all';
+      } else {
+        gridView.classList.add('hidden');
+        listView.classList.remove('hidden');
+        btnList.className = 'flex items-center gap-1.5 px-3 py-1 rounded-md bg-surface-container-high text-white text-xs font-medium transition-all shadow-sm';
+        btnGrid.className = 'flex items-center gap-1.5 px-3 py-1 rounded-md text-zinc-400 hover:text-white text-xs font-medium transition-all';
+      }
+    }
+
+    function selectAlbum(index) {
+      const cards = document.querySelectorAll('.album-card');
+      cards.forEach((card, idx) => {
+        if (idx === index - 1) {
+          card.classList.remove('border-outline-variant/60');
+          card.classList.add('border-zinc-500');
+        } else {
+          card.classList.remove('border-zinc-500');
+          card.classList.add('border-outline-variant/60');
+        }
+      });
+    }
+  </script>
+</body></html>

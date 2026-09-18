@@ -7,6 +7,9 @@ reader: analyze_stream writes one temp WAV and emits progressive snapshots with
 a terminal ``complete=True`` snapshot. Output-equivalence with the full-file
 ``get_waveform_cached`` path is checked in Task 3 integration tests.
 """
+from pathlib import Path
+from unittest.mock import Mock
+
 import numpy as np
 import pytest
 
@@ -16,6 +19,68 @@ from backend.waveform_stream import (
     analyze_stream,
     club_bands,
 )
+
+
+@pytest.mark.asyncio
+async def test_start_pcm_decoder_falls_back_when_async_subprocess_raises_not_implemented(monkeypatch):
+    """The decoder still streams PCM when the event loop lacks subprocess support."""
+    process = Mock(returncode=0)
+    process.stdout.read.side_effect = [b"\x01\x02", b"\x03\x04", b""]
+    popen = Mock(return_value=process)
+
+    async def unavailable(*args, **kwargs):
+        raise NotImplementedError
+
+    monkeypatch.setattr(waveform_stream.asyncio, "create_subprocess_exec", unavailable)
+    monkeypatch.setattr(waveform_stream.subprocess, "Popen", popen)
+
+    blocks = [
+        block async for block in waveform_stream.start_pcm_decoder("https://example.test/track")
+    ]
+
+    assert blocks == [b"\x01\x02", b"\x03\x04"]
+    popen.assert_called_once()
+    assert "https://example.test/track" in repr(popen.call_args.args)
+    process.wait.assert_called_once()
+
+
+@pytest.mark.asyncio
+async def test_start_pcm_decoder_awaits_native_async_subprocess_methods(monkeypatch):
+    class FakeStdout:
+        def __init__(self):
+            self._chunks = iter([b"\x01\x02", b""])
+
+        async def read(self, _size):
+            return next(self._chunks)
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = FakeStdout()
+            self.returncode = 0
+            self.wait_calls = 0
+
+        async def wait(self):
+            self.wait_calls += 1
+            return self.returncode
+
+    process = FakeProcess()
+
+    async def create_async_process(*args, **kwargs):
+        return process
+
+    monkeypatch.setattr(waveform_stream.asyncio, "create_subprocess_exec", create_async_process)
+    monkeypatch.setattr(
+        waveform_stream.subprocess,
+        "Popen",
+        lambda *args, **kwargs: pytest.fail("native async subprocess should be used"),
+    )
+
+    blocks = [
+        block async for block in waveform_stream.start_pcm_decoder("https://example.test/track")
+    ]
+
+    assert blocks == [b"\x01\x02"]
+    assert process.wait_calls == 1
 
 
 @pytest.fixture
@@ -172,4 +237,35 @@ async def test_analyze_stream_cleans_up_on_failure(monkeypatch, tmp_path):
     assert result["bands"] == {"low": [], "mid": [], "high": []}
     # No complete snapshot emitted for a track that never produced output.
     assert all(s["complete"] is False for s in snapshots)
+
+
+@pytest.mark.asyncio
+async def test_analyze_stream_closes_wave_writer_before_failure_unlink(monkeypatch):
+    """Failure cleanup closes the WAV handle before attempting to unlink it."""
+    events = []
+    writer = Mock(closed=False)
+
+    def close_writer():
+        writer.closed = True
+        events.append("close")
+
+    writer.close.side_effect = close_writer
+
+    def fake_unlink(path):
+        events.append(("unlink", writer.closed))
+        Path(path).unlink()
+
+    async def failing_decoder(stream_url: str):
+        raise RuntimeError("ffmpeg exploded")
+        yield  # pragma: no cover - make this an async generator
+
+    monkeypatch.setattr(waveform_stream.wave, "open", lambda *args, **kwargs: writer)
+    monkeypatch.setattr(waveform_stream, "_safe_unlink", fake_unlink)
+    monkeypatch.setattr(waveform_stream, "start_pcm_decoder", failing_decoder)
+
+    await analyze_stream("https://example.test/track", duration=10.0, width=60)
+
+    unlink_event = ("unlink", True)
+    assert unlink_event in events
+    assert events.index("close") < events.index(unlink_event)
 

@@ -3,11 +3,11 @@
 @tailwind utilities;
 
 :root {
-  --obsidian: #0B0D12;
-  --graphite: #161A23;
-  --slate: #2A3040;
-  --porcelain: #F5F7FA;
-  --silver: #9BA5B5;
+  --obsidian: #0A0A0B;
+  --graphite: #121214;
+  --slate: #27272A;
+  --porcelain: #FAFAFA;
+  --silver: #A1A1AA;
   --mint: #8DE7D5;
 
   /* Existing component aliases. Keep these stable while the shell is reworked. */
@@ -15,21 +15,21 @@
   --bg-deep: var(--obsidian);
   --bg-mid: var(--slate);
   --bg-surface: var(--graphite);
-  --accent-primary: var(--mint);
-  --accent-secondary: #9BC8FF;
-  --accent-glow: rgba(141, 231, 213, 0.2);
-  --accent-dim: rgba(141, 231, 213, 0.1);
+  --accent-primary: #FFFFFF;
+  --accent-secondary: var(--silver);
+  --accent-glow: rgba(255, 255, 255, 0.12);
+  --accent-dim: rgba(255, 255, 255, 0.08);
   --text-bright: var(--porcelain);
-  --text-primary: #D6DCE5;
+  --text-primary: var(--porcelain);
   --text-muted: var(--silver);
-  --text-dim: #707B8E;
-  --glass-bg: rgba(22, 26, 35, 0.94);
-  --glass-border: rgba(155, 165, 181, 0.2);
-  --glass-hover: rgba(141, 231, 213, 0.06);
-  --danger: #FF8194;
+  --text-dim: #71717A;
+  --glass-bg: rgba(18, 18, 20, 0.94);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-hover: rgba(255, 255, 255, 0.04);
+  --danger: #E11D48;
   --success: var(--mint);
   --warning: #F2C572;
-  --info: #9BC8FF;
+  --info: var(--accent-secondary);
   --radius: 12px;
   --radius-sm: 8px;
   --radius-xs: 6px;
@@ -81,12 +81,12 @@ textarea,
 }
 
 :where(button, a, input, select, textarea, [tabindex]):focus-visible {
-  outline: 2px solid var(--mint);
+  outline: 2px solid var(--accent-primary);
   outline-offset: 3px;
 }
 
 ::selection {
-  background: rgba(141, 231, 213, 0.24);
+  background: rgba(255, 255, 255, 0.16);
   color: var(--porcelain);
 }
 
@@ -109,14 +109,13 @@ textarea,
 
 .glass-hover:hover {
   background: var(--glass-hover);
-  border-color: rgba(141, 231, 213, 0.32);
-  box-shadow: 0 8px 24px rgba(11, 13, 18, 0.18);
+  border-color: rgba(255, 255, 255, 0.14);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
 }
 
 .glow-line {
   height: 1px;
-  background: linear-gradient(90deg, transparent, var(--mint), transparent);
-  opacity: 0.45;
+  background: var(--glass-border);
 }
 
 .glow-dot {
@@ -143,7 +142,7 @@ textarea,
 .select-abyss:focus,
 .filter-group input[type="number"]:focus,
 .filter-group select:focus {
-  border-color: var(--mint);
+  border-color: var(--accent-primary);
   box-shadow: 0 0 0 3px var(--accent-dim);
 }
 
@@ -154,7 +153,7 @@ textarea,
 .select-abyss {
   cursor: pointer;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%239BA5B5' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M3 5l3 3 3-3' stroke='%23A1A1AA' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 12px center;
   padding-right: 36px;
@@ -170,17 +169,17 @@ textarea,
 }
 
 .btn-primary {
-  background: var(--mint);
+  background: var(--accent-primary);
   color: var(--obsidian);
   padding: 10px 24px;
-  border: 1px solid var(--mint);
+  border: 1px solid var(--accent-primary);
   border-radius: var(--radius-sm);
 }
 
 .btn-primary:hover {
-  background: #B8F3E7;
-  border-color: #B8F3E7;
-  box-shadow: 0 6px 18px rgba(141, 231, 213, 0.18);
+  background: var(--accent-secondary);
+  border-color: var(--accent-secondary);
+  box-shadow: 0 6px 18px rgba(255, 255, 255, 0.1);
   transform: translateY(-1px);
 }
 
@@ -213,14 +212,14 @@ textarea,
   background: transparent;
   color: var(--danger);
   padding: 6px 12px;
-  border: 1px solid rgba(255, 129, 148, 0.3);
+  border: 1px solid rgba(225, 29, 72, 0.3);
   border-radius: var(--radius-xs);
   font-size: 13px;
 }
 
 .btn-danger:hover {
-  background: rgba(255, 129, 148, 0.1);
-  border-color: rgba(255, 129, 148, 0.55);
+  background: rgba(225, 29, 72, 0.1);
+  border-color: rgba(225, 29, 72, 0.55);
 }
 
 /* Technical values keep a stable, readable monospaced face. */
@@ -266,8 +265,8 @@ textarea,
 }
 
 @keyframes progress-pulse {
-  0%, 100% { box-shadow: 0 0 0 0 rgba(141, 231, 213, 0); }
-  50% { box-shadow: 0 0 0 4px rgba(141, 231, 213, 0.1); }
+  0%, 100% { box-shadow: 0 0 0 0 rgba(255, 255, 255, 0); }
+  50% { box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.1); }
 }
 
 @keyframes rainbow {
@@ -308,7 +307,7 @@ textarea,
 
 .progress-fill {
   height: 100%;
-  background: linear-gradient(90deg, var(--accent-secondary), var(--mint));
+  background: var(--accent-primary);
   border-radius: 999px;
   transition: width 360ms ease-out;
 }
@@ -380,7 +379,7 @@ textarea,
 .filter-group select {
   cursor: pointer;
   appearance: none;
-  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 4l3 3 3-3' stroke='%239BA5B5' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'%3E%3Cpath d='M2 4l3 3 3-3' stroke='%23A1A1AA' stroke-width='1.5' fill='none'/%3E%3C/svg%3E");
   background-repeat: no-repeat;
   background-position: right 8px center;
   padding-right: 28px;
@@ -411,7 +410,7 @@ textarea,
   width: 16px;
   height: 16px;
   cursor: pointer;
-  accent-color: var(--mint);
+  accent-color: var(--accent-primary);
 }
 
 .toggle-icon {
@@ -433,7 +432,7 @@ textarea,
 .btn-clear-filters:hover {
   color: var(--porcelain);
   background: var(--glass-hover);
-  border-color: var(--mint);
+  border-color: var(--accent-primary);
 }
 
 /* Helpers for fixed surfaces and content that sits above the player. */
@@ -512,7 +511,7 @@ textarea,
   z-index: 45;
   width: min(380px, calc(100vw - 40px));
   overflow: hidden;
-  background: rgba(22, 26, 35, 0.97);
+  background: var(--glass-bg);
   border: 1px solid var(--glass-border);
   border-radius: var(--radius);
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.45);
@@ -557,7 +556,7 @@ textarea,
 .activity-close {
   color: var(--accent-primary);
   background: transparent;
-  border: 1px solid rgba(141, 231, 213, 0.2);
+  border: 1px solid var(--glass-border);
   border-radius: var(--radius-xs);
   cursor: pointer;
   font-size: 12px;
@@ -571,11 +570,11 @@ textarea,
 
 .activity-action-danger {
   color: var(--danger);
-  border-color: rgba(255, 129, 148, 0.3);
+  border-color: rgba(225, 29, 72, 0.3);
 }
 
 .activity-action-danger:hover {
-  background: rgba(255, 129, 148, 0.1);
+  background: rgba(225, 29, 72, 0.1);
 }
 
 .activity-close {

@@ -7,6 +7,7 @@ waveform or key detection. The metadata endpoint resolves the same url and hands
 it off to the module-level `PreviewJobManager`, returning the initial snapshot
 without waiting for the background analyzer.
 """
+import threading
 from unittest.mock import MagicMock
 
 import pytest
@@ -91,6 +92,29 @@ def test_stream_route_returns_before_analyzer(stub_auth, monkeypatch):
     assert payload["duration"] == TEST_DURATION
     # The route must restore the original quality.
     assert stub_auth.config.quality == "HIGH"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("route", [main.preview_stream, main.preview_metadata])
+async def test_preview_routes_resolve_tidal_io_off_event_loop(stub_auth, route, monkeypatch):
+    event_loop_thread = threading.get_ident()
+    call_threads = []
+
+    class Track(_FakeTrack):
+        def get_url(self):
+            call_threads.append(threading.get_ident())
+            return TEST_STREAM_URL
+
+    def get_track(_track_id):
+        call_threads.append(threading.get_ident())
+        return Track()
+
+    monkeypatch.setattr(stub_auth, "track", get_track)
+
+    await route(TEST_TRACK_ID)
+
+    assert call_threads
+    assert all(thread_id != event_loop_thread for thread_id in call_threads)
 
 
 def test_metadata_route_returns_processing_snapshot(stub_auth):

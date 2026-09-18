@@ -1,0 +1,769 @@
+<!DOCTYPE html>
+
+<html class="dark" lang="es"><head>
+<meta charset="utf-8"/>
+<meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+<link href="https://fonts.googleapis.com" rel="preconnect"/>
+<link crossorigin="" href="https://fonts.gstatic.com" rel="preconnect"/>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&amp;family=JetBrains+Mono:wght@400;500;600&amp;display=swap" rel="stylesheet"/>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap" rel="stylesheet"/>
+<script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+<script id="tailwind-config">
+    tailwind.config = {
+      darkMode: "class",
+      theme: {
+        extend: {
+          colors: {
+            surface: "#0a0a0b",
+            "surface-dim": "#0a0a0b",
+            "surface-container-lowest": "#060607",
+            "surface-container-low": "#111113",
+            "surface-container": "#141417",
+            "surface-container-high": "#18181b",
+            "surface-container-highest": "#222226",
+            "border-subtle": "#27272a",
+            "border-muted": "#1f1f23",
+            "on-surface": "#fafafa",
+            "on-surface-variant": "#a1a1aa",
+            "on-surface-muted": "#71717a",
+            primary: "#ffffff",
+            "primary-container": "#27272a",
+            "on-primary": "#09090b",
+            secondary: "#e4e4e7"
+          },
+          fontFamily: {
+            sans: ["Geist", "sans-serif"],
+            mono: ["JetBrains Mono", "monospace"]
+          }
+        }
+      }
+    }
+  </script>
+<style>
+    @layer base {
+      html, body { margin: 0; padding: 0; }
+      body { overscroll-behavior: none; }
+    }
+    ::-webkit-scrollbar { width: 4px; height: 4px; }
+    ::-webkit-scrollbar-track { background: #0a0a0b; }
+    ::-webkit-scrollbar-thumb { background: #27272a; border-radius: 2px; }
+    ::-webkit-scrollbar-thumb:hover { background: #3f3f46; }
+    .waveform-bar {
+      transition: height 0.15s ease, opacity 0.15s ease;
+    }
+    .waveform-bar:hover {
+      opacity: 1 !important;
+      background-color: #ffffff !important;
+    }
+  </style>
+</head>
+<body class="bg-[#0a0a0b] text-on-surface font-sans text-[13px] antialiased select-none min-h-screen">
+<!-- Left Sidebar -->
+<aside class="fixed left-0 top-0 h-[calc(100vh-80px)] w-64 bg-[#0d0d0f] border-r border-[#222225] z-40 flex flex-col justify-between">
+<div class="flex flex-col">
+<!-- App Header -->
+<div class="h-16 px-4 flex items-center justify-between border-b border-[#1c1c20]">
+<div class="flex items-center gap-2.5">
+<div class="w-8 h-8 rounded-lg bg-zinc-900 border border-zinc-700/60 flex items-center justify-center text-white">
+<span class="material-symbols-outlined text-[19px]">graphic_eq</span>
+</div>
+<div class="flex flex-col">
+<span class="text-sm font-semibold text-white tracking-tight leading-none">Tidal Extractor</span>
+<span class="text-[10px] font-mono uppercase tracking-widest text-zinc-400 font-medium mt-1">Studio Edition</span>
+</div>
+</div>
+<span class="px-1.5 py-0.5 rounded border border-zinc-700 bg-zinc-800/60 text-zinc-300 font-mono text-[10px] font-medium tracking-wider">HI-RES</span>
+</div>
+<!-- Navigation -->
+<nav class="flex flex-col px-3 py-3 gap-0.5">
+<div class="px-2 pt-2 pb-1.5 text-[10px] font-mono uppercase tracking-wider text-zinc-400 font-semibold">Música y Exploración</div>
+<a class="flex items-center px-2.5 py-1.5 rounded-md bg-zinc-800/70 text-white font-medium text-xs gap-2.5 border border-zinc-700/50 shadow-sm" href="#">
+<span class="material-symbols-outlined text-[18px] text-white">explore</span>
+<span>Explorador &amp; Álbumes</span>
+</a>
+<a class="flex items-center px-2.5 py-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors text-xs gap-2.5" href="#">
+<span class="material-symbols-outlined text-[18px] text-zinc-400">history</span>
+<span>Tidal Recientes</span>
+</a>
+<a class="flex items-center px-2.5 py-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors text-xs gap-2.5" href="#">
+<span class="material-symbols-outlined text-[18px] text-zinc-400">record_voice_over</span>
+<span>Artistas y Géneros</span>
+</a>
+<div class="px-2 pt-4 pb-1.5 text-[10px] font-mono uppercase tracking-wider text-zinc-400 font-semibold">Gestión y Descargas</div>
+<a class="flex items-center justify-between px-2.5 py-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors text-xs" href="#">
+<div class="flex items-center gap-2.5">
+<span class="material-symbols-outlined text-[18px] text-zinc-400">download</span>
+<span>Cola de Descargas</span>
+</div>
+<span class="font-mono text-[10px] px-1.5 py-0.2 rounded border border-zinc-700/60 bg-zinc-800 text-zinc-300 font-medium">3 activas</span>
+</a>
+<a class="flex items-center px-2.5 py-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors text-xs gap-2.5" href="#">
+<span class="material-symbols-outlined text-[18px] text-zinc-400">folder_special</span>
+<span>Biblioteca Local</span>
+</a>
+<div class="px-2 pt-4 pb-1.5 text-[10px] font-mono uppercase tracking-wider text-zinc-400 font-semibold">Configuración</div>
+<a class="flex items-center px-2.5 py-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors text-xs gap-2.5" href="#">
+<span class="material-symbols-outlined text-[18px] text-zinc-400">tune</span>
+<span>Preferencias de Audio</span>
+</a>
+<a class="flex items-center px-2.5 py-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-800/40 transition-colors text-xs gap-2.5" href="#">
+<span class="material-symbols-outlined text-[18px] text-zinc-400">vpn_key</span>
+<span>Cuenta y Token</span>
+</a>
+</nav>
+</div>
+<!-- Engine Status Bottom Card -->
+<div class="p-3 m-3 rounded-lg bg-[#141418] border border-zinc-800 flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<div class="w-1.5 h-1.5 rounded-full bg-zinc-300 animate-pulse"></div>
+<span class="font-mono text-[10px] uppercase text-zinc-200 font-semibold tracking-wider">FLAC Master Engine</span>
+</div>
+<span class="font-mono text-[9px] px-1 rounded bg-zinc-800 text-zinc-300 font-semibold">ONLINE</span>
+</div>
+<div class="flex items-center justify-between text-zinc-400 font-mono text-[10px]">
+<span>24-bit / 192kHz</span>
+<span class="text-zinc-400">1.411 kbps</span>
+</div>
+<div class="flex flex-col gap-1 pt-1 border-t border-zinc-800/80">
+<div class="flex justify-between text-[11px] text-zinc-400">
+<span>SSD NVMe Local</span>
+<span class="font-mono text-zinc-200">142 GB / 512 GB</span>
+</div>
+<div class="w-full h-1 rounded-full bg-zinc-800 overflow-hidden">
+<div class="h-full w-[28%] bg-zinc-300 rounded-full"></div>
+</div>
+</div>
+</div>
+</aside>
+<!-- Main Content Wrapper -->
+<div class="pl-64">
+<!-- Top Header Navigation -->
+<header class="fixed top-0 left-64 right-0 h-16 bg-[#0a0a0b]/90 backdrop-blur-xl border-b border-[#1e1e22] z-30 flex items-center justify-between px-6">
+<div class="flex items-center gap-4 flex-1">
+<div class="flex items-center gap-1 text-zinc-400">
+<button class="w-7 h-7 rounded border border-transparent hover:border-zinc-700 hover:bg-zinc-800/60 flex items-center justify-center hover:text-white transition-all" type="button">
+<span class="material-symbols-outlined text-[16px]">arrow_back_ios_new</span>
+</button>
+<button class="w-7 h-7 rounded border border-transparent hover:border-zinc-700 hover:bg-zinc-800/60 flex items-center justify-center hover:text-white transition-all" type="button">
+<span class="material-symbols-outlined text-[16px]">arrow_forward_ios</span>
+</button>
+</div>
+<div class="relative max-w-xl w-full">
+<span class="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400 text-[18px]">search</span>
+<input class="w-full bg-[#131316] border border-zinc-800 hover:border-zinc-700 focus:border-zinc-500 rounded-lg pl-9 pr-4 py-1.5 text-xs text-zinc-200 placeholder:text-zinc-400 focus:outline-none transition-colors" placeholder="Pegar enlace de Tidal o buscar artista, álbum, pista..." type="text"/>
+</div>
+</div>
+<div class="flex items-center gap-3">
+<div class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141418] border border-zinc-800 font-mono text-[11px] text-zinc-300 cursor-pointer hover:border-zinc-700 transition-colors">
+<span class="material-symbols-outlined text-[14px] text-zinc-400">graphic_eq</span>
+<span>FLAC 24-bit/192kHz</span>
+<span class="material-symbols-outlined text-[14px] text-zinc-400">expand_more</span>
+</div>
+<button class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white text-black font-semibold text-xs hover:bg-zinc-200 active:scale-95 transition-all shadow-sm" type="button">
+<span class="material-symbols-outlined text-[16px]">downloading</span>
+<span>Descarga Rápida</span>
+</button>
+<div class="pl-1">
+<div class="w-8 h-8 rounded-full bg-zinc-800 border border-zinc-700 flex items-center justify-center text-xs font-mono text-zinc-300 font-medium cursor-pointer hover:border-zinc-500">
+            TX
+          </div>
+</div>
+</div>
+</header>
+<!-- Page Body -->
+<main class="w-full pt-20 pb-28 px-8 bg-[#0a0a0b] min-h-screen">
+<div class="max-w-7xl mx-auto flex flex-col gap-6">
+<!-- Link Ingestion Section -->
+<section class="p-3 rounded-xl bg-[#111114] border border-[#222226]">
+<div class="flex flex-col lg:flex-row items-stretch lg:items-center justify-between gap-3">
+<div class="flex-1 relative flex items-center">
+<span class="material-symbols-outlined absolute left-3.5 text-zinc-400 text-[18px]">link</span>
+<input class="w-full bg-[#18181c] border border-zinc-800 focus:border-zinc-600 rounded-lg pl-10 pr-28 py-2 font-mono text-xs text-zinc-200 placeholder:text-zinc-400 focus:outline-none transition-colors" id="url-input" placeholder="Introduce URL de álbum, track o playlist de Tidal..." type="text" value="https://tidal.com/browse/album/289547192"/>
+<button class="absolute right-1.5 px-3 py-1 rounded bg-white text-black font-medium text-xs hover:bg-zinc-200 active:scale-95 transition-all flex items-center gap-1" onclick="triggerResolve()" type="button">
+<span class="material-symbols-outlined text-[15px]">sensors</span>
+<span>Analizar</span>
+</button>
+</div>
+<div class="flex items-center gap-2 flex-wrap shrink-0">
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#18181c] hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px] text-zinc-400">content_paste</span>
+<span>Pegar enlace</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#18181c] hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px] text-zinc-400">travel_explore</span>
+<span>Examinar Catálogo</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#18181c] hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px] text-zinc-400">playlist_add</span>
+<span>Importar M3U</span>
+</button>
+</div>
+</div>
+</section>
+<!-- Album Showcase Bento Hero -->
+<section class="p-6 rounded-xl bg-[#121215] border border-[#222226]">
+<div class="flex flex-col md:flex-row items-center md:items-start gap-6">
+<!-- Album Artwork -->
+<div class="relative shrink-0 group">
+<div class="w-56 h-56 md:w-60 md:h-60 rounded-lg overflow-hidden border border-zinc-800 bg-[#16161a] shadow-xl">
+<img alt="Random Access Memories" class="w-full h-full object-cover grayscale contrast-125 group-hover:scale-102 transition-transform duration-500" src="https://lh3.googleusercontent.com/aida-public/AB6AXuDQujsByfLDZEG17Nv4f3RO1RwTn_weUQGuSHb5tiJctlxW2XJUkZkFBzYuZSKvzvc2s5lG89RtYfxodC1GS6KhZYOvnoWfs_Ja0ytiaMdFzkURz1l7_CHaNB0hhtxSdchpvwyMfBv5m-Z6FD7sad3S14JjtO9jRie1WYpNckwKRUTIH1U9hGqELlqL2Fnaq-LMcZTFJFc_8eyRuxjsSEyQPTTzn2L9wRErSQV5PNYEGOkSoSUB3LQC"/>
+</div>
+<div class="absolute bottom-2.5 left-2.5 flex items-center gap-1 px-2 py-0.5 rounded bg-black/85 border border-zinc-700/60 backdrop-blur-md">
+<span class="material-symbols-outlined text-zinc-300 text-[13px]">equalizer</span>
+<span class="font-mono text-[10px] text-zinc-200 tracking-wider font-semibold">24b/96k</span>
+</div>
+</div>
+<!-- Album Metadata Info -->
+<div class="flex-1 flex flex-col justify-between self-stretch min-w-0">
+<div>
+<div class="flex flex-wrap items-center gap-1.5 mb-2.5">
+<span class="px-2 py-0.5 rounded border border-zinc-700 bg-zinc-800/80 text-zinc-200 font-mono text-[10px] font-semibold tracking-wider">HI-RES LOSSLESS</span>
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-400 font-mono text-[10px] font-medium">TIDAL MASTER</span>
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-400 font-mono text-[10px]">REMASTER 2023</span>
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-400 font-mono text-[10px]">UPC 886444053926</span>
+</div>
+<h1 class="text-2xl md:text-3xl font-bold text-white tracking-tight leading-tight mb-1 truncate">
+                  Random Access Memories
+                </h1>
+<p class="text-sm text-zinc-400 mb-3 font-normal">
+                  (10th Anniversary Edition) • <span class="text-white font-medium">Daft Punk</span>
+</p>
+<div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-zinc-400 mb-6">
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-zinc-400">album</span>
+                    16 canciones
+                  </span>
+<span>•</span>
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-zinc-400">schedule</span>
+                    1 hr 14 min
+                  </span>
+<span>•</span>
+<span class="flex items-center gap-1">
+<span class="material-symbols-outlined text-[15px] text-zinc-400">hard_drive</span>
+                    Aprox. 1.78 GB
+                  </span>
+<span>•</span>
+<span class="text-zinc-400 font-mono text-[11px]">Columbia / Daft Life Ltd.</span>
+</div>
+</div>
+<!-- Action Bar -->
+<div class="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-zinc-800/80">
+<div class="flex items-center gap-2.5 flex-wrap">
+<button class="flex items-center gap-2 px-4 py-2 rounded-lg bg-white text-black font-semibold text-xs hover:bg-zinc-200 active:scale-95 transition-all shadow-sm" id="btn-download-all" onclick="toggleBatchDownload()" type="button">
+<span class="material-symbols-outlined text-[18px]" id="btn-batch-icon">cloud_download</span>
+<span id="btn-batch-label">Descargar Álbum Completo</span>
+</button>
+<button class="flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[#18181c] hover:bg-zinc-800 border border-zinc-800 text-zinc-300 text-xs transition-colors" type="button">
+<span class="material-symbols-outlined text-[16px] text-zinc-400">playlist_add_check</span>
+<span>Añadir a Cola</span>
+</button>
+<!-- Format Selector -->
+<div class="relative inline-flex items-center">
+<select class="appearance-none bg-[#18181c] hover:bg-zinc-800 border border-zinc-800 text-zinc-200 font-mono text-xs pl-3 pr-8 py-2 rounded-lg cursor-pointer focus:outline-none transition-colors">
+<option selected="">FLAC 24-bit / 96.0 kHz Studio Master</option>
+<option>FLAC 24-bit / 192.0 kHz Ultra</option>
+<option>FLAC 16-bit / 44.1 kHz Hi-Fi</option>
+<option>AAC 320 kbps High Efficiency</option>
+</select>
+<span class="material-symbols-outlined absolute right-2.5 pointer-events-none text-zinc-400 text-[16px]">expand_more</span>
+</div>
+</div>
+<!-- Select All Checkbox -->
+<label class="flex items-center gap-2 cursor-pointer text-xs text-zinc-400 hover:text-zinc-200 transition-colors select-none">
+<input checked="" class="w-4 h-4 rounded border-zinc-700 bg-zinc-800 text-zinc-100 accent-zinc-200 cursor-pointer" id="check-all" onchange="toggleSelectAll(this)" type="checkbox"/>
+<span>Seleccionar todas (16)</span>
+</label>
+</div>
+</div>
+</div>
+</section>
+<!-- Main Workspace Split: Tracklist Table & Inspector -->
+<div class="grid grid-cols-1 xl:grid-cols-12 gap-6">
+<!-- Tracklist Column (9 cols) -->
+<div class="xl:col-span-9 flex flex-col rounded-xl bg-[#111114] border border-[#222226] overflow-hidden">
+<!-- Headers -->
+<div class="grid grid-cols-12 items-center px-4 py-2.5 bg-[#16161a] border-b border-[#222226] font-mono text-[11px] uppercase tracking-wider text-zinc-400 select-none">
+<div class="col-span-1 flex items-center justify-center">#</div>
+<div class="col-span-5">Pista / Intérpretes</div>
+<div class="col-span-2 hidden sm:block text-center">Fidelidad</div>
+<div class="col-span-2 hidden md:block text-right">Tamaño</div>
+<div class="col-span-1 text-right pr-2">Duración</div>
+<div class="col-span-1 text-center">Estado</div>
+</div>
+<!-- Track Rows -->
+<div class="divide-y divide-[#1b1b1f]" id="tracklist-container">
+<!-- Track 1 -->
+<div class="track-row grid grid-cols-12 items-center px-4 py-2.5 hover:bg-[#16161a] transition-colors group">
+<div class="col-span-1 flex items-center justify-center gap-2">
+<input checked="" class="track-checkbox w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 accent-white cursor-pointer" type="checkbox"/>
+<span class="font-mono text-xs text-zinc-400 group-hover:hidden">01</span>
+<button class="hidden group-hover:inline-flex text-white" type="button">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span>
+</button>
+</div>
+<div class="col-span-5 min-w-0 pr-3">
+<span class="text-xs font-medium text-white truncate block">Give Life Back to Music</span>
+<span class="text-[11px] text-zinc-400 truncate block">Daft Punk</span>
+</div>
+<div class="col-span-2 hidden sm:flex items-center justify-center">
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-300 font-mono text-[10px] tracking-wider">24b/96k FLAC</span>
+</div>
+<div class="col-span-2 hidden md:block text-right font-mono text-xs text-zinc-400">98.4 MB</div>
+<div class="col-span-1 text-right pr-2 font-mono text-xs text-zinc-400">04:35</div>
+<div class="col-span-1 flex items-center justify-center">
+<button class="w-7 h-7 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all" title="Descargar" type="button">
+<span class="material-symbols-outlined text-[16px]">download</span>
+</button>
+</div>
+</div>
+<!-- Track 2: Completed -->
+<div class="track-row grid grid-cols-12 items-center px-4 py-2.5 hover:bg-[#16161a] transition-colors group">
+<div class="col-span-1 flex items-center justify-center gap-2">
+<input checked="" class="track-checkbox w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 accent-white cursor-pointer" type="checkbox"/>
+<span class="font-mono text-xs text-zinc-400 group-hover:hidden">02</span>
+<button class="hidden group-hover:inline-flex text-white" type="button">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span>
+</button>
+</div>
+<div class="col-span-5 min-w-0 pr-3">
+<span class="text-xs font-medium text-white truncate block">Giorgio by Moroder</span>
+<span class="text-[11px] text-zinc-400 truncate block">Daft Punk • Giorgio Moroder</span>
+</div>
+<div class="col-span-2 hidden sm:flex items-center justify-center">
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-300 font-mono text-[10px] tracking-wider">24b/96k FLAC</span>
+</div>
+<div class="col-span-2 hidden md:block text-right font-mono text-xs text-zinc-400">192.8 MB</div>
+<div class="col-span-1 text-right pr-2 font-mono text-xs text-zinc-400">09:05</div>
+<div class="col-span-1 flex items-center justify-center">
+<span class="w-7 h-7 rounded flex items-center justify-center text-zinc-300" title="Guardado en SSD">
+<span class="material-symbols-outlined text-[18px]">check_circle</span>
+</span>
+</div>
+</div>
+<!-- Track 3: Progress -->
+<div class="track-row grid grid-cols-12 items-center px-4 py-2.5 bg-[#151519]/70 hover:bg-[#18181d] transition-colors group">
+<div class="col-span-1 flex items-center justify-center gap-2">
+<input checked="" class="track-checkbox w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 accent-white cursor-pointer" type="checkbox"/>
+<span class="font-mono text-xs text-white group-hover:hidden font-medium">03</span>
+<button class="hidden group-hover:inline-flex text-white" type="button">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span>
+</button>
+</div>
+<div class="col-span-5 min-w-0 pr-3">
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-medium text-white truncate">Instant Crush</span>
+<span class="px-1 py-0.2 rounded border border-zinc-700 bg-zinc-800 text-zinc-300 font-mono text-[9px]">E</span>
+</div>
+<span class="text-[11px] text-zinc-400 truncate block">feat. Julian Casablancas</span>
+</div>
+<div class="col-span-2 hidden sm:flex items-center justify-center">
+<span class="px-2 py-0.5 rounded border border-zinc-700 bg-zinc-800/80 text-zinc-200 font-mono text-[10px] tracking-wider">24b/96k MQA</span>
+</div>
+<div class="col-span-2 hidden md:block text-right font-mono text-xs text-zinc-200">115.2 MB</div>
+<div class="col-span-1 text-right pr-2 font-mono text-xs text-zinc-400">05:37</div>
+<div class="col-span-1 flex items-center justify-center">
+<div class="relative w-6 h-6 flex items-center justify-center" title="Extrayendo FLAC: 68%">
+<svg class="w-full h-full -rotate-90" viewbox="0 0 36 36">
+<path class="text-zinc-800" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-width="3.5"></path>
+<path class="text-white transition-all duration-300" d="M18 2.0845 a 15.9155 15.9155 0 0 1 0 31.831 a 15.9155 15.9155 0 0 1 0 -31.831" fill="none" stroke="currentColor" stroke-dasharray="68, 100" stroke-linecap="round" stroke-width="3.5"></path>
+</svg>
+<span class="absolute font-mono text-[8px] text-white font-bold">68</span>
+</div>
+</div>
+</div>
+<!-- Track 4 -->
+<div class="track-row grid grid-cols-12 items-center px-4 py-2.5 hover:bg-[#16161a] transition-colors group">
+<div class="col-span-1 flex items-center justify-center gap-2">
+<input checked="" class="track-checkbox w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 accent-white cursor-pointer" type="checkbox"/>
+<span class="font-mono text-xs text-zinc-400 group-hover:hidden">04</span>
+<button class="hidden group-hover:inline-flex text-white" type="button">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span>
+</button>
+</div>
+<div class="col-span-5 min-w-0 pr-3">
+<span class="text-xs font-medium text-white truncate block">Lose Yourself to Dance</span>
+<span class="text-[11px] text-zinc-400 truncate block">feat. Pharrell Williams</span>
+</div>
+<div class="col-span-2 hidden sm:flex items-center justify-center">
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-300 font-mono text-[10px] tracking-wider">24b/96k FLAC</span>
+</div>
+<div class="col-span-2 hidden md:block text-right font-mono text-xs text-zinc-400">124.0 MB</div>
+<div class="col-span-1 text-right pr-2 font-mono text-xs text-zinc-400">05:53</div>
+<div class="col-span-1 flex items-center justify-center">
+<button class="w-7 h-7 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all" title="Descargar" type="button">
+<span class="material-symbols-outlined text-[16px]">download</span>
+</button>
+</div>
+</div>
+<!-- Track 5 -->
+<div class="track-row grid grid-cols-12 items-center px-4 py-2.5 hover:bg-[#16161a] transition-colors group">
+<div class="col-span-1 flex items-center justify-center gap-2">
+<input checked="" class="track-checkbox w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 accent-white cursor-pointer" type="checkbox"/>
+<span class="font-mono text-xs text-zinc-400 group-hover:hidden">05</span>
+<button class="hidden group-hover:inline-flex text-white" type="button">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span>
+</button>
+</div>
+<div class="col-span-5 min-w-0 pr-3">
+<span class="text-xs font-medium text-white truncate block">Touch</span>
+<span class="text-[11px] text-zinc-400 truncate block">feat. Paul Williams</span>
+</div>
+<div class="col-span-2 hidden sm:flex items-center justify-center">
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-300 font-mono text-[10px] tracking-wider">24b/96k FLAC</span>
+</div>
+<div class="col-span-2 hidden md:block text-right font-mono text-xs text-zinc-400">176.4 MB</div>
+<div class="col-span-1 text-right pr-2 font-mono text-xs text-zinc-400">08:18</div>
+<div class="col-span-1 flex items-center justify-center">
+<button class="w-7 h-7 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all" title="Descargar" type="button">
+<span class="material-symbols-outlined text-[16px]">download</span>
+</button>
+</div>
+</div>
+<!-- Track 6: Popular -->
+<div class="track-row grid grid-cols-12 items-center px-4 py-2.5 hover:bg-[#16161a] transition-colors group">
+<div class="col-span-1 flex items-center justify-center gap-2">
+<input checked="" class="track-checkbox w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 accent-white cursor-pointer" type="checkbox"/>
+<span class="font-mono text-xs text-zinc-400 group-hover:hidden">06</span>
+<button class="hidden group-hover:inline-flex text-white" type="button">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span>
+</button>
+</div>
+<div class="col-span-5 min-w-0 pr-3">
+<div class="flex items-center gap-1.5">
+<span class="text-xs font-semibold text-white truncate">Get Lucky</span>
+<span class="material-symbols-outlined text-[14px] text-zinc-400" title="Top Popular">trending_up</span>
+</div>
+<span class="text-[11px] text-zinc-400 truncate block">feat. Pharrell Williams &amp; Nile Rodgers</span>
+</div>
+<div class="col-span-2 hidden sm:flex items-center justify-center">
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-300 font-mono text-[10px] tracking-wider">24b/96k FLAC</span>
+</div>
+<div class="col-span-2 hidden md:block text-right font-mono text-xs text-zinc-400">128.9 MB</div>
+<div class="col-span-1 text-right pr-2 font-mono text-xs text-zinc-400">06:09</div>
+<div class="col-span-1 flex items-center justify-center">
+<span class="w-7 h-7 rounded flex items-center justify-center text-zinc-300" title="Guardado">
+<span class="material-symbols-outlined text-[18px]">check_circle</span>
+</span>
+</div>
+</div>
+<!-- Track 7 -->
+<div class="track-row grid grid-cols-12 items-center px-4 py-2.5 hover:bg-[#16161a] transition-colors group">
+<div class="col-span-1 flex items-center justify-center gap-2">
+<input checked="" class="track-checkbox w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 accent-white cursor-pointer" type="checkbox"/>
+<span class="font-mono text-xs text-zinc-400 group-hover:hidden">07</span>
+<button class="hidden group-hover:inline-flex text-white" type="button">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span>
+</button>
+</div>
+<div class="col-span-5 min-w-0 pr-3">
+<span class="text-xs font-medium text-white truncate block">Beyond</span>
+<span class="text-[11px] text-zinc-400 truncate block">Daft Punk</span>
+</div>
+<div class="col-span-2 hidden sm:flex items-center justify-center">
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-300 font-mono text-[10px] tracking-wider">24b/96k FLAC</span>
+</div>
+<div class="col-span-2 hidden md:block text-right font-mono text-xs text-zinc-400">102.3 MB</div>
+<div class="col-span-1 text-right pr-2 font-mono text-xs text-zinc-400">04:50</div>
+<div class="col-span-1 flex items-center justify-center">
+<button class="w-7 h-7 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all" title="Descargar" type="button">
+<span class="material-symbols-outlined text-[16px]">download</span>
+</button>
+</div>
+</div>
+<!-- Track 8 -->
+<div class="track-row grid grid-cols-12 items-center px-4 py-2.5 hover:bg-[#16161a] transition-colors group">
+<div class="col-span-1 flex items-center justify-center gap-2">
+<input checked="" class="track-checkbox w-3.5 h-3.5 rounded bg-zinc-800 border-zinc-700 accent-white cursor-pointer" type="checkbox"/>
+<span class="font-mono text-xs text-zinc-400 group-hover:hidden">08</span>
+<button class="hidden group-hover:inline-flex text-white" type="button">
+<span class="material-symbols-outlined text-[16px]">play_arrow</span>
+</button>
+</div>
+<div class="col-span-5 min-w-0 pr-3">
+<span class="text-xs font-medium text-white truncate block">Motherboard</span>
+<span class="text-[11px] text-zinc-400 truncate block">Daft Punk</span>
+</div>
+<div class="col-span-2 hidden sm:flex items-center justify-center">
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-zinc-900 text-zinc-300 font-mono text-[10px] tracking-wider">24b/96k FLAC</span>
+</div>
+<div class="col-span-2 hidden md:block text-right font-mono text-xs text-zinc-400">117.8 MB</div>
+<div class="col-span-1 text-right pr-2 font-mono text-xs text-zinc-400">05:41</div>
+<div class="col-span-1 flex items-center justify-center">
+<button class="w-7 h-7 rounded flex items-center justify-center text-zinc-400 hover:text-white hover:bg-zinc-800 transition-all" title="Descargar" type="button">
+<span class="material-symbols-outlined text-[16px]">download</span>
+</button>
+</div>
+</div>
+</div>
+<!-- Footer summary -->
+<div class="px-4 py-3 bg-[#151519] border-t border-[#222226] flex items-center justify-between text-xs text-zinc-400">
+<span id="selected-counter">8 de 8 pistas mostradas seleccionadas (1.02 GB)</span>
+<button class="text-zinc-300 hover:text-white font-medium hover:underline" type="button">Ver 8 pistas adicionales...</button>
+</div>
+</div>
+<!-- Inspector Column (3 cols) -->
+<div class="xl:col-span-3 flex flex-col gap-4">
+<!-- Spectrum Visualizer Card (Monochrome Minimalist) -->
+<div class="p-4 rounded-xl bg-[#111114] border border-[#222226] flex flex-col gap-3">
+<div class="flex items-center justify-between">
+<div class="flex items-center gap-1.5">
+<span class="material-symbols-outlined text-zinc-300 text-[18px]">graphic_eq</span>
+<span class="text-xs font-semibold text-white">Análisis Espectral</span>
+</div>
+<span class="font-mono text-[10px] font-semibold text-zinc-300 border border-zinc-700 px-1.5 py-0.2 rounded bg-zinc-800/80">DR13 MASTER</span>
+</div>
+<!-- Monochrome Spectrum Bars -->
+<div class="h-16 w-full flex items-end justify-between gap-1 pt-2 pb-1 px-2 bg-[#0a0a0b] rounded-lg border border-zinc-800/80">
+<span class="w-1 bg-zinc-600 h-[25%] rounded-t"></span>
+<span class="w-1 bg-zinc-500 h-[45%] rounded-t"></span>
+<span class="w-1 bg-zinc-400 h-[70%] rounded-t"></span>
+<span class="w-1 bg-zinc-200 h-[92%] rounded-t"></span>
+<span class="w-1 bg-white h-[85%] rounded-t"></span>
+<span class="w-1 bg-zinc-300 h-[60%] rounded-t"></span>
+<span class="w-1 bg-zinc-500 h-[40%] rounded-t"></span>
+<span class="w-1 bg-zinc-300 h-[75%] rounded-t"></span>
+<span class="w-1 bg-white h-[88%] rounded-t"></span>
+<span class="w-1 bg-zinc-100 h-[100%] rounded-t"></span>
+<span class="w-1 bg-zinc-300 h-[65%] rounded-t"></span>
+<span class="w-1 bg-zinc-500 h-[30%] rounded-t"></span>
+<span class="w-1 bg-zinc-200 h-[80%] rounded-t"></span>
+<span class="w-1 bg-white h-[95%] rounded-t"></span>
+<span class="w-1 bg-zinc-400 h-[55%] rounded-t"></span>
+<span class="w-1 bg-zinc-600 h-[25%] rounded-t"></span>
+<span class="w-1 bg-zinc-300 h-[70%] rounded-t"></span>
+<span class="w-1 bg-zinc-100 h-[90%] rounded-t"></span>
+<span class="w-1 bg-zinc-400 h-[45%] rounded-t"></span>
+<span class="w-1 bg-zinc-600 h-[20%] rounded-t"></span>
+</div>
+<div class="grid grid-cols-2 gap-2 text-center">
+<div class="p-2 rounded-lg bg-[#18181c] border border-zinc-800">
+<span class="block text-[10px] text-zinc-400 uppercase tracking-wider font-mono">Frecuencia</span>
+<span class="font-mono text-xs text-white font-semibold">96.000 Hz</span>
+</div>
+<div class="p-2 rounded-lg bg-[#18181c] border border-zinc-800">
+<span class="block text-[10px] text-zinc-400 uppercase tracking-wider font-mono">Resolución</span>
+<span class="font-mono text-xs text-zinc-200 font-semibold">24-Bit Linear</span>
+</div>
+</div>
+</div>
+<!-- Parameters Card -->
+<div class="p-4 rounded-xl bg-[#111114] border border-[#222226] flex flex-col gap-2.5">
+<span class="text-xs font-semibold text-white flex items-center gap-1.5 pb-1 border-b border-zinc-800">
+<span class="material-symbols-outlined text-zinc-300 text-[16px]">verified</span>
+                Parámetros de Extracción
+              </span>
+<div class="flex flex-col gap-2 text-xs">
+<div class="flex justify-between items-center">
+<span class="text-zinc-400">Contenedor Códec</span>
+<span class="font-mono text-white font-medium">FLAC (.flac)</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-zinc-400">Bitrate Promedio</span>
+<span class="font-mono text-zinc-200 font-medium">3.210 kbps</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-zinc-400">Rango Dinámico</span>
+<span class="font-mono text-white font-medium">DR13</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-zinc-400">Metadatos</span>
+<span class="font-mono text-zinc-300 font-medium">ID3v2.4 / Vorbis</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-zinc-400">ReplayGain</span>
+<span class="font-mono text-zinc-300 font-medium">-8.24 dB LUFS</span>
+</div>
+<div class="flex justify-between items-center">
+<span class="text-zinc-400">Portada HD</span>
+<span class="font-mono text-white font-medium">3000x3000px</span>
+</div>
+</div>
+</div>
+<!-- Storage Destination Card -->
+<div class="p-4 rounded-xl bg-[#111114] border border-[#222226] flex flex-col gap-2">
+<div class="flex items-center justify-between">
+<span class="text-xs font-semibold text-white flex items-center gap-1.5">
+<span class="material-symbols-outlined text-zinc-400 text-[16px]">folder</span>
+                  Destino Local
+                </span>
+<button class="text-zinc-400 hover:text-white text-xs underline decoration-zinc-600 transition-colors" type="button">Cambiar</button>
+</div>
+<div class="p-2 rounded bg-[#18181c] border border-zinc-800 font-mono text-[11px] text-zinc-300 truncate">
+                /Volumes/AudioStudio/Lossless/Daft Punk/
+              </div>
+<div class="flex items-center gap-1.5 pt-1">
+<span class="material-symbols-outlined text-zinc-300 text-[14px]">check</span>
+<span class="text-[11px] text-zinc-400">Preservar estructura /Artista/Álbum/</span>
+</div>
+</div>
+</div>
+</div>
+</div>
+</main>
+</div>
+<!-- PERSISTENT BOTTOM MINI-PLAYER WITH HIGH-PRECISION AUDIO WAVEFORM -->
+<footer class="fixed bottom-0 left-0 right-0 h-20 bg-[#0c0c0e]/95 backdrop-blur-2xl border-t border-[#222226] z-50 flex items-center justify-between px-6 shadow-[0_-8px_24px_rgba(0,0,0,0.6)]">
+<!-- Left: Track Meta -->
+<div class="flex items-center gap-3.5 w-72 shrink-0">
+<div class="w-12 h-12 rounded-lg bg-zinc-900 border border-zinc-800 overflow-hidden flex items-center justify-center shrink-0">
+<span class="material-symbols-outlined text-zinc-400 text-[22px]">graphic_eq</span>
+</div>
+<div class="flex flex-col min-w-0">
+<span class="text-xs font-semibold text-white truncate">Starboy (feat. Daft Punk)</span>
+<span class="text-[11px] text-zinc-400 truncate">The Weeknd</span>
+<span class="font-mono text-[9px] uppercase tracking-wider text-zinc-300">FLAC 24-bit / 96kHz</span>
+</div>
+<button class="text-zinc-400 hover:text-white transition-colors ml-auto p-1" type="button">
+<span class="material-symbols-outlined text-[18px]">favorite</span>
+</button>
+</div>
+<!-- Center: Interactive Audio Waveform & Transport Controls -->
+<div class="flex flex-col items-center flex-1 max-w-3xl px-6">
+<!-- Transport Buttons -->
+<div class="flex items-center gap-5 mb-1.5">
+<button class="text-zinc-400 hover:text-white transition-colors" title="Aleatorio" type="button">
+<span class="material-symbols-outlined text-[17px]">shuffle</span>
+</button>
+<button class="text-zinc-400 hover:text-white transition-colors" title="Anterior" type="button">
+<span class="material-symbols-outlined text-[20px]">skip_previous</span>
+</button>
+<button class="w-8 h-8 rounded-full bg-white text-black flex items-center justify-center hover:scale-105 active:scale-95 transition-all shadow-md" title="Reproducir/Pausar" type="button">
+<span class="material-symbols-outlined text-[20px]">play_arrow</span>
+</button>
+<button class="text-zinc-400 hover:text-white transition-colors" title="Siguiente" type="button">
+<span class="material-symbols-outlined text-[20px]">skip_next</span>
+</button>
+<button class="text-zinc-400 hover:text-white transition-colors" title="Repetir" type="button">
+<span class="material-symbols-outlined text-[17px]">repeat</span>
+</button>
+</div>
+<!-- AUDIO WAVEFORM VISUALIZER (44% played marked in bright white, remainder in subtle zinc) -->
+<div class="flex items-center gap-3 w-full">
+<span class="font-mono text-[11px] text-zinc-400 w-9 text-right shrink-0">01:42</span>
+<div class="flex-1 h-7 flex items-center justify-between gap-[2px] cursor-pointer group py-1 relative" id="waveform-track" title="Buscar posición de audio">
+<!-- Played Section (White bars, height mimics audio peaks) -->
+<span class="waveform-bar w-1 rounded-sm bg-white h-[28%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[42%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[60%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[35%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[75%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[90%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[65%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[48%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[82%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[98%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[70%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[52%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[88%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[64%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[40%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[76%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[92%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[58%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[74%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[85%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-white h-[100%] shadow-[0_0_8px_rgba(255,255,255,0.8)]"></span>
+<!-- Playhead separator notch -->
+<div class="w-[2px] h-full bg-white rounded-full mx-0.5"></div>
+<!-- Unplayed Section (Neutral dark zinc translucent bars) -->
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[78%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[55%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[38%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[68%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[84%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[90%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[62%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[45%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[72%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[88%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[64%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[50%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[80%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[95%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[60%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[42%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[70%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[82%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[56%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[36%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[48%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[65%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[75%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[40%]"></span>
+<span class="waveform-bar w-1 rounded-sm bg-zinc-700/60 h-[22%]"></span>
+</div>
+<span class="font-mono text-[11px] text-zinc-400 w-9 text-left shrink-0">03:50</span>
+</div>
+</div>
+<!-- Right: Audio Format Tag, Volume & Playlist -->
+<div class="flex items-center justify-end gap-3 w-72 shrink-0">
+<span class="px-2 py-0.5 rounded border border-zinc-800 bg-[#16161a] text-zinc-300 font-mono text-[10px] tracking-wider font-medium">24-BIT/96kHz FLAC</span>
+<div class="flex items-center gap-2 w-28">
+<button class="text-zinc-400 hover:text-white transition-colors" type="button">
+<span class="material-symbols-outlined text-[17px]">volume_up</span>
+</button>
+<div class="flex-1 h-1 bg-zinc-800 rounded-full overflow-hidden cursor-pointer">
+<div class="h-full w-3/4 bg-zinc-300 rounded-full"></div>
+</div>
+</div>
+<button class="text-zinc-400 hover:text-white transition-colors p-1" title="Cola de reproducción" type="button">
+<span class="material-symbols-outlined text-[18px]">queue_music</span>
+</button>
+</div>
+</footer>
+<!-- State Scripts -->
+<script>
+    function toggleSelectAll(masterCheckbox) {
+      const checkboxes = document.querySelectorAll('.track-checkbox');
+      checkboxes.forEach(cb => {
+        cb.checked = masterCheckbox.checked;
+      });
+      updateCounter();
+    }
+
+    function updateCounter() {
+      const total = document.querySelectorAll('.track-checkbox').length;
+      const selected = document.querySelectorAll('.track-checkbox:checked').length;
+      const counterEl = document.getElementById('selected-counter');
+      if (counterEl) {
+        counterEl.textContent = `${selected} de ${total} pistas mostradas seleccionadas (${(selected * 130.5).toFixed(1)} MB aprox.)`;
+      }
+    }
+
+    document.querySelectorAll('.track-checkbox').forEach(cb => {
+      cb.addEventListener('change', updateCounter);
+    });
+
+    let isBatchDownloading = false;
+    function toggleBatchDownload() {
+      isBatchDownloading = !isBatchDownloading;
+      const btnLabel = document.getElementById('btn-batch-label');
+      const btnIcon = document.getElementById('btn-batch-icon');
+      const btn = document.getElementById('btn-download-all');
+      if (isBatchDownloading) {
+        btnLabel.textContent = 'Pausar Extracción';
+        btnIcon.textContent = 'pause_circle';
+        btn.classList.remove('bg-white', 'text-black');
+        btn.classList.add('bg-zinc-800', 'text-white', 'border', 'border-zinc-700');
+      } else {
+        btnLabel.textContent = 'Descargar Álbum Completo';
+        btnIcon.textContent = 'cloud_download';
+        btn.classList.remove('bg-zinc-800', 'text-white', 'border', 'border-zinc-700');
+        btn.classList.add('bg-white', 'text-black');
+      }
+    }
+
+    function triggerResolve() {
+      const input = document.getElementById('url-input');
+      if (input) {
+        const original = input.value;
+        input.value = "Conectando al servidor Tidal Master...";
+        setTimeout(() => {
+          input.value = original;
+        }, 1200);
+      }
+    }
+  </script>
+</body></html>

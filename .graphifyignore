@@ -1,0 +1,25 @@
+# Graphify output and repository metadata
+graphify-out/
+.git/
+
+# Python cache and local environments
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Local secrets and runtime data
+.env
+tidal-session.json
+*.db
+*.db-shm
+*.db-wal
+*.tmp
+
+# Frontend dependencies and build output
+node_modules/
+dist/
+
+# Test fixtures and local tooling
+backend/tests/test_files/
+.superpowers/
