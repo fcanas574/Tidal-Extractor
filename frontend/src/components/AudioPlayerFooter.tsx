@@ -2,6 +2,8 @@ import { useEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { preview } from '../api';
 import type { WaveformData } from '../api';
+import VolumeControl from './VolumeControl';
+import { sliderToGain } from '../utils/audioMath';
 
 function formatTime(seconds: number): string {
   const m = Math.floor(seconds / 60);
@@ -250,8 +252,27 @@ export default function AudioPlayerFooter() {
   const [hoverFraction, setHoverFraction] = useState<number | null>(null);
   const [keyCamelot, setKeyCamelot] = useState<string | null>(null);
   const [bpm, setBpm] = useState<number | null>(null);
+  const DEFAULT_VOLUME = 0.8;
   const [waveformFailed, setWaveformFailed] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState(false);
+  const [volumeSlider, setVolumeSlider] = useState<number>(() => {
+    try {
+      const saved = localStorage.getItem('tidal_preview_volume');
+      if (saved !== null) {
+        const val = parseFloat(saved);
+        if (!isNaN(val) && val >= 0 && val <= 1) return val;
+      }
+    } catch {}
+    return DEFAULT_VOLUME;
+  });
+  const [isMuted, setIsMuted] = useState<boolean>(() => {
+    try {
+      return localStorage.getItem('tidal_preview_muted') === 'true';
+    } catch {
+      return false;
+    }
+  });
+  const prevVolumeRef = useRef<number>(volumeSlider > 0 ? volumeSlider : DEFAULT_VOLUME);
 
   useEffect(() => {
     if (!previewTrack) return;
@@ -286,6 +307,8 @@ export default function AudioPlayerFooter() {
       if (!active()) return;
       const audio = new Audio(r.stream_url);
       audioRef.current = audio;
+      const initialGain = isMuted ? 0 : sliderToGain(volumeSlider);
+      audio.volume = Math.min(1, Math.max(0, initialGain));
       audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
       audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
       audio.addEventListener('ended', () => dispatch({ type: 'CLEAR_PREVIEW' }));
@@ -331,6 +354,54 @@ export default function AudioPlayerFooter() {
     drawClubWaveform(ctx, rect.width, rect.height, waveform.bands, Math.min(1, progress), hoverFraction, wfDuration, mode);
   }, [currentTime, waveform, duration, hoverFraction, state.settings?.waveform_color]);
 
+  useEffect(() => {
+    if (audioRef.current) {
+      const currentGain = isMuted ? 0 : sliderToGain(volumeSlider);
+      audioRef.current.volume = Math.min(1, Math.max(0, currentGain));
+    }
+  }, [volumeSlider, isMuted]);
+
+  const handleVolumeChange = useCallback((newVal: number) => {
+    const clamped = Math.max(0, Math.min(1, newVal));
+    setVolumeSlider(clamped);
+    try {
+      localStorage.setItem('tidal_preview_volume', String(clamped));
+    } catch {}
+    if (clamped > 0) {
+      prevVolumeRef.current = clamped;
+      if (isMuted) {
+        setIsMuted(false);
+        try {
+          localStorage.setItem('tidal_preview_muted', 'false');
+        } catch {}
+      }
+    }
+  }, [isMuted]);
+
+  const toggleMute = useCallback(() => {
+    if (isMuted) {
+      setIsMuted(false);
+      try {
+        localStorage.setItem('tidal_preview_muted', 'false');
+      } catch {}
+      if (volumeSlider === 0) {
+        const restored = prevVolumeRef.current > 0 ? prevVolumeRef.current : 0.8;
+        setVolumeSlider(restored);
+        try {
+          localStorage.setItem('tidal_preview_volume', String(restored));
+        } catch {}
+      }
+    } else {
+      if (volumeSlider > 0) {
+        prevVolumeRef.current = volumeSlider;
+      }
+      setIsMuted(true);
+      try {
+        localStorage.setItem('tidal_preview_muted', 'true');
+      } catch {}
+    }
+  }, [isMuted, volumeSlider]);
+
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
     if (!audio) return;
@@ -349,6 +420,12 @@ export default function AudioPlayerFooter() {
     window.addEventListener('preview-toggle-play', handler);
     return () => window.removeEventListener('preview-toggle-play', handler);
   }, [togglePlay]);
+
+  useEffect(() => {
+    const handler = () => toggleMute();
+    window.addEventListener('preview-toggle-mute', handler);
+    return () => window.removeEventListener('preview-toggle-mute', handler);
+  }, [toggleMute]);
 
   const close = useCallback(() => {
     dispatch({ type: 'CLEAR_PREVIEW' });
@@ -435,6 +512,17 @@ export default function AudioPlayerFooter() {
           <div className="w-full rounded animate-pulse" aria-label="Loading waveform" role="status"
                style={{ height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }} />
         )}
+        {/* Mobile expanded volume bar */}
+        <div className="sm:hidden flex items-center justify-between mt-2 pt-2 border-t border-white/10 px-1">
+          <span className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>Volume</span>
+          <VolumeControl
+            sliderValue={volumeSlider}
+            isMuted={isMuted}
+            onSliderChange={handleVolumeChange}
+            onToggleMute={toggleMute}
+            showReadout={true}
+          />
+        </div>
       </div>
 
       <div className="flex items-center justify-between">
@@ -469,6 +557,36 @@ export default function AudioPlayerFooter() {
         </div>
 
         <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-2 sm:ml-4">
+          <VolumeControl
+            sliderValue={volumeSlider}
+            isMuted={isMuted}
+            onSliderChange={handleVolumeChange}
+            onToggleMute={toggleMute}
+            className="hidden sm:flex"
+          />
+          {/* Quick mute button on mobile */}
+          <button
+            type="button"
+            onClick={toggleMute}
+            className="sm:hidden p-2 rounded transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
+            style={{ color: isMuted ? 'var(--danger, #E11D48)' : 'var(--text-muted)' }}
+            aria-label={isMuted ? 'Unmute preview' : 'Mute preview'}
+            aria-pressed={isMuted}
+            title={isMuted ? 'Unmute preview (M)' : 'Mute preview (M)'}
+          >
+            {isMuted || volumeSlider === 0 ? (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                <line x1="23" y1="9" x2="17" y2="15" />
+                <line x1="17" y1="9" x2="23" y2="15" />
+              </svg>
+            ) : (
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" />
+                <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+              </svg>
+            )}
+          </button>
           <span className={`${mobileExpanded ? 'inline' : 'hidden md:inline'} mono text-xs`} style={{ color: 'var(--text-dim)' }} aria-label={`Preview time ${formatTime(currentTime)} of ${formatTime(duration)}`}>
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
