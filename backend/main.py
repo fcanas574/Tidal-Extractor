@@ -22,6 +22,8 @@ from backend.search import (
     score_results,
     enrich_tracks,
     get_artist_details,
+    get_artist_summary,
+    get_artist_tracks,
 )
 from backend.downloader import DownloadOrchestrator
 from backend.ws import WebSocketManager
@@ -341,6 +343,31 @@ async def artist_details(artist_id: int):
         return {"tracks": [], "playlists": [], **details}
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Artist not found: {exc}")
+
+
+@app.get("/artist/{artist_id}/summary")
+async def artist_summary(artist_id: int):
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        details = await asyncio.to_thread(
+            get_artist_summary, auth_manager.session, artist_id
+        )
+        return {"tracks": [], "playlists": [], **details}
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Artist not found: {exc}")
+
+
+@app.get("/artist/{artist_id}/tracks")
+async def artist_tracks(artist_id: int):
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        return await asyncio.to_thread(
+            get_artist_tracks, auth_manager.session, artist_id
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Artist tracks not found: {exc}")
 
 
 @app.get("/album/{album_id}/tracks")

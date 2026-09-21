@@ -1,5 +1,6 @@
 import logging
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple
 
@@ -235,25 +236,7 @@ def _unique_media(items):
     return unique
 
 
-def get_artist_details(session: tidalapi.Session, artist_id: int) -> dict:
-    """Load the artist page data while preserving independently available sections."""
-    artist = session.artist(artist_id)
-    result = {
-        "artist": format_artist(artist),
-        "top_tracks": [],
-        "tracks": [],
-        "albums": [],
-    }
-    errors = {}
-
-    try:
-        result["top_tracks"] = [
-            format_track(track) for track in artist.get_top_tracks(limit=5)
-        ][:5]
-    except Exception as exc:
-        logger.warning("Failed to load top tracks for artist %s: %s", artist_id, exc)
-        errors["top_tracks"] = str(exc)
-
+def _get_artist_releases(artist, artist_id: int):
     artist_releases = []
     release_errors = []
     try:
@@ -277,29 +260,89 @@ def get_artist_details(session: tidalapi.Session, artist_id: int) -> dict:
         ),
         reverse=True,
     )
+    return artist_releases, release_errors
+
+
+def _load_artist_tracks(artist_releases, artist_id: int):
+    track_errors = []
+    all_tracks = []
+    if artist_releases:
+        with ThreadPoolExecutor(max_workers=min(8, len(artist_releases))) as executor:
+            track_futures = [
+                (album, executor.submit(album.tracks)) for album in artist_releases
+            ]
+            for album, future in track_futures:
+                try:
+                    all_tracks.extend(future.result())
+                except Exception as exc:
+                    logger.warning(
+                        "Failed to load tracks for album %s on artist %s: %s",
+                        getattr(album, "id", "unknown"),
+                        artist_id,
+                        exc,
+                    )
+                    track_errors.append(f"{getattr(album, 'name', 'Release')}: {exc}")
+    return [format_track(track) for track in _unique_media(all_tracks)], track_errors
+
+
+def _format_artist_summary(artist, artist_id: int) -> tuple[dict, list]:
+    result = {
+        "artist": format_artist(artist),
+        "top_tracks": [],
+        "tracks": [],
+        "albums": [],
+    }
+    errors = {}
+
+    try:
+        result["top_tracks"] = [
+            format_track(track) for track in artist.get_top_tracks(limit=5)
+        ][:5]
+    except Exception as exc:
+        logger.warning("Failed to load top tracks for artist %s: %s", artist_id, exc)
+        errors["top_tracks"] = str(exc)
+
+    artist_releases, release_errors = _get_artist_releases(artist, artist_id)
     result["albums"] = [format_album(album) for album in artist_releases[:8]]
     if release_errors:
         errors["albums"] = " ".join(release_errors)
 
-    track_errors = []
-    all_tracks = []
-    for album in artist_releases:
-        try:
-            all_tracks.extend(album.tracks())
-        except Exception as exc:
-            logger.warning(
-                "Failed to load tracks for album %s on artist %s: %s",
-                getattr(album, "id", "unknown"),
-                artist_id,
-                exc,
-            )
-            track_errors.append(f"{getattr(album, 'name', 'Release')}: {exc}")
-    result["tracks"] = [format_track(track) for track in _unique_media(all_tracks)]
-    if track_errors:
-        errors["tracks"] = " ".join(track_errors)
-
     if errors:
         result["errors"] = errors
+    return result, artist_releases
+
+
+def get_artist_summary(session: tidalapi.Session, artist_id: int) -> dict:
+    """Load the fast artist overview without fetching every album's tracks."""
+    artist = session.artist(artist_id)
+    result, _ = _format_artist_summary(artist, artist_id)
+    return result
+
+
+def get_artist_tracks(session: tidalapi.Session, artist_id: int) -> dict:
+    """Load the artist's full track catalog independently from the overview."""
+    artist = session.artist(artist_id)
+    artist_releases, release_errors = _get_artist_releases(artist, artist_id)
+    tracks, track_errors = _load_artist_tracks(artist_releases, artist_id)
+    result = {"tracks": tracks}
+    errors = {}
+    if release_errors:
+        errors["albums"] = " ".join(release_errors)
+    if track_errors:
+        errors["tracks"] = " ".join(track_errors)
+    if errors:
+        result["errors"] = errors
+    return result
+
+
+def get_artist_details(session: tidalapi.Session, artist_id: int) -> dict:
+    """Load the complete artist page for existing full-detail consumers."""
+    artist = session.artist(artist_id)
+    result, artist_releases = _format_artist_summary(artist, artist_id)
+    tracks, track_errors = _load_artist_tracks(artist_releases, artist_id)
+    result["tracks"] = tracks
+    if track_errors:
+        result.setdefault("errors", {})["tracks"] = " ".join(track_errors)
     return result
 
 

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider } from '../context/AppContext';
 import type { AlbumDetailResult, AlbumResult, ArtistResult, QueueItem, SearchResult, TrackResult } from '../api';
 import { queue, resolve, search } from '../api';
@@ -10,7 +10,7 @@ vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
   return {
     ...actual,
-    search: { ...actual.search, query: vi.fn(), artist: vi.fn(), albumTracks: vi.fn(), playlistTracks: vi.fn() },
+    search: { ...actual.search, query: vi.fn(), artist: vi.fn(), artistTracks: vi.fn(), albumTracks: vi.fn(), playlistTracks: vi.fn() },
     resolve: { ...actual.resolve, url: vi.fn() },
     queue: { ...actual.queue, add: vi.fn() },
   };
@@ -39,6 +39,10 @@ function result(overrides: Partial<SearchResult> = {}): SearchResult {
 function renderSearch() {
   return render(<AppProvider><SearchView /></AppProvider>);
 }
+
+beforeEach(() => {
+  vi.mocked(search.artistTracks).mockResolvedValue({ tracks: [] });
+});
 
 afterEach(() => vi.clearAllMocks());
 
@@ -96,6 +100,27 @@ describe('SearchView', () => {
     await waitFor(() => expect(screen.getByText('Artist details')).toBeInTheDocument());
     expect(search.artist).toHaveBeenCalledWith(3, expect.any(AbortSignal));
     expect(search.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders the artist overview before the full track catalog finishes loading', async () => {
+    let resolveTracks!: (value: { tracks: TrackResult[] }) => void;
+    vi.mocked(search.query).mockResolvedValue(result({ tracks: [track] }));
+    vi.mocked(search.artist).mockResolvedValue({ artist, top_tracks: [track], tracks: [], albums: [album], playlists: [] });
+    vi.mocked(search.artistTracks).mockImplementation(() => new Promise((resolve) => { resolveTracks = resolve; }));
+    renderSearch();
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'Night Drive' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open artist The Pilot' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Open artist The Pilot' }));
+
+    await waitFor(() => expect(screen.getByText('Top tracks')).toBeInTheDocument());
+    expect(screen.getByText('Loading the full artist catalog…')).toBeInTheDocument();
+    expect(search.artistTracks).toHaveBeenCalledWith(3, expect.any(AbortSignal));
+
+    resolveTracks({ tracks: [{ ...track, id: 8, title: 'Deep Cut' }] });
+    await waitFor(() => expect(screen.getByText('Deep Cut')).toBeInTheDocument());
   });
 
   it('opens an album from a track result and renders its detail view', async () => {

@@ -20,6 +20,7 @@ export default function ArtistView({
   tracks = [],
   albums,
   errors,
+  tracksLoading = false,
   onBack,
   onOpenArtist,
   onOpenAlbum,
@@ -29,6 +30,7 @@ export default function ArtistView({
   tracks?: TrackResult[];
   albums: AlbumResult[];
   errors?: ResolveResult['errors'];
+  tracksLoading?: boolean;
   onBack?: () => void;
   onOpenArtist?: (artistId: number) => void;
   onOpenAlbum?: (albumId: number) => void;
@@ -109,7 +111,7 @@ export default function ArtistView({
           {tracks.length > 0 && <span className="mono text-[10px] px-2 py-1 rounded" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>{tracks.length} tracks</span>}
         </div>
         {errors?.tracks && <SectionMessage tone="error">Some artist tracks could not be loaded: {errors.tracks}</SectionMessage>}
-        {tracks.length > 0 ? <div className="space-y-2">{tracks.map(renderTrack)}</div> : !errors?.tracks && <SectionMessage>No artist tracks were returned.</SectionMessage>}
+        {tracksLoading ? <SectionMessage>Loading the full artist catalog…</SectionMessage> : tracks.length > 0 ? <div className="space-y-2">{tracks.map(renderTrack)}</div> : !errors?.tracks && <SectionMessage>No artist tracks were returned.</SectionMessage>}
       </section>
     </div>
   );

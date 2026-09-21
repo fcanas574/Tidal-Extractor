@@ -2,6 +2,7 @@ import { createContext, useContext, useReducer, Dispatch } from 'react';
 import type {
   AuthStatus,
   AlbumDetailResult,
+  ArtistTracksResult,
   HistoryItem,
   QueueItem,
   ResolveResult,
@@ -45,7 +46,7 @@ export type SearchStatus = 'idle' | 'loading' | 'success' | 'error';
 type DetailStatus = 'loading' | 'success' | 'error';
 
 export type CatalogDetail =
-  | { kind: 'artist'; id: number; status: DetailStatus; data: ResolveResult | null; error: string | null }
+  | { kind: 'artist'; id: number; status: DetailStatus; data: ResolveResult | null; error: string | null; tracksStatus: DetailStatus }
   | { kind: 'album'; id: number; status: DetailStatus; data: AlbumDetailResult | null; error: string | null };
 
 export interface SearchSession {
@@ -109,9 +110,11 @@ type Action =
   | { type: 'SEARCH_MORE_FAILED'; payload: string }
   | { type: 'DETAIL_STARTED'; payload: { kind: CatalogDetail['kind']; id: number } }
   | { type: 'DETAIL_SUCCEEDED'; payload:
-      | { kind: 'artist'; id: number; data: ResolveResult }
+      | { kind: 'artist'; id: number; data: ResolveResult; tracksStatus?: DetailStatus }
       | { kind: 'album'; id: number; data: AlbumDetailResult } }
   | { type: 'DETAIL_FAILED'; payload: { kind: CatalogDetail['kind']; id: number; error: string } }
+  | { type: 'DETAIL_ARTIST_TRACKS_SUCCEEDED'; payload: { id: number; data: ArtistTracksResult } }
+  | { type: 'DETAIL_ARTIST_TRACKS_FAILED'; payload: { id: number; error: string } }
   | { type: 'CLOSE_DETAIL' }
   | { type: 'CLEAR_SEARCH' };
 
@@ -500,7 +503,9 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         search: {
           ...state.search,
-          detail: { kind: action.payload.kind, id: action.payload.id, status: 'loading', data: null, error: null },
+          detail: action.payload.kind === 'artist'
+            ? { kind: 'artist', id: action.payload.id, status: 'loading', data: null, error: null, tracksStatus: 'loading' }
+            : { kind: 'album', id: action.payload.id, status: 'loading', data: null, error: null },
         },
       };
     case 'DETAIL_SUCCEEDED': {
@@ -509,7 +514,7 @@ function reducer(state: AppState, action: Action): AppState {
       const nextDetail = action.payload.kind === 'album' && current.kind === 'album'
         ? { ...current, status: 'success' as const, data: action.payload.data, error: null }
         : action.payload.kind === 'artist' && current.kind === 'artist'
-          ? { ...current, status: 'success' as const, data: action.payload.data, error: null }
+          ? { ...current, status: 'success' as const, data: action.payload.data, error: null, tracksStatus: action.payload.tracksStatus ?? 'loading' }
           : null;
       if (!nextDetail) return state;
       return {
@@ -519,6 +524,44 @@ function reducer(state: AppState, action: Action): AppState {
           detail: nextDetail,
           status: 'success',
           error: null,
+        },
+      };
+    }
+    case 'DETAIL_ARTIST_TRACKS_SUCCEEDED': {
+      const current = state.search.detail;
+      if (!current || current.kind !== 'artist' || current.id !== action.payload.id || !current.data) return state;
+      const errors = { ...current.data.errors, ...action.payload.data.errors };
+      return {
+        ...state,
+        search: {
+          ...state.search,
+          detail: {
+            ...current,
+            tracksStatus: 'success',
+            data: {
+              ...current.data,
+              tracks: action.payload.data.tracks,
+              errors: Object.keys(errors).length > 0 ? errors : undefined,
+            },
+          },
+        },
+      };
+    }
+    case 'DETAIL_ARTIST_TRACKS_FAILED': {
+      const current = state.search.detail;
+      if (!current || current.kind !== 'artist' || current.id !== action.payload.id || !current.data) return state;
+      return {
+        ...state,
+        search: {
+          ...state.search,
+          detail: {
+            ...current,
+            tracksStatus: 'error',
+            data: {
+              ...current.data,
+              errors: { ...current.data.errors, tracks: action.payload.error },
+            },
+          },
         },
       };
     }

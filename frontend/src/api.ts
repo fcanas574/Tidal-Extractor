@@ -99,6 +99,11 @@ export interface ResolveResult {
   };
 }
 
+export interface ArtistTracksResult {
+  tracks: TrackResult[];
+  errors?: ResolveResult['errors'];
+}
+
 export interface QueueItem {
   id: number;
   tidal_id: string;
@@ -173,7 +178,9 @@ export const search = {
     return request<SearchResult>(`/search?${params.toString()}`, { signal });
   },
   artist: (artistId: number, signal?: AbortSignal) =>
-    request<ResolveResult>(`/artist/${artistId}`, { signal }),
+    request<ResolveResult>(`/artist/${artistId}/summary`, { signal }),
+  artistTracks: (artistId: number, signal?: AbortSignal) =>
+    request<ArtistTracksResult>(`/artist/${artistId}/tracks`, { signal }),
   albumTracks: (albumId: number, signal?: AbortSignal) =>
     request<AlbumDetailResult>(`/album/${albumId}/tracks`, { signal }),
   playlistTracks: (playlistId: string) =>

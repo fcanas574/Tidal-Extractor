@@ -145,8 +145,20 @@ export default function SearchView() {
     dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'artist', id: artistId } });
     try {
       const details = await search.artist(artistId, controller.signal);
-      if (isCurrentRequest(requestId, controller)) {
-        dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'artist', id: artistId, data: details } });
+      if (!isCurrentRequest(requestId, controller)) return;
+      const hasCompleteTrackData = details.tracks.length > 0;
+      dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'artist', id: artistId, data: details, tracksStatus: hasCompleteTrackData ? 'success' : 'loading' } });
+      if (hasCompleteTrackData) return;
+
+      try {
+        const artistTracks = await search.artistTracks(artistId, controller.signal);
+        if (!isCurrentRequest(requestId, controller)) return;
+        dispatch({ type: 'DETAIL_ARTIST_TRACKS_SUCCEEDED', payload: { id: artistId, data: artistTracks } });
+      } catch (error) {
+        if (!isCurrentRequest(requestId, controller)) return;
+        const message = messageFromError(error);
+        dispatch({ type: 'DETAIL_ARTIST_TRACKS_FAILED', payload: { id: artistId, error: message } });
+        notifyError('Artist track lookup failed', message);
       }
     } catch (error) {
       if (!isCurrentRequest(requestId, controller)) return;
@@ -183,7 +195,7 @@ export default function SearchView() {
         if (!isCurrentRequest(requestId, controller)) return;
         if (resolved.artist) {
           dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'artist', id: resolved.artist.id } });
-          dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'artist', id: resolved.artist.id, data: resolved } });
+          dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'artist', id: resolved.artist.id, data: resolved, tracksStatus: 'success' } });
         } else if (resolved.albums[0]) {
           const albumId = resolved.albums[0].id;
           dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'album', id: albumId } });
@@ -371,6 +383,7 @@ export default function SearchView() {
           tracks={detail.data.tracks}
           albums={detail.data.albums}
           errors={detail.data.errors}
+          tracksLoading={detail.tracksStatus === 'loading'}
           onBack={closeDetail}
           onOpenArtist={openArtist}
           onOpenAlbum={openAlbum}

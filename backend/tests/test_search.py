@@ -1,10 +1,12 @@
 import pytest
 import tidalapi
+from threading import Barrier
 from unittest.mock import MagicMock
 from backend.search import (
     search_tidal, format_track, format_album, format_playlist,
     parse_tidal_url, format_artist, resolve_url, score_results, enrich_tracks,
-    get_artist_details, get_album_details, get_album_tracks,
+    get_artist_details, get_artist_summary, get_artist_tracks,
+    get_album_details, get_album_tracks,
 )
 
 
@@ -336,6 +338,74 @@ def test_get_artist_details_limits_top_tracks_and_loads_full_non_compilation_cat
     assert [track["id"] for track in result["tracks"]] == [103, 102, 101]
     mock_artist.get_top_tracks.assert_called_once_with(limit=5)
     compilation.tracks.assert_not_called()
+
+
+def test_get_artist_details_loads_artist_album_tracks_concurrently():
+    mock_session = MagicMock()
+    mock_artist = MagicMock()
+    mock_artist.id = 42
+    mock_artist.name = "Test Artist"
+    mock_artist.image.return_value = None
+    mock_artist.bio = None
+    mock_artist.get_top_tracks.return_value = []
+
+    first_album = _artist_album(1, "First Album", "ALBUM", "2024-01-01")
+    second_album = _artist_album(2, "Second Album", "ALBUM", "2023-01-01")
+    first_track = _artist_track(101, "First Track", first_album)
+    second_track = _artist_track(102, "Second Track", second_album)
+    barrier = Barrier(2)
+
+    def tracks_for(track):
+        def load_tracks():
+            barrier.wait(timeout=1)
+            return [track]
+
+        return load_tracks
+
+    first_album.tracks.side_effect = tracks_for(first_track)
+    second_album.tracks.side_effect = tracks_for(second_track)
+    mock_artist.get_albums.return_value = [first_album, second_album]
+    mock_artist.get_ep_singles.return_value = []
+    mock_session.artist.return_value = mock_artist
+
+    result = get_artist_details(mock_session, 42)
+
+    assert {track["id"] for track in result["tracks"]} == {101, 102}
+
+
+def test_get_artist_summary_returns_overview_without_waiting_for_full_track_catalog():
+    mock_session = MagicMock()
+    mock_artist = MagicMock()
+    mock_artist.id = 42
+    mock_artist.name = "Test Artist"
+    mock_artist.image.return_value = None
+    mock_artist.bio = None
+    mock_artist.get_top_tracks.return_value = []
+    album = _artist_album(1, "Album", "ALBUM", "2024-01-01")
+    album.tracks.side_effect = AssertionError("summary must not load album tracks")
+    mock_artist.get_albums.return_value = [album]
+    mock_artist.get_ep_singles.return_value = []
+    mock_session.artist.return_value = mock_artist
+
+    result = get_artist_summary(mock_session, 42)
+
+    assert result["artist"]["name"] == "Test Artist"
+    assert [release["id"] for release in result["albums"]] == [1]
+    assert result["tracks"] == []
+
+
+def test_get_artist_tracks_returns_full_artist_track_catalog():
+    mock_session = MagicMock()
+    mock_artist = MagicMock()
+    first_album = _artist_album(1, "Album", "ALBUM", "2024-01-01")
+    first_album.tracks.return_value = [_artist_track(101, "Track", first_album)]
+    mock_artist.get_albums.return_value = [first_album]
+    mock_artist.get_ep_singles.return_value = []
+    mock_session.artist.return_value = mock_artist
+
+    result = get_artist_tracks(mock_session, 42)
+
+    assert [track["id"] for track in result["tracks"]] == [101]
 
 
 def test_resolve_url_artist_excludes_compilations_and_sorts_latest_releases():

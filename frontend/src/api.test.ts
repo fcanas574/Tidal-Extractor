@@ -46,7 +46,13 @@ describe('search API contract', () => {
 
     await search.artist(42, controller.signal)
     expect(fetch).toHaveBeenLastCalledWith(
-      '/api/artist/42',
+      '/api/artist/42/summary',
+      expect.objectContaining({ signal: controller.signal }),
+    )
+
+    await search.artistTracks(42, controller.signal)
+    expect(fetch).toHaveBeenLastCalledWith(
+      '/api/artist/42/tracks',
       expect.objectContaining({ signal: controller.signal }),
     )
 
