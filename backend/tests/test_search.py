@@ -31,6 +31,25 @@ def test_format_track():
     assert result["quality"] == "LOSSLESS"
 
 
+def test_format_track_uses_full_name_for_remix_title():
+    mock_track = MagicMock()
+    mock_track.id = 12345
+    mock_track.title = "Fade"
+    mock_track.full_name = "Fade (Grant Nelson Extended Remix)"
+    mock_track.version = "Grant Nelson Extended Remix"
+    mock_track.artist.name = "Solu Music"
+    mock_track.album.name = "Fade EP"
+    mock_track.duration = 436
+    mock_track.audio_quality = "LOSSLESS"
+    mock_track.explicit = False
+    mock_track.isrc = None
+    mock_track.listen_url = ""
+
+    result = format_track(mock_track)
+
+    assert result["title"] == "Fade (Grant Nelson Extended Remix)"
+
+
 def test_format_album():
     mock_album = MagicMock()
     mock_album.id = 99
@@ -308,6 +327,20 @@ def test_get_album_details_returns_metadata_and_tracks_without_changing_list_hel
     session.album.assert_called_once_with(42)
 
 
+def test_get_album_details_preserves_remix_titles():
+    album = _artist_album(42, "Fade EP", "EP", "2025-01-01")
+    track = _artist_track(7, "Fade", album)
+    track.full_name = "Fade (Grant Nelson Extended Remix)"
+    track.version = "Grant Nelson Extended Remix"
+    album.tracks.return_value = [track]
+    session = MagicMock()
+    session.album.return_value = album
+
+    detail = get_album_details(session, 42)
+
+    assert detail["tracks"][0]["title"] == "Fade (Grant Nelson Extended Remix)"
+
+
 def test_get_artist_details_limits_top_tracks_and_loads_full_non_compilation_catalog():
     mock_session = MagicMock()
     mock_artist = MagicMock()
@@ -538,6 +571,21 @@ def test_enrich_tracks_uses_full_title_when_available():
     enriched = enrich_tracks(mock_session, tracks, top_n=5)
 
     assert enriched[0]["title"] == "What To Do (&ME Remix)"
+
+
+def test_enrich_tracks_uses_tidal_full_name_when_available():
+    mock_track = Mock()
+    mock_track.title = "Fade"
+    mock_track.full_name = "Fade (Grant Nelson Extended Remix)"
+    mock_track.version = "Grant Nelson Extended Remix"
+
+    mock_session = Mock()
+    mock_session.track = Mock(return_value=mock_track)
+
+    tracks = [{"id": 123, "title": "Fade", "artist": "Solu Music"}]
+    enriched = enrich_tracks(mock_session, tracks, top_n=5)
+
+    assert enriched[0]["title"] == "Fade (Grant Nelson Extended Remix)"
 
 
 def test_enrich_tracks_silent_fallback_on_error():

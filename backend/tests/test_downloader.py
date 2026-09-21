@@ -72,6 +72,29 @@ def test_extract_track_metadata():
     assert meta["key"] == "Am"
 
 
+def test_extract_track_metadata_uses_full_name_for_remix_title():
+    mock_track = MagicMock()
+    mock_track.title = "Fade"
+    mock_track.full_name = "Fade (Grant Nelson Extended Remix)"
+    mock_track.version = "Grant Nelson Extended Remix"
+    mock_track.artist.name = "Solu Music"
+    mock_track.artists = [MagicMock(name="Solu Music")]
+    mock_track.album.name = "Fade EP"
+    mock_track.album.id = 999
+    mock_track.track_num = 3
+    mock_track.duration = 436
+    mock_track.isrc = None
+    mock_track.bpm = 127
+    mock_track.key_scale = "6B"
+    mock_track.key = "G"
+    mock_track.explicit = False
+    mock_track.audio_quality = "LOSSLESS"
+
+    meta = extract_track_metadata(mock_track)
+
+    assert meta["title"] == "Fade (Grant Nelson Extended Remix)"
+
+
 def test_resolve_auto_quality_hi_res():
     track = MagicMock(is_hi_res_lossless=True, is_lossless=True)
     assert _resolve_auto_quality(track) == "hi_res_lossless"

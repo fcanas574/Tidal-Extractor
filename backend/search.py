@@ -9,6 +9,25 @@ import tidalapi
 logger = logging.getLogger(__name__)
 
 
+def get_track_title(track, fallback: Optional[str] = None) -> str:
+    """Return a track title that includes TIDAL's remix/version metadata."""
+    for attribute in ("full_name", "full_title"):
+        value = getattr(track, attribute, None)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+
+    title = getattr(track, "title", None)
+    if not isinstance(title, str) or not title.strip():
+        title = fallback if isinstance(fallback, str) and fallback.strip() else "Unknown"
+    else:
+        title = title.strip()
+
+    version = getattr(track, "version", None)
+    if isinstance(version, str) and version.strip():
+        return f"{title} ({version.strip()})"
+    return title
+
+
 def format_track(track) -> dict:
     cover_url = None
     if track.album:
@@ -18,7 +37,7 @@ def format_track(track) -> dict:
             pass
     return {
         "id": track.id,
-        "title": track.title or "Unknown",
+        "title": get_track_title(track),
         "artist": track.artist.name if track.artist else "Unknown",
         "artist_id": getattr(track.artist, "id", None) if track.artist else None,
         "album": track.album.name if track.album else "Unknown",
@@ -88,10 +107,11 @@ def enrich_tracks(session, tracks: List[dict], top_n: int = 5) -> List[dict]:
     """
     Enrich top N tracks with full metadata (version/remix info).
 
-    For each track, fetch the full Track object and construct complete title:
-    1. track.full_title (if available)
-    2. track.title + " (" + track.version + ")" (if version exists)
-    3. track.title (fallback)
+    For each track, fetch the full Track object and use its complete title:
+    1. track.full_name (the field provided by tidalapi)
+    2. track.full_title (compatibility fallback)
+    3. track.title + " (" + track.version + ")" (if version exists)
+    4. the original formatted title (fallback)
 
     Failures are silent — log warning and keep original title.
     """
@@ -110,14 +130,10 @@ def enrich_tracks(session, tracks: List[dict], top_n: int = 5) -> List[dict]:
 
         try:
             full_track = session.track(track_id)
-            new_title = track_dict.get("title", "")
-
-            # Priority 1: full_title
-            if hasattr(full_track, "full_title") and full_track.full_title:
-                new_title = full_track.full_title
-            # Priority 2: construct from title + version
-            elif hasattr(full_track, "version") and full_track.version:
-                new_title = f"{track_dict.get('title', '')} ({full_track.version})"
+            new_title = get_track_title(
+                full_track,
+                fallback=track_dict.get("title", ""),
+            )
 
             # Update the track dict with enriched title
             track_dict = {**track_dict, "title": new_title}

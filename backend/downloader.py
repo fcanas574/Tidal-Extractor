@@ -15,7 +15,7 @@ from backend.quality import get_bitrate, bitrate_meets_threshold, QUALITY_PRESET
 from backend.converter import convert_format
 from backend.tagger import tag_file, tag_dj_metadata
 from backend.freqblog import lookup_track_metadata
-from backend.search import get_album_tracks, get_playlist_tracks
+from backend.search import get_album_tracks, get_playlist_tracks, get_track_title
 from backend.key_detection import detect_key as _detect_key, file_hash
 
 logger = logging.getLogger(__name__)
@@ -71,7 +71,7 @@ async def _resolve_dj_metadata(final_path: str, title: str, artist: str, tidal_b
 def extract_track_metadata(track) -> dict:
     """Extract extended metadata from a tidalapi Track object."""
     return {
-        "title": track.title or "Unknown",
+        "title": get_track_title(track),
         "artist": track.artist.name if track.artist else "Unknown",
         "artists": [a.name for a in track.artists] if track.artists else [],
         "album": track.album.name if track.album else "Unknown",
