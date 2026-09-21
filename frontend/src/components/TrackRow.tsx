@@ -48,7 +48,10 @@ export default function TrackRow({
   onOpenArtist,
   onOpenAlbum,
 }: TrackRowProps) {
-  const camelot = toCamelot(track.key, track.key_scale);
+  const camelot = track.camelot || toCamelot(track.key, track.key_scale);
+  const hasFreqBlogMetadata = track.bpm_source === 'freqblog'
+    || track.key_source === 'freqblog'
+    || track.genre_source === 'freqblog';
   const canOpenArtist = track.artist_id !== null && onOpenArtist;
   const canOpenAlbum = track.album_id !== null && onOpenAlbum;
 
@@ -72,9 +75,11 @@ export default function TrackRow({
           <span aria-hidden="true">·</span>
           <span className="shrink-0">{formatDuration(track.duration)}</span>
         </div>
-        <div className="flex flex-wrap gap-1.5 mt-2">
+        <div className="flex flex-wrap gap-1.5 mt-2 min-h-5 items-start">
           {track.bpm !== null && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(255, 192, 64, 0.15)', color: 'var(--warning)' }}>{Math.round(track.bpm)} BPM</span>}
           {camelot && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(0, 184, 212, 0.15)', color: 'var(--info)' }}>{camelot}</span>}
+          {track.genre && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}>{track.genre}</span>}
+          {hasFreqBlogMetadata && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(176, 120, 255, 0.12)', color: 'var(--text-muted)' }} aria-label="FreqBlog metadata">FreqBlog</span>}
         </div>
       </div>
       <span className="mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={qualityBadgeColor(track.quality)}>{track.quality}</span>

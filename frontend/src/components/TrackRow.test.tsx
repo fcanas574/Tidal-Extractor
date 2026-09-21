@@ -64,4 +64,42 @@ describe('TrackRow', () => {
     expect(screen.queryByRole('button', { name: /Open artist/i })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: /Open album/i })).not.toBeInTheDocument();
   });
+
+  it('renders optional genre and direct Camelot metadata', () => {
+    render(
+      <TrackRow
+        track={{
+          ...track,
+          bpm: 128,
+          key: null,
+          key_scale: null,
+          camelot: '8A',
+          genre: 'electronic',
+          bpm_source: 'freqblog',
+          genre_source: 'freqblog',
+        }}
+        isPreviewing={false}
+        onPreview={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('8A')).toBeInTheDocument();
+    expect(screen.getByText('electronic')).toBeInTheDocument();
+    expect(screen.getByLabelText(/FreqBlog metadata/i)).toBeInTheDocument();
+  });
+
+  it('renders legacy tracks without optional metadata', () => {
+    render(
+      <TrackRow
+        track={track}
+        isPreviewing={false}
+        onPreview={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('Night Drive')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download Night Drive' })).toBeInTheDocument();
+  });
 });

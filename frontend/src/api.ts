@@ -52,6 +52,17 @@ export interface TrackResult {
   bpm: number | null;
   key: string | null;
   key_scale: string | null;
+  camelot?: string | null;
+  open_key?: string | null;
+  key_label?: string | null;
+  genre?: string | null;
+  bpm_alt?: number | null;
+  bpm_confidence?: number | null;
+  key_confidence?: number | null;
+  bpm_source?: 'tidal' | 'freqblog' | null;
+  key_source?: 'tidal' | 'freqblog' | null;
+  genre_source?: 'freqblog' | null;
+  metadata_status?: 'complete' | 'partial' | 'miss' | 'queued' | 'rate_limited' | 'unavailable' | null;
 }
 
 export interface AlbumResult {
