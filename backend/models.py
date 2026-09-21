@@ -1,5 +1,6 @@
 import aiosqlite
 import json
+import time
 from typing import Optional
 
 
@@ -67,6 +68,14 @@ class Database:
                 bands_json TEXT NOT NULL,
                 duration REAL,
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            );
+            CREATE TABLE IF NOT EXISTS catalog_metadata_cache (
+                tidal_id TEXT PRIMARY KEY,
+                isrc TEXT,
+                metadata_json TEXT NOT NULL,
+                status TEXT NOT NULL,
+                checked_at REAL NOT NULL,
+                expires_at REAL NOT NULL
             );
         """)
         await self._conn.commit()
@@ -187,6 +196,66 @@ class Database:
 
     async def clear_quality_cache(self):
         await self._conn.execute("DELETE FROM quality_cache")
+        await self._conn.commit()
+
+    async def get_catalog_metadata(self, tidal_ids, now=None):
+        """Return non-expired catalog metadata keyed by integer TIDAL ID."""
+        if not tidal_ids:
+            return {}
+
+        lookup_ids = [int(tidal_id) for tidal_id in tidal_ids]
+        placeholders = ",".join("?" for _ in lookup_ids)
+        current_time = time.time() if now is None else float(now)
+        rows = await self._conn.execute_fetchall(
+            f"""SELECT tidal_id, isrc, metadata_json, status, checked_at, expires_at
+                FROM catalog_metadata_cache
+                WHERE tidal_id IN ({placeholders}) AND expires_at > ?""",
+            [str(tidal_id) for tidal_id in lookup_ids] + [current_time],
+        )
+
+        metadata = {}
+        for row in rows:
+            try:
+                data = json.loads(row["metadata_json"])
+            except (TypeError, json.JSONDecodeError):
+                continue
+            metadata[int(row["tidal_id"])] = {
+                "isrc": row["isrc"],
+                "data": data,
+                "status": row["status"],
+                "checked_at": row["checked_at"],
+                "expires_at": row["expires_at"],
+            }
+        return metadata
+
+    async def set_catalog_metadata(self, entries):
+        """Upsert a batch of normalized catalog metadata records in one transaction."""
+        if not entries:
+            return
+
+        rows = [
+            (
+                str(int(entry["tidal_id"])),
+                entry.get("isrc"),
+                json.dumps(entry.get("data") or {}),
+                entry.get("status", "unavailable"),
+                float(entry["checked_at"]),
+                float(entry["expires_at"]),
+            )
+            for entry in entries
+        ]
+        await self._conn.executemany(
+            """INSERT INTO catalog_metadata_cache
+                   (tidal_id, isrc, metadata_json, status, checked_at, expires_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(tidal_id) DO UPDATE SET
+                    isrc = excluded.isrc,
+                    metadata_json = excluded.metadata_json,
+                    status = excluded.status,
+                    checked_at = excluded.checked_at,
+                    expires_at = excluded.expires_at""",
+            rows,
+        )
         await self._conn.commit()
 
     async def increment_stat(self, key: str, amount: int = 1):

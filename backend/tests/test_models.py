@@ -156,3 +156,47 @@ async def test_quality_cache_set_and_get(db):
     await db.clear_quality_cache()
     cached = await db.get_quality_cache()
     assert cached is None
+
+
+@pytest.mark.asyncio
+async def test_catalog_metadata_cache_round_trips_normalized_data(db):
+    await db.set_catalog_metadata([{
+        "tidal_id": 7,
+        "isrc": "US123",
+        "data": {"bpm": 128.0, "camelot": "8A", "genre": "electronic"},
+        "status": "found",
+        "checked_at": 100.0,
+        "expires_at": 200.0,
+    }])
+
+    result = await db.get_catalog_metadata([7], now=150.0)
+
+    assert result[7]["data"]["bpm"] == 128.0
+    assert result[7]["status"] == "found"
+
+
+@pytest.mark.asyncio
+async def test_expired_catalog_metadata_is_not_returned(db):
+    await db.set_catalog_metadata([{
+        "tidal_id": 7, "isrc": None, "data": {}, "status": "queued",
+        "checked_at": 100.0, "expires_at": 120.0,
+    }])
+
+    assert await db.get_catalog_metadata([7], now=121.0) == {}
+
+
+@pytest.mark.asyncio
+async def test_catalog_metadata_upsert_replaces_previous_status(db):
+    await db.set_catalog_metadata([{
+        "tidal_id": 7, "isrc": None, "data": {}, "status": "queued",
+        "checked_at": 100.0, "expires_at": 200.0,
+    }])
+    await db.set_catalog_metadata([{
+        "tidal_id": 7, "isrc": "US123", "data": {"bpm": 128.0}, "status": "found",
+        "checked_at": 150.0, "expires_at": 300.0,
+    }])
+
+    result = await db.get_catalog_metadata([7], now=200.0)
+
+    assert result[7]["status"] == "found"
+    assert result[7]["data"] == {"bpm": 128.0}
