@@ -14,8 +14,25 @@ async function request<T>(path: string, opts?: RequestInit): Promise<T> {
 
 export interface SearchResult {
   tracks: TrackResult[];
+  artists: ArtistResult[];
   albums: AlbumResult[];
   playlists: PlaylistResult[];
+  offset: number;
+  limit: number;
+  has_more: boolean;
+}
+
+export type SearchType = 'track' | 'artist' | 'album' | 'playlist';
+
+export interface SearchFilters {
+  offset?: number;
+  limit?: number;
+  refresh?: boolean;
+  bpmMin?: number;
+  bpmMax?: number;
+  key?: string;
+  keyCompatible?: boolean;
+  genre?: string;
 }
 
 export interface TrackResult {
@@ -42,6 +59,7 @@ export interface AlbumResult {
   artist: string;
   num_tracks: number;
   release_date: string | null;
+  release_type: string | null;
   quality: string;
   cover_url: string | null;
 }
@@ -67,6 +85,10 @@ export interface ResolveResult {
   tracks: TrackResult[];
   albums: AlbumResult[];
   playlists: PlaylistResult[];
+  errors?: {
+    top_tracks?: string;
+    albums?: string;
+  };
 }
 
 export interface QueueItem {
@@ -130,27 +152,20 @@ export const auth = {
 };
 
 export const search = {
-  query: (q: string, type: string = 'track', filters?: {
-    offset?: number;
-    limit?: number;
-    bpmMin?: number;
-    bpmMax?: number;
-    key?: string;
-    keyCompatible?: boolean;
-    genre?: string;
-  }) => {
-    let url = `/search?q=${encodeURIComponent(q)}&type=${type}`;
-    if (filters) {
-      if (filters.offset !== undefined) url += `&offset=${filters.offset}`;
-      if (filters.limit !== undefined) url += `&limit=${filters.limit}`;
-      if (filters.bpmMin !== undefined) url += `&bpm_min=${filters.bpmMin}`;
-      if (filters.bpmMax !== undefined) url += `&bpm_max=${filters.bpmMax}`;
-      if (filters.key) url += `&key=${encodeURIComponent(filters.key)}`;
-      if (filters.keyCompatible) url += '&key_compatible=true';
-      if (filters.genre) url += `&genre=${encodeURIComponent(filters.genre)}`;
-    }
-    return request<SearchResult>(url);
+  query: (q: string, type: SearchType = 'track', filters?: SearchFilters, signal?: AbortSignal) => {
+    const params = new URLSearchParams({ q, type });
+    if (filters?.offset !== undefined) params.set('offset', String(filters.offset));
+    if (filters?.limit !== undefined) params.set('limit', String(filters.limit));
+    if (filters?.refresh !== undefined) params.set('refresh', String(filters.refresh));
+    if (filters?.bpmMin !== undefined) params.set('bpm_min', String(filters.bpmMin));
+    if (filters?.bpmMax !== undefined) params.set('bpm_max', String(filters.bpmMax));
+    if (filters?.key) params.set('key', filters.key);
+    if (filters?.keyCompatible) params.set('key_compatible', 'true');
+    if (filters?.genre) params.set('genre', filters.genre);
+    return request<SearchResult>(`/search?${params.toString()}`, { signal });
   },
+  artist: (artistId: number, signal?: AbortSignal) =>
+    request<ResolveResult>(`/artist/${artistId}`, { signal }),
   albumTracks: (albumId: number) =>
     request<{ tracks: TrackResult[] }>(`/album/${albumId}/tracks`),
   playlistTracks: (playlistId: string) =>
@@ -203,7 +218,8 @@ export const history = {
 };
 
 export const resolve = {
-  url: (url: string) => request<ResolveResult>(`/resolve?url=${encodeURIComponent(url)}`),
+  url: (url: string, signal?: AbortSignal) =>
+    request<ResolveResult>(`/resolve?url=${encodeURIComponent(url)}`, { signal }),
 };
 
 export interface WaveformData {
@@ -237,4 +253,3 @@ export const preview = {
   getStream: (trackId: number, signal?: AbortSignal) => request<PreviewStream>(`/preview/${trackId}/stream`, { signal }),
   getMetadata: (trackId: number, signal?: AbortSignal) => request<PreviewMetadataSnapshot>(`/preview/${trackId}/metadata`, { signal }),
 };
-
