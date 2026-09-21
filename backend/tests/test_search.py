@@ -4,7 +4,7 @@ from unittest.mock import MagicMock
 from backend.search import (
     search_tidal, format_track, format_album, format_playlist,
     parse_tidal_url, format_artist, resolve_url, score_results, enrich_tracks,
-    get_artist_details,
+    get_artist_details, get_album_details, get_album_tracks,
 )
 
 
@@ -45,6 +45,38 @@ def test_format_album():
     assert result["artist"] == "Test Artist"
     assert result["num_tracks"] == 12
     assert result["cover_url"] == "https://img.tidal.com/cover.jpg"
+
+
+def test_format_track_and_album_include_related_artist_ids():
+    mock_track = MagicMock()
+    mock_track.id = 7
+    mock_track.title = "Night Drive"
+    mock_track.artist.id = 3
+    mock_track.artist.name = "The Pilot"
+    mock_track.album.id = 4
+    mock_track.album.name = "After Hours"
+    mock_track.duration = 213
+    mock_track.audio_quality = "LOSSLESS"
+    mock_track.explicit = False
+    mock_track.isrc = None
+    mock_track.listen_url = ""
+    mock_track.bpm = None
+    mock_track.key = None
+    mock_track.key_scale = None
+
+    mock_album = MagicMock()
+    mock_album.id = 4
+    mock_album.name = "After Hours"
+    mock_album.artist.id = 3
+    mock_album.artist.name = "The Pilot"
+    mock_album.num_tracks = 1
+    mock_album.release_date = "2025-01-01"
+    mock_album.type = "ALBUM"
+    mock_album.audio_quality = "LOSSLESS"
+    mock_album.image.return_value = None
+
+    assert format_track(mock_track)["artist_id"] == 3
+    assert format_album(mock_album)["artist_id"] == 3
 
 
 def test_format_playlist():
@@ -254,6 +286,24 @@ def _artist_track(track_id, title, album):
     track.key = None
     track.key_scale = None
     return track
+
+
+def test_get_album_details_returns_metadata_and_tracks_without_changing_list_helper():
+    album = _artist_album(42, "After Hours", "ALBUM", "2025-01-01")
+    track = _artist_track(7, "Night Drive", album)
+    album.tracks.return_value = [track]
+    session = MagicMock()
+    session.album.return_value = album
+
+    detail = get_album_details(session, 42)
+
+    assert detail["album"]["id"] == 42
+    assert detail["tracks"][0]["id"] == 7
+    session.album.assert_called_once_with(42)
+
+    session.album.reset_mock()
+    assert isinstance(get_album_tracks(session, 42), list)
+    session.album.assert_called_once_with(42)
 
 
 def test_get_artist_details_limits_top_tracks_and_loads_full_non_compilation_catalog():

@@ -145,3 +145,19 @@ async def test_artist_id_route_uses_shared_artist_detail_helper(
 
     assert result == {**expected, "tracks": [], "playlists": []}
     helper.assert_called_once_with(authenticated.session, 42)
+
+
+async def test_album_tracks_route_returns_album_metadata_and_tracks(
+    monkeypatch, authenticated
+):
+    expected = {
+        "album": {"id": 42, "name": "After Hours"},
+        "tracks": [{"id": 7, "title": "Night Drive"}],
+    }
+    helper = MagicMock(return_value=expected)
+    monkeypatch.setattr(main, "get_album_details", helper)
+
+    result = await main.album_tracks(42)
+
+    assert result == expected
+    helper.assert_called_once_with(authenticated.session, 42)

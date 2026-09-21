@@ -19,6 +19,7 @@ def format_track(track) -> dict:
         "id": track.id,
         "title": track.title or "Unknown",
         "artist": track.artist.name if track.artist else "Unknown",
+        "artist_id": getattr(track.artist, "id", None) if track.artist else None,
         "album": track.album.name if track.album else "Unknown",
         "album_id": track.album.id if track.album else None,
         "duration": track.duration or 0,
@@ -142,6 +143,7 @@ def format_album(album) -> dict:
         "id": album.id,
         "name": album.name or "Unknown",
         "artist": album.artist.name if album.artist else "Unknown",
+        "artist_id": getattr(album.artist, "id", None) if album.artist else None,
         "num_tracks": album.num_tracks or 0,
         "release_date": release_date.isoformat() if release_date else None,
         "release_type": release_type,
@@ -363,8 +365,7 @@ def search_tidal(
     return {"tracks": tracks, "artists": artists, "albums": albums, "playlists": playlists}
 
 
-def get_album_tracks(session: tidalapi.Session, album_id: int) -> List[dict]:
-    album = session.album(album_id)
+def _format_album_tracks(album) -> List[dict]:
     tracks = album.tracks()
     result = []
     for t in tracks:
@@ -375,6 +376,15 @@ def get_album_tracks(session: tidalapi.Session, album_id: int) -> List[dict]:
             pass
         result.append(formatted)
     return result
+
+
+def get_album_tracks(session: tidalapi.Session, album_id: int) -> List[dict]:
+    return _format_album_tracks(session.album(album_id))
+
+
+def get_album_details(session: tidalapi.Session, album_id: int) -> dict:
+    album = session.album(album_id)
+    return {"album": format_album(album), "tracks": _format_album_tracks(album)}
 
 
 def get_playlist_tracks(session: tidalapi.Session, playlist_id: str) -> List[dict]:

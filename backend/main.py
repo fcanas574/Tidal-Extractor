@@ -16,7 +16,7 @@ from backend.config import AppConfig
 from backend.models import Database
 from backend.search import (
     search_tidal,
-    get_album_tracks,
+    get_album_details,
     get_playlist_tracks,
     resolve_url,
     score_results,
@@ -347,8 +347,7 @@ async def artist_details(artist_id: int):
 async def album_tracks(album_id: int):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    tracks = await asyncio.to_thread(get_album_tracks, auth_manager.session, album_id)
-    return {"tracks": tracks}
+    return await asyncio.to_thread(get_album_details, auth_manager.session, album_id)
 
 
 @app.get("/playlist/{playlist_id}/tracks")
