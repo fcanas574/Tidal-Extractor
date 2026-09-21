@@ -23,6 +23,17 @@ const track: TrackResult = {
   bpm: 128, key: 'C', key_scale: 'minor',
 };
 
+const enrichedTrack: TrackResult = {
+  ...track,
+  bpm: 128,
+  key: null,
+  key_scale: null,
+  camelot: '8A',
+  genre: 'electronic',
+  bpm_source: 'freqblog',
+  genre_source: 'freqblog',
+};
+
 const queueItem: QueueItem = {
   id: 9, tidal_id: '7', item_type: 'track', title: track.title, artist: track.artist, album: track.album,
   quality: 'high_lossless', format: 'FLAC', status: 'queued', progress: 0, error: null, revision: 1,
@@ -84,6 +95,23 @@ describe('SearchView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Load more results' }));
     await waitFor(() => expect(screen.getByText('Second Track')).toBeInTheDocument());
     expect(search.query).toHaveBeenLastCalledWith('Night Drive', 'track', expect.objectContaining({ offset: 1, limit: 50 }), expect.any(AbortSignal));
+  });
+
+  it('renders enriched metadata while keeping track actions available', async () => {
+    vi.mocked(search.query).mockResolvedValue(result({ tracks: [enrichedTrack] }));
+    renderSearch();
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'Night Drive' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(screen.getByText('Night Drive')).toBeInTheDocument());
+    expect(screen.getByText('8A')).toBeInTheDocument();
+    expect(screen.getByText('electronic')).toBeInTheDocument();
+    expect(screen.getByLabelText(/FreqBlog metadata/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview Night Drive' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download Night Drive' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open artist The Pilot' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument();
   });
 
   it('opens an artist from a track result without replacing the committed search', async () => {

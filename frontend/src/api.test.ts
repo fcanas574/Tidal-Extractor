@@ -6,7 +6,27 @@ describe('search API contract', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-      tracks: [],
+      tracks: [{
+        id: 7,
+        title: 'Night Drive',
+        artist: 'The Pilot',
+        artist_id: 3,
+        album: 'After Hours',
+        album_id: 4,
+        duration: 213,
+        quality: 'high_lossless',
+        explicit: false,
+        isrc: null,
+        url: 'tidal://7',
+        cover_url: null,
+        bpm: 128,
+        key: null,
+        key_scale: null,
+        camelot: '8A',
+        genre: 'electronic',
+        bpm_source: 'freqblog',
+        genre_source: 'freqblog',
+      }],
       artists: [],
       albums: [{ id: 42, name: 'After Hours', artist: 'The Pilot', artist_id: 3, num_tracks: 1, release_date: '2025-01-01', release_type: 'ALBUM', quality: 'LOSSLESS', cover_url: null }],
         playlists: [],
@@ -24,7 +44,7 @@ describe('search API contract', () => {
   it('encodes typed search filters and forwards cancellation', async () => {
     const controller = new AbortController()
 
-    await search.query('Mitski', 'artist', {
+    const response = await search.query('Mitski', 'artist', {
       offset: 20,
       limit: 10,
       refresh: true,
@@ -39,6 +59,7 @@ describe('search API contract', () => {
       '/api/search?q=Mitski&type=artist&offset=20&limit=10&refresh=true&bpm_min=90&bpm_max=120&key=8A&key_compatible=true&genre=House',
       expect.objectContaining({ signal: controller.signal }),
     )
+    expect(response.tracks[0]).toMatchObject({ camelot: '8A', genre: 'electronic', bpm_source: 'freqblog' })
   })
 
   it('supports artist lookup and cancellable URL resolution', async () => {
