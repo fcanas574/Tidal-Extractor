@@ -143,5 +143,5 @@ async def test_artist_id_route_uses_shared_artist_detail_helper(
 
     result = await main.artist_details(42)
 
-    assert result == expected
+    assert result == {**expected, "tracks": [], "playlists": []}
     helper.assert_called_once_with(authenticated.session, 42)

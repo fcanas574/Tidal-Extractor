@@ -335,9 +335,10 @@ async def artist_details(artist_id: int):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        return await asyncio.to_thread(
+        details = await asyncio.to_thread(
             get_artist_details, auth_manager.session, artist_id
         )
+        return {"tracks": [], "playlists": [], **details}
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Artist not found: {exc}")
 
