@@ -219,32 +219,82 @@ def _is_artist_release(album) -> bool:
     return release_type.upper() in {"ALBUM", "EP", "SINGLE"}
 
 
+def _unique_media(items):
+    """Preserve media order while removing duplicate TIDAL objects by id."""
+    seen = set()
+    unique = []
+    for item in items:
+        item_id = getattr(item, "id", None)
+        key = ("id", item_id) if item_id is not None else ("object", id(item))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(item)
+    return unique
+
+
 def get_artist_details(session: tidalapi.Session, artist_id: int) -> dict:
     """Load the artist page data while preserving independently available sections."""
     artist = session.artist(artist_id)
     result = {
         "artist": format_artist(artist),
         "top_tracks": [],
+        "tracks": [],
         "albums": [],
     }
     errors = {}
 
     try:
-        result["top_tracks"] = [format_track(track) for track in artist.get_top_tracks()]
+        result["top_tracks"] = [
+            format_track(track) for track in artist.get_top_tracks(limit=5)
+        ][:5]
     except Exception as exc:
         logger.warning("Failed to load top tracks for artist %s: %s", artist_id, exc)
         errors["top_tracks"] = str(exc)
 
+    artist_releases = []
+    release_errors = []
     try:
-        albums = [album for album in artist.get_albums() if _is_artist_release(album)]
-        albums.sort(
-            key=lambda album: (_release_date(album) is not None, _release_date(album) or date.min),
-            reverse=True,
-        )
-        result["albums"] = [format_album(album) for album in albums[:8]]
+        artist_releases.extend(artist.get_albums())
     except Exception as exc:
-        logger.warning("Failed to load releases for artist %s: %s", artist_id, exc)
-        errors["albums"] = str(exc)
+        logger.warning("Failed to load albums for artist %s: %s", artist_id, exc)
+        release_errors.append(f"Albums: {exc}")
+    try:
+        artist_releases.extend(artist.get_ep_singles())
+    except Exception as exc:
+        logger.warning("Failed to load EPs and singles for artist %s: %s", artist_id, exc)
+        release_errors.append(f"EPs and singles: {exc}")
+
+    artist_releases = _unique_media(
+        album for album in artist_releases if _is_artist_release(album)
+    )
+    artist_releases.sort(
+        key=lambda album: (
+            _release_date(album) is not None,
+            _release_date(album) or date.min,
+        ),
+        reverse=True,
+    )
+    result["albums"] = [format_album(album) for album in artist_releases[:8]]
+    if release_errors:
+        errors["albums"] = " ".join(release_errors)
+
+    track_errors = []
+    all_tracks = []
+    for album in artist_releases:
+        try:
+            all_tracks.extend(album.tracks())
+        except Exception as exc:
+            logger.warning(
+                "Failed to load tracks for album %s on artist %s: %s",
+                getattr(album, "id", "unknown"),
+                artist_id,
+                exc,
+            )
+            track_errors.append(f"{getattr(album, 'name', 'Release')}: {exc}")
+    result["tracks"] = [format_track(track) for track in _unique_media(all_tracks)]
+    if track_errors:
+        errors["tracks"] = " ".join(track_errors)
 
     if errors:
         result["errors"] = errors

@@ -87,6 +87,7 @@ export interface ResolveResult {
   playlists: PlaylistResult[];
   errors?: {
     top_tracks?: string;
+    tracks?: string;
     albums?: string;
   };
 }

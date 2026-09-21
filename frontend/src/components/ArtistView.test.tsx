@@ -73,6 +73,19 @@ describe('ArtistView', () => {
     expect(screen.queryByRole('button', { name: /Open album/i })).not.toBeInTheDocument();
   });
 
+  it('shows no more than five top tracks', () => {
+    const topTracks = Array.from({ length: 6 }, (_, index) => ({
+      ...track,
+      id: 70 + index,
+      title: `Top Track ${index + 1}`,
+    }));
+
+    renderArtist({ topTracks });
+
+    expect(screen.getByText('Top Track 5')).toBeInTheDocument();
+    expect(screen.queryByText('Top Track 6')).not.toBeInTheDocument();
+  });
+
   it('keeps the other section usable when one section reports an error', () => {
     renderArtist({ errors: { albums: 'Release service unavailable' } });
 

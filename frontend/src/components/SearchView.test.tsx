@@ -110,6 +110,18 @@ describe('SearchView', () => {
     expect(resolve.url).toHaveBeenCalledTimes(1);
   });
 
+  it('renders the full artist track catalog below the artist overview', async () => {
+    const catalogTrack = { ...track, id: 80, title: 'Deep Cut' };
+    vi.mocked(resolve.url).mockResolvedValue({ artist, top_tracks: [track], tracks: [catalogTrack], albums: [album], playlists: [] });
+    renderSearch();
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'https://tidal.com/artist/3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'All tracks' })).toBeInTheDocument());
+    expect(screen.getByText('Deep Cut')).toBeInTheDocument();
+  });
+
   it('surfaces partial artist errors without hiding the successful section', async () => {
     vi.mocked(resolve.url).mockResolvedValue({ artist, top_tracks: [track], tracks: [], albums: [], playlists: [], errors: { albums: 'Releases unavailable' } });
     renderSearch();

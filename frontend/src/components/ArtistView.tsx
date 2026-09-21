@@ -30,20 +30,58 @@ function SectionMessage({ children, tone = 'muted' }: { children: React.ReactNod
   return <div className="glass p-4 text-sm" role={tone === 'error' ? 'status' : undefined} style={{ color: tone === 'error' ? 'var(--warning)' : 'var(--text-muted)' }}>{children}</div>;
 }
 
+function TrackRow({
+  track,
+  isPreviewing,
+  onPreview,
+  onDownload,
+}: {
+  track: TrackResult;
+  isPreviewing: boolean;
+  onPreview: () => void;
+  onDownload: () => void;
+}) {
+  const camelot = toCamelot(track.key, track.key_scale);
+
+  return (
+    <div className="glass glass-hover p-3 sm:p-4 flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4">
+      <Cover src={track.cover_url} alt={`${track.title} cover`} />
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{track.title}</p>
+        <p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{track.artist} · {track.album} · {formatDuration(track.duration)}</p>
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {track.bpm !== null && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(255, 192, 64, 0.15)', color: 'var(--warning)' }}>{Math.round(track.bpm)} BPM</span>}
+          {camelot && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(0, 184, 212, 0.15)', color: 'var(--info)' }}>{camelot}</span>}
+        </div>
+      </div>
+      <span className="mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={qualityBadgeColor(track.quality)}>{track.quality}</span>
+      <div className="flex items-center gap-2 ml-auto">
+        <button type="button" className="btn-ghost text-xs px-2.5 py-1.5" onClick={onPreview} aria-label={`${isPreviewing ? 'Pause' : 'Preview'} ${track.title}`}>
+          {isPreviewing ? 'Pause' : 'Preview'}
+        </button>
+        <button type="button" className="btn-primary text-xs px-3 py-1.5" onClick={onDownload} aria-label={`Download ${track.title}`}>Download</button>
+      </div>
+    </div>
+  );
+}
+
 export default function ArtistView({
   artist,
   topTracks,
+  tracks = [],
   albums,
   errors,
   onBack,
 }: {
   artist: ArtistResult;
   topTracks: TrackResult[];
+  tracks?: TrackResult[];
   albums: AlbumResult[];
   errors?: ResolveResult['errors'];
   onBack?: () => void;
 }) {
   const { state, dispatch } = useApp();
+  const visibleTopTracks = topTracks.slice(0, 5);
 
   const handleAddToQueue = async (track: TrackResult) => {
     try {
@@ -66,10 +104,20 @@ export default function ArtistView({
   };
 
   const handleDownloadAllTopTracks = async () => {
-    for (const track of topTracks) await handleAddToQueue(track);
+    for (const track of visibleTopTracks) await handleAddToQueue(track);
   };
 
   const previewTrack = (track: TrackResult) => dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, cover_url: track.cover_url, key: null, camelot: null } });
+
+  const renderTrack = (track: TrackResult) => (
+    <TrackRow
+      key={track.id}
+      track={track}
+      isPreviewing={state.previewTrack?.id === track.id && state.previewPlaying}
+      onPreview={() => previewTrack(track)}
+      onDownload={() => void handleAddToQueue(track)}
+    />
+  );
 
   return (
     <div className="animate-fade-in">
@@ -85,9 +133,9 @@ export default function ArtistView({
 
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1.08fr)_minmax(18rem,0.92fr)] gap-6 items-start">
         <section aria-labelledby="artist-top-tracks" className="min-w-0">
-          <div className="flex items-center justify-between gap-3 mb-3"><div><h3 id="artist-top-tracks" className="text-sm font-semibold" style={{ color: 'var(--text-bright)' }}>Top tracks</h3><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Popular tracks ready for preview or download.</p></div>{topTracks.length > 0 && <button type="button" onClick={() => void handleDownloadAllTopTracks()} className="btn-primary text-xs px-3 py-1.5">Download all</button>}</div>
+          <div className="flex items-center justify-between gap-3 mb-3"><div><h3 id="artist-top-tracks" className="text-sm font-semibold" style={{ color: 'var(--text-bright)' }}>Top tracks</h3><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>The five most popular tracks, ready for preview or download.</p></div>{visibleTopTracks.length > 0 && <button type="button" onClick={() => void handleDownloadAllTopTracks()} className="btn-primary text-xs px-3 py-1.5">Download all</button>}</div>
           {errors?.top_tracks && <SectionMessage tone="error">Top tracks could not be loaded: {errors.top_tracks}</SectionMessage>}
-          {topTracks.length > 0 ? <div className="space-y-2">{topTracks.map((track) => { const camelot = toCamelot(track.key, track.key_scale); return <div key={track.id} className="glass glass-hover p-3 sm:p-4 flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4"><Cover src={track.cover_url} alt={`${track.title} cover`} /><div className="min-w-0 flex-1"><p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{track.title}</p><p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{track.artist} · {track.album} · {formatDuration(track.duration)}</p><div className="flex flex-wrap gap-1.5 mt-2">{track.bpm !== null && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(255, 192, 64, 0.15)', color: 'var(--warning)' }}>{Math.round(track.bpm)} BPM</span>}{camelot && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(0, 184, 212, 0.15)', color: 'var(--info)' }}>{camelot}</span>}</div></div><span className="mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={qualityBadgeColor(track.quality)}>{track.quality}</span><div className="flex items-center gap-2 ml-auto"><button type="button" className="btn-ghost text-xs px-2.5 py-1.5" onClick={() => previewTrack(track)} aria-label={`${state.previewTrack?.id === track.id && state.previewPlaying ? 'Pause' : 'Preview'} ${track.title}`}>{state.previewTrack?.id === track.id && state.previewPlaying ? 'Pause' : 'Preview'}</button><button type="button" className="btn-primary text-xs px-3 py-1.5" onClick={() => void handleAddToQueue(track)} aria-label={`Download ${track.title}`}>Download</button></div></div>; })}</div> : !errors?.top_tracks && <SectionMessage>No top tracks were returned for this artist.</SectionMessage>}
+          {visibleTopTracks.length > 0 ? <div className="space-y-2">{visibleTopTracks.map(renderTrack)}</div> : !errors?.top_tracks && <SectionMessage>No top tracks were returned for this artist.</SectionMessage>}
         </section>
 
         <section aria-labelledby="artist-releases" className="min-w-0">
@@ -96,6 +144,18 @@ export default function ArtistView({
           {albums.length > 0 ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">{albums.map((album) => { const releaseType = album.release_type?.toUpperCase() || 'RELEASE'; return <div key={album.id} className="glass glass-hover p-4 flex items-center gap-4"><Cover src={album.cover_url} alt={`${album.name} cover`} large fallback="▣" /><div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate" style={{ color: 'var(--text-bright)' }}>{album.name}</p><p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{album.artist} · {album.num_tracks} tracks</p><div className="flex items-center gap-2 mt-2"><span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-dim)', color: 'var(--accent-primary)' }}>{releaseType}</span>{album.release_date && <span className="mono text-[10px]" style={{ color: 'var(--text-dim)' }}>{album.release_date}</span>}</div></div><button type="button" className="btn-primary text-xs px-3 py-1.5 shrink-0" onClick={() => void handleAddAlbum(album)} aria-label={`Download album ${album.name}`}>Download</button></div>; })}</div> : !errors?.albums && <SectionMessage>No latest releases were returned for this artist.</SectionMessage>}
         </section>
       </div>
+
+      <section aria-labelledby="artist-all-tracks" className="mt-7">
+        <div className="flex items-center justify-between gap-3 mb-3">
+          <div>
+            <h3 id="artist-all-tracks" className="text-sm font-semibold" style={{ color: 'var(--text-bright)' }}>All tracks</h3>
+            <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Every track from this artist’s albums, EPs, and singles.</p>
+          </div>
+          {tracks.length > 0 && <span className="mono text-[10px] px-2 py-1 rounded" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>{tracks.length} tracks</span>}
+        </div>
+        {errors?.tracks && <SectionMessage tone="error">Some artist tracks could not be loaded: {errors.tracks}</SectionMessage>}
+        {tracks.length > 0 ? <div className="space-y-2">{tracks.map(renderTrack)}</div> : !errors?.tracks && <SectionMessage>No artist tracks were returned.</SectionMessage>}
+      </section>
     </div>
   );
 }

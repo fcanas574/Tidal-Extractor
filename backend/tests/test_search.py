@@ -4,6 +4,7 @@ from unittest.mock import MagicMock
 from backend.search import (
     search_tidal, format_track, format_album, format_playlist,
     parse_tidal_url, format_artist, resolve_url, score_results, enrich_tracks,
+    get_artist_details,
 )
 
 
@@ -236,6 +237,55 @@ def _artist_album(album_id, name, release_type, release_date=None, available_rel
     album.audio_quality = "LOSSLESS"
     album.image.return_value = f"https://img.tidal.com/{album_id}.jpg"
     return album
+
+
+def _artist_track(track_id, title, album):
+    track = MagicMock()
+    track.id = track_id
+    track.title = title
+    track.artist.name = "Test Artist"
+    track.album = album
+    track.duration = 200
+    track.audio_quality = "LOSSLESS"
+    track.explicit = False
+    track.isrc = None
+    track.listen_url = ""
+    track.bpm = None
+    track.key = None
+    track.key_scale = None
+    return track
+
+
+def test_get_artist_details_limits_top_tracks_and_loads_full_non_compilation_catalog():
+    mock_session = MagicMock()
+    mock_artist = MagicMock()
+    mock_artist.id = 42
+    mock_artist.name = "Test Artist"
+    mock_artist.image.return_value = "https://img.tidal.com/artist.jpg"
+    mock_artist.bio = None
+
+    top_tracks = [_artist_track(index, f"Top {index}", _artist_album(100 + index, "Top Album", "ALBUM")) for index in range(1, 7)]
+    mock_artist.get_top_tracks.return_value = top_tracks
+
+    album = _artist_album(1, "Album", "ALBUM", "2024-01-01")
+    ep = _artist_album(2, "EP", "EP", "2025-01-01")
+    single = _artist_album(3, "Single", "SINGLE", "2026-01-01")
+    compilation = _artist_album(4, "Compilation", "COMPILATION", "2026-02-01")
+    album.tracks.return_value = [_artist_track(101, "Album Track", album)]
+    ep.tracks.return_value = [_artist_track(102, "EP Track", ep)]
+    single.tracks.return_value = [_artist_track(103, "Single Track", single)]
+    compilation.tracks.return_value = [_artist_track(104, "Compilation Track", compilation)]
+    mock_artist.get_albums.return_value = [album, compilation]
+    mock_artist.get_ep_singles.return_value = [ep, single]
+    mock_session.artist.return_value = mock_artist
+
+    result = get_artist_details(mock_session, 42)
+
+    assert [track["id"] for track in result["top_tracks"]] == [1, 2, 3, 4, 5]
+    assert [album["id"] for album in result["albums"]] == [3, 2, 1]
+    assert [track["id"] for track in result["tracks"]] == [103, 102, 101]
+    mock_artist.get_top_tracks.assert_called_once_with(limit=5)
+    compilation.tracks.assert_not_called()
 
 
 def test_resolve_url_artist_excludes_compilations_and_sorts_latest_releases():
