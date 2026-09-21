@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useApp } from './AppContext';
-import type { AlbumResult, ArtistResult, QueueItem, ResolveResult, SearchResult, TrackResult } from '../api';
+import type { AlbumDetailResult, AlbumResult, ArtistResult, QueueItem, ResolveResult, SearchResult, TrackResult } from '../api';
 
 type AppDispatch = ReturnType<typeof useApp>['dispatch'];
 
@@ -70,7 +70,7 @@ type AppSearchState = {
   type: string;
   filters: Record<string, unknown>;
   results: SearchResult | null;
-  artist: ResolveResult | null;
+  detail: { kind: 'artist' | 'album'; id: number; status: string; data: ResolveResult | AlbumDetailResult | null; error: string | null } | null;
   status: string;
   error: string | null;
   partialError: string | null;
@@ -87,6 +87,7 @@ const track: TrackResult = {
   artist: 'Artist One',
   album: 'Album One',
   album_id: 20,
+  artist_id: 10,
   duration: 180,
   quality: 'LOSSLESS',
   explicit: false,
@@ -107,7 +108,10 @@ const album: AlbumResult = {
   release_type: 'ALBUM',
   quality: 'LOSSLESS',
   cover_url: null,
+  artist_id: 10,
 };
+
+const albumDetail: AlbumDetailResult = { album, tracks: [track] };
 
 const artist: ArtistResult = { id: 10, name: 'Artist One', image_url: null, bio: null };
 
@@ -239,24 +243,40 @@ describe('search session persistence', () => {
     expect(searchState().results?.has_more).toBe(true);
   });
 
-  it('restores the prior result view after closing artist detail', () => {
+  it('restores the prior result view after closing catalog detail', () => {
     renderHarness();
 
     const results = makeSearchResult({ tracks: [track] });
-    const details: ResolveResult = {
-      artist,
-      top_tracks: [track],
-      tracks: [],
-      albums: [album],
-      playlists: [],
-    };
     dispatch({ type: 'SEARCH_SUCCEEDED', payload: results });
-    dispatch({ type: 'OPEN_ARTIST', payload: details });
-    expect(searchState().artist).toEqual(details);
+    dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'album', id: 20 } });
+    dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'album', id: 20, data: albumDetail } });
+    expect(searchState().detail).toMatchObject({ kind: 'album', id: 20, status: 'success', data: albumDetail });
 
-    dispatch({ type: 'CLOSE_ARTIST' });
+    dispatch({ type: 'CLOSE_DETAIL' });
 
-    expect(searchState().artist).toBeNull();
+    expect(searchState().detail).toBeNull();
     expect(searchState().results).toEqual(results);
+  });
+
+  it('ignores stale catalog detail success for a different active selection', () => {
+    renderHarness();
+
+    dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'album', id: 20 } });
+    dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'album', id: 99, data: albumDetail } });
+
+    expect(searchState().detail).toMatchObject({ kind: 'album', id: 20, status: 'loading' });
+  });
+
+  it('keeps catalog detail when switching tabs', () => {
+    renderHarness();
+
+    dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'album', id: 20 } });
+    dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'album', id: 20, data: albumDetail } });
+    const before = searchState();
+
+    dispatch({ type: 'SET_TAB', payload: 'queue' });
+    dispatch({ type: 'SET_TAB', payload: 'search' });
+
+    expect(searchState()).toEqual(before);
   });
 });

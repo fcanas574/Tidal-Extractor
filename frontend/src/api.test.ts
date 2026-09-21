@@ -6,9 +6,9 @@ describe('search API contract', () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
-        tracks: [],
-        artists: [],
-        albums: [],
+      tracks: [],
+      artists: [],
+      albums: [{ id: 42, name: 'After Hours', artist: 'The Pilot', artist_id: 3, num_tracks: 1, release_date: '2025-01-01', release_type: 'ALBUM', quality: 'LOSSLESS', cover_url: null }],
         playlists: [],
         offset: 20,
         limit: 10,
@@ -53,6 +53,16 @@ describe('search API contract', () => {
     await resolve.url('https://listen.tidal.com/artist/42', controller.signal)
     expect(fetch).toHaveBeenLastCalledWith(
       '/api/resolve?url=https%3A%2F%2Flisten.tidal.com%2Fartist%2F42',
+      expect.objectContaining({ signal: controller.signal }),
+    )
+  })
+
+  it('loads album metadata and tracks with cancellation support', async () => {
+    const controller = new AbortController()
+
+    await search.albumTracks(42, controller.signal)
+    expect(fetch).toHaveBeenLastCalledWith(
+      '/api/album/42/tracks',
       expect.objectContaining({ signal: controller.signal }),
     )
   })

@@ -39,6 +39,7 @@ export interface TrackResult {
   id: number;
   title: string;
   artist: string;
+  artist_id: number | null;
   album: string;
   album_id: number | null;
   duration: number;
@@ -57,11 +58,17 @@ export interface AlbumResult {
   id: number;
   name: string;
   artist: string;
+  artist_id: number | null;
   num_tracks: number;
   release_date: string | null;
   release_type: string | null;
   quality: string;
   cover_url: string | null;
+}
+
+export interface AlbumDetailResult {
+  album: AlbumResult;
+  tracks: TrackResult[];
 }
 
 export interface PlaylistResult {
@@ -167,8 +174,8 @@ export const search = {
   },
   artist: (artistId: number, signal?: AbortSignal) =>
     request<ResolveResult>(`/artist/${artistId}`, { signal }),
-  albumTracks: (albumId: number) =>
-    request<{ tracks: TrackResult[] }>(`/album/${albumId}/tracks`),
+  albumTracks: (albumId: number, signal?: AbortSignal) =>
+    request<AlbumDetailResult>(`/album/${albumId}/tracks`, { signal }),
   playlistTracks: (playlistId: string) =>
     request<{ tracks: TrackResult[] }>(`/playlist/${playlistId}/tracks`),
   getCompatibleKeys: (key: string) =>

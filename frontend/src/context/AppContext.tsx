@@ -1,6 +1,7 @@
 import { createContext, useContext, useReducer, Dispatch } from 'react';
 import type {
   AuthStatus,
+  AlbumDetailResult,
   HistoryItem,
   QueueItem,
   ResolveResult,
@@ -41,12 +42,18 @@ const MAX_OPTIMISTIC_QUEUE_ITEMS = 50;
 
 export type SearchStatus = 'idle' | 'loading' | 'success' | 'error';
 
+type DetailStatus = 'loading' | 'success' | 'error';
+
+export type CatalogDetail =
+  | { kind: 'artist'; id: number; status: DetailStatus; data: ResolveResult | null; error: string | null }
+  | { kind: 'album'; id: number; status: DetailStatus; data: AlbumDetailResult | null; error: string | null };
+
 export interface SearchSession {
   query: string;
   type: SearchType;
   filters: SearchFilters;
   results: SearchResult | null;
-  artist: ResolveResult | null;
+  detail: CatalogDetail | null;
   status: SearchStatus;
   error: string | null;
   partialError: string | null;
@@ -100,8 +107,12 @@ type Action =
   | { type: 'SEARCH_MORE_STARTED' }
   | { type: 'SEARCH_MORE_SUCCEEDED'; payload: { type: SearchType; result: SearchResult } }
   | { type: 'SEARCH_MORE_FAILED'; payload: string }
-  | { type: 'OPEN_ARTIST'; payload: ResolveResult }
-  | { type: 'CLOSE_ARTIST' }
+  | { type: 'DETAIL_STARTED'; payload: { kind: CatalogDetail['kind']; id: number } }
+  | { type: 'DETAIL_SUCCEEDED'; payload:
+      | { kind: 'artist'; id: number; data: ResolveResult }
+      | { kind: 'album'; id: number; data: AlbumDetailResult } }
+  | { type: 'DETAIL_FAILED'; payload: { kind: CatalogDetail['kind']; id: number; error: string } }
+  | { type: 'CLOSE_DETAIL' }
   | { type: 'CLEAR_SEARCH' };
 
 const initialState: AppState = {
@@ -124,7 +135,7 @@ const initialState: AppState = {
     type: 'track',
     filters: {},
     results: null,
-    artist: null,
+    detail: null,
     status: 'idle',
     error: null,
     partialError: null,
@@ -433,7 +444,7 @@ function reducer(state: AppState, action: Action): AppState {
           query: action.payload.query,
           type: action.payload.type,
           filters: action.payload.filters,
-          artist: null,
+          detail: null,
           status: 'loading',
           error: null,
           partialError: null,
@@ -446,7 +457,7 @@ function reducer(state: AppState, action: Action): AppState {
         search: {
           ...state.search,
           results: action.payload,
-          artist: null,
+          detail: null,
           status: 'success',
           error: null,
           partialError: null,
@@ -484,13 +495,38 @@ function reducer(state: AppState, action: Action): AppState {
         ...state,
         search: { ...state.search, partialError: action.payload, loadingMore: false },
       };
-    case 'OPEN_ARTIST':
+    case 'DETAIL_STARTED':
       return {
         ...state,
-        search: { ...state.search, artist: action.payload, status: 'success', error: null },
+        search: {
+          ...state.search,
+          detail: { kind: action.payload.kind, id: action.payload.id, status: 'loading', data: null, error: null },
+        },
       };
-    case 'CLOSE_ARTIST':
-      return { ...state, search: { ...state.search, artist: null } };
+    case 'DETAIL_SUCCEEDED': {
+      const current = state.search.detail;
+      if (!current || current.kind !== action.payload.kind || current.id !== action.payload.id) return state;
+      return {
+        ...state,
+        search: {
+          ...state.search,
+          detail: { ...current, status: 'success', data: action.payload.data, error: null },
+        },
+      };
+    }
+    case 'DETAIL_FAILED': {
+      const current = state.search.detail;
+      if (!current || current.kind !== action.payload.kind || current.id !== action.payload.id) return state;
+      return {
+        ...state,
+        search: {
+          ...state.search,
+          detail: { ...current, status: 'error', error: action.payload.error },
+        },
+      };
+    }
+    case 'CLOSE_DETAIL':
+      return { ...state, search: { ...state.search, detail: null } };
     case 'CLEAR_SEARCH':
       return {
         ...state,
@@ -498,7 +534,7 @@ function reducer(state: AppState, action: Action): AppState {
           ...state.search,
           query: '',
           results: null,
-          artist: null,
+          detail: null,
           status: 'idle',
           error: null,
           partialError: null,

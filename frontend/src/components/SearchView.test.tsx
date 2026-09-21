@@ -18,6 +18,7 @@ vi.mock('../api', async (importOriginal) => {
 
 const track: TrackResult = {
   id: 7, title: 'Night Drive', artist: 'The Pilot', album: 'After Hours', album_id: 4,
+  artist_id: 3,
   duration: 213, quality: 'high_lossless', explicit: false, isrc: null, url: 'tidal://7', cover_url: null,
   bpm: 128, key: 'C', key_scale: 'minor',
 };
@@ -27,7 +28,7 @@ const queueItem: QueueItem = {
   quality: 'high_lossless', format: 'FLAC', status: 'queued', progress: 0, error: null, revision: 1,
 };
 
-const album: AlbumResult = { id: 4, name: 'After Hours', artist: 'The Pilot', num_tracks: 10, release_date: '2024-01-01', release_type: 'ALBUM', quality: 'high_lossless', cover_url: null };
+const album: AlbumResult = { id: 4, name: 'After Hours', artist: 'The Pilot', artist_id: 3, num_tracks: 10, release_date: '2024-01-01', release_type: 'ALBUM', quality: 'high_lossless', cover_url: null };
 const artist: ArtistResult = { id: 3, name: 'The Pilot', image_url: null, bio: null };
 
 function result(overrides: Partial<SearchResult> = {}): SearchResult {
