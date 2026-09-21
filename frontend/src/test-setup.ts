@@ -1,5 +1,16 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
+import { JSDOM } from 'jsdom'
+
+// Node 25 exposes a partial global localStorage object. Bind the complete
+// jsdom implementation so components and tests share the same storage.
+const storage = typeof window.localStorage?.clear === 'function'
+  ? window.localStorage
+  : new JSDOM('', { url: 'http://localhost/' }).window.localStorage
+Object.defineProperty(globalThis, 'localStorage', {
+  configurable: true,
+  value: storage,
+})
 
 // jsdom lacks HTMLAudioElement. Provide a mock `Audio` constructor that
 // satisfies the surface `AudioPlayerFooter` touches: constructor records calls
