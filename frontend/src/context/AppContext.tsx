@@ -101,7 +101,8 @@ type Action =
   | { type: 'SEARCH_MORE_SUCCEEDED'; payload: { type: SearchType; result: SearchResult } }
   | { type: 'SEARCH_MORE_FAILED'; payload: string }
   | { type: 'OPEN_ARTIST'; payload: ResolveResult }
-  | { type: 'CLOSE_ARTIST' };
+  | { type: 'CLOSE_ARTIST' }
+  | { type: 'CLEAR_SEARCH' };
 
 const initialState: AppState = {
   auth: { authenticated: false, username: null },
@@ -432,7 +433,6 @@ function reducer(state: AppState, action: Action): AppState {
           query: action.payload.query,
           type: action.payload.type,
           filters: action.payload.filters,
-          results: null,
           artist: null,
           status: 'loading',
           error: null,
@@ -491,6 +491,20 @@ function reducer(state: AppState, action: Action): AppState {
       };
     case 'CLOSE_ARTIST':
       return { ...state, search: { ...state.search, artist: null } };
+    case 'CLEAR_SEARCH':
+      return {
+        ...state,
+        search: {
+          ...state.search,
+          query: '',
+          results: null,
+          artist: null,
+          status: 'idle',
+          error: null,
+          partialError: null,
+          loadingMore: false,
+        },
+      };
     default:
       return state;
   }
