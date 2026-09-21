@@ -2,10 +2,17 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { queue, resolve, search } from '../api';
 import type { AlbumResult, SearchFilters, SearchResult, SearchType, TrackResult } from '../api';
 import { useApp } from '../context/AppContext';
+import AlbumCard from './AlbumCard';
+import AlbumView from './AlbumView';
 import ArtistView from './ArtistView';
+import TrackRow from './TrackRow';
 
 const TIDAL_URL_RE = /^(https?:\/\/)?(www\.|listen\.)?tidal\.com(?:\/|$)/i;
 const PAGE_SIZE = 50;
+
+function messageFromError(error: unknown) {
+  return error instanceof Error ? error.message : String(error);
+}
 
 const EMPTY_FILTERS: SearchFilters = {};
 const GENRES = [
@@ -17,30 +24,6 @@ const CAMELOT_KEYS = [
   '1A', '2A', '3A', '4A', '5A', '6A', '7A', '8A', '9A', '10A', '11A', '12A',
   '1B', '2B', '3B', '4B', '5B', '6B', '7B', '8B', '9B', '10B', '11B', '12B',
 ];
-
-function formatDuration(seconds: number) {
-  const minutes = Math.floor(seconds / 60);
-  return `${minutes}:${(seconds % 60).toString().padStart(2, '0')}`;
-}
-
-function toCamelot(key: string | null, scale: string | null) {
-  if (!key || !scale) return null;
-  const pitchToNum: Record<string, number> = {
-    Ab: 1, GSharp: 1, Eb: 2, DSharp: 2, Bb: 3, ASharp: 3,
-    F: 4, C: 5, G: 6, D: 7, A: 8, E: 9, B: 10,
-    FSharp: 11, Gb: 11, Db: 12, CSharp: 12,
-  };
-  const number = pitchToNum[key];
-  if (number === undefined) return null;
-  return `${number}${scale.toUpperCase() === 'MINOR' ? 'A' : 'B'}`;
-}
-
-function qualityBadgeColor(quality: string) {
-  if (quality.includes('hi_res') || quality.includes('HI_RES')) return { background: 'rgba(0, 229, 199, 0.12)', color: 'var(--accent-primary)' };
-  if (quality.includes('lossless') || quality.includes('LOSSLESS')) return { background: 'rgba(0, 184, 212, 0.1)', color: 'var(--accent-secondary)' };
-  if (quality.includes('320')) return { background: 'rgba(255, 192, 64, 0.1)', color: 'var(--warning)' };
-  return { background: 'var(--bg-surface)', color: 'var(--text-dim)' };
-}
 
 function buildApiFilters(filters: SearchFilters, offset = 0, refresh = false): SearchFilters {
   return { ...filters, offset, limit: PAGE_SIZE, ...(refresh ? { refresh: true } : {}) };
@@ -98,18 +81,43 @@ function SkeletonResults() {
   );
 }
 
+function SkeletonDetail({ label }: { label: string }) {
+  return (
+    <div className="space-y-4" role="status" aria-label={label} aria-busy="true">
+      <div className="glass p-5 sm:p-6 flex items-center gap-5 animate-pulse">
+        <div className="w-24 h-24 rounded-md shrink-0" style={{ background: 'var(--bg-surface)' }} />
+        <div className="flex-1 space-y-3">
+          <div className="h-3 w-20 rounded" style={{ background: 'var(--bg-surface)' }} />
+          <div className="h-6 w-2/5 rounded" style={{ background: 'var(--bg-surface)' }} />
+          <div className="h-3 w-1/3 rounded" style={{ background: 'var(--bg-surface)' }} />
+        </div>
+      </div>
+      <div className="glass p-5 animate-pulse">
+        <div className="h-4 w-32 rounded mb-4" style={{ background: 'var(--bg-surface)' }} />
+        <div className="space-y-2">{[1, 2, 3].map((item) => <div key={item} className="h-16 rounded" style={{ background: 'var(--bg-surface)' }} />)}</div>
+      </div>
+    </div>
+  );
+}
+
 export default function SearchView() {
   const { state, dispatch } = useApp();
   const session = state.search;
-  const { query, type: searchType, filters, results, artist: artistResult } = session;
+  const { query, type: searchType, filters, results, detail } = session;
   const [refineOpen, setRefineOpen] = useState(false);
   const requestController = useRef<AbortController | null>(null);
   const generation = useRef(0);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const detailActionRef = useRef<HTMLButtonElement | null>(null);
 
   useEffect(() => () => {
     generation.current += 1;
     requestController.current?.abort();
   }, []);
+
+  useEffect(() => {
+    if (detail?.status === 'error') detailActionRef.current?.focus();
+  }, [detail?.kind, detail?.id, detail?.status]);
 
   const beginRequest = () => {
     requestController.current?.abort();
@@ -127,6 +135,43 @@ export default function SearchView() {
     dispatch({ type: 'ADD_TOAST', payload: { id: `search-err-${Date.now()}`, type: 'error', title, detail, dismissAt: Date.now() + 5000 } });
   };
 
+  const closeDetail = () => {
+    dispatch({ type: 'CLOSE_DETAIL' });
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
+  };
+
+  const openArtist = async (artistId: number) => {
+    const { controller, requestId } = beginRequest();
+    dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'artist', id: artistId } });
+    try {
+      const details = await search.artist(artistId, controller.signal);
+      if (isCurrentRequest(requestId, controller)) {
+        dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'artist', id: artistId, data: details } });
+      }
+    } catch (error) {
+      if (!isCurrentRequest(requestId, controller)) return;
+      const message = messageFromError(error);
+      dispatch({ type: 'DETAIL_FAILED', payload: { kind: 'artist', id: artistId, error: message } });
+      notifyError('Artist lookup failed', message);
+    }
+  };
+
+  const openAlbum = async (albumId: number) => {
+    const { controller, requestId } = beginRequest();
+    dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'album', id: albumId } });
+    try {
+      const details = await search.albumTracks(albumId, controller.signal);
+      if (isCurrentRequest(requestId, controller)) {
+        dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'album', id: albumId, data: details } });
+      }
+    } catch (error) {
+      if (!isCurrentRequest(requestId, controller)) return;
+      const message = messageFromError(error);
+      dispatch({ type: 'DETAIL_FAILED', payload: { kind: 'album', id: albumId, error: message } });
+      notifyError('Album lookup failed', message);
+    }
+  };
+
   const runSearch = async (searchQuery: string, type: SearchType, appliedFilters: SearchFilters, refresh = false) => {
     const urlSearch = TIDAL_URL_RE.test(searchQuery);
     const { controller, requestId } = beginRequest();
@@ -136,8 +181,18 @@ export default function SearchView() {
       if (urlSearch) {
         const resolved = await resolve.url(searchQuery, controller.signal);
         if (!isCurrentRequest(requestId, controller)) return;
-        if (resolved.artist) dispatch({ type: 'OPEN_ARTIST', payload: resolved });
-        else dispatch({ type: 'SEARCH_SUCCEEDED', payload: resolveToSearchResult(resolved) });
+        if (resolved.artist) {
+          dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'artist', id: resolved.artist.id } });
+          dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'artist', id: resolved.artist.id, data: resolved } });
+        } else if (resolved.albums[0]) {
+          const albumId = resolved.albums[0].id;
+          dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'album', id: albumId } });
+          const details = await search.albumTracks(albumId, controller.signal);
+          if (!isCurrentRequest(requestId, controller)) return;
+          dispatch({ type: 'DETAIL_SUCCEEDED', payload: { kind: 'album', id: albumId, data: details } });
+        } else {
+          dispatch({ type: 'SEARCH_SUCCEEDED', payload: resolveToSearchResult(resolved) });
+        }
         return;
       }
 
@@ -146,23 +201,9 @@ export default function SearchView() {
       dispatch({ type: 'SEARCH_SUCCEEDED', payload: response });
     } catch (err) {
       if (!isCurrentRequest(requestId, controller)) return;
-      const message = err instanceof Error ? err.message : String(err);
+      const message = messageFromError(err);
       dispatch({ type: 'SEARCH_FAILED', payload: message });
       notifyError(urlSearch ? 'Could not resolve this link' : 'Search failed', message);
-    }
-  };
-
-  const openArtist = async (artistId: number) => {
-    const { controller, requestId } = beginRequest();
-    dispatch({ type: 'SEARCH_STARTED', payload: { query, type: searchType, filters } });
-    try {
-      const details = await search.artist(artistId, controller.signal);
-      if (isCurrentRequest(requestId, controller)) dispatch({ type: 'OPEN_ARTIST', payload: details });
-    } catch (err) {
-      if (!isCurrentRequest(requestId, controller)) return;
-      const message = err instanceof Error ? err.message : String(err);
-      dispatch({ type: 'SEARCH_FAILED', payload: message });
-      notifyError('Artist lookup failed', message);
     }
   };
 
@@ -194,7 +235,7 @@ export default function SearchView() {
 
   const handleTypeChange = (nextType: SearchType) => {
     dispatch({ type: 'SET_SEARCH_TYPE', payload: nextType });
-    dispatch({ type: 'CLOSE_ARTIST' });
+    dispatch({ type: 'CLOSE_DETAIL' });
     if (nextType !== 'track') {
       dispatch({ type: 'SET_SEARCH_FILTERS', payload: EMPTY_FILTERS });
       setRefineOpen(false);
@@ -213,7 +254,7 @@ export default function SearchView() {
       }
     } catch (err) {
       if (!isCurrentRequest(requestId, controller)) return;
-      const message = err instanceof Error ? err.message : String(err);
+      const message = messageFromError(err);
       dispatch({ type: 'SEARCH_MORE_FAILED', payload: message });
       notifyError('Failed to load more', message);
     }
@@ -266,7 +307,7 @@ export default function SearchView() {
                 {isUrl ? <><path d="M7 11L3 15M11 7L15 3M5 13L13 5" /><circle cx="4" cy="14" r="2" /><circle cx="14" cy="4" r="2" /></> : <><circle cx="7.5" cy="7.5" r="5.5" /><path d="M12 12l4 4" /></>}
               </svg>
             </div>
-            <input id="catalog-search" type="text" value={query} onChange={(event) => { dispatch({ type: 'SET_SEARCH_QUERY', payload: event.target.value }); if (artistResult) dispatch({ type: 'CLOSE_ARTIST' }); }} placeholder="Search tracks, artists, albums, or paste a Tidal link" className="input-abyss flex-1 border-none outline-none px-3 py-2.5 text-sm" />
+            <input ref={searchInputRef} id="catalog-search" type="text" value={query} onChange={(event) => { if (detail) dispatch({ type: 'CLOSE_DETAIL' }); dispatch({ type: 'SET_SEARCH_QUERY', payload: event.target.value }); }} placeholder="Search tracks, artists, albums, or paste a Tidal link" className="input-abyss flex-1 border-none outline-none px-3 py-2.5 text-sm" />
             {query && <button type="button" className="btn-ghost text-lg px-2 py-1" aria-label="Clear search" onClick={clearSearch}>×</button>}
             <button type="submit" className="btn-primary text-sm px-5 py-2 shrink-0">{isUrl ? (loading ? 'Resolving…' : 'Resolve') : 'Search'}</button>
           </div>
@@ -300,22 +341,52 @@ export default function SearchView() {
         )}
       </div>
 
-      {artistResult?.artist && <ArtistView artist={artistResult.artist} topTracks={artistResult.top_tracks} tracks={artistResult.tracks} albums={artistResult.albums} errors={artistResult.errors} onBack={() => dispatch({ type: 'CLOSE_ARTIST' })} />}
-      {!artistResult && loading && <SkeletonResults />}
+      {detail?.kind === 'album' && (
+        <AlbumView
+          detail={detail}
+          onBack={closeDetail}
+          onRetry={() => void openAlbum(detail.id)}
+          onOpenArtist={openArtist}
+          onOpenAlbum={openAlbum}
+        />
+      )}
 
-      {!artistResult && !loading && error && (
+      {detail?.kind === 'artist' && detail.status === 'loading' && <SkeletonDetail label="Loading artist details" />}
+
+      {detail?.kind === 'artist' && detail.status === 'error' && (
+        <div className="glass p-8 text-center" role="alert">
+          <p className="text-sm font-medium" style={{ color: 'var(--text-bright)' }}>We couldn’t load this artist.</p>
+          <p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{detail.error}</p>
+          <div className="flex items-center justify-center gap-2 mt-5">
+            <button ref={detailActionRef} type="button" className="btn-primary text-sm" onClick={() => void openArtist(detail.id)}>Retry</button>
+            <button type="button" className="btn-ghost text-sm px-3 py-1.5" onClick={closeDetail}>← Back to search</button>
+          </div>
+        </div>
+      )}
+
+      {detail?.kind === 'artist' && detail.status === 'success' && detail.data?.artist && (
+        <ArtistView
+          artist={detail.data.artist}
+          topTracks={detail.data.top_tracks}
+          tracks={detail.data.tracks}
+          albums={detail.data.albums}
+          errors={detail.data.errors}
+          onBack={closeDetail}
+        />
+      )}
+
+      {!detail && loading && <SkeletonResults />}
+
+      {!detail && !loading && error && (
         <div className="glass p-8 text-center" role="alert"><p className="text-sm font-medium" style={{ color: 'var(--text-bright)' }}>We couldn’t complete that search.</p><p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{error}</p><button type="button" className="btn-primary text-sm mt-5" onClick={() => void runSearch(query.trim(), searchType, filters, true)}>Retry</button></div>
       )}
 
-      {!artistResult && !loading && !error && results && (
+      {!detail && !loading && !error && results && (
         <div className="space-y-2" aria-live="polite">
           {totalResults > 0 && <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>{totalResults} result{totalResults === 1 ? '' : 's'}</p>}
           {results.artists.map((artist, index) => <button key={artist.id} type="button" className="glass glass-hover p-3 sm:p-4 w-full text-left flex items-center gap-3 sm:gap-4" style={{ animationDelay: `${index * 30}ms` }} onClick={() => void openArtist(artist.id)} aria-label={`Open artist ${artist.name}`}><Cover src={artist.image_url} alt={`${artist.name} portrait`} kind="artist" /><span className="min-w-0 flex-1"><span className="block text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{artist.name}</span><span className="block text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Artist</span></span><span className="btn-ghost text-xs px-3 py-1.5 shrink-0">Open</span></button>)}
-          {results.tracks.map((track, index) => {
-            const camelot = toCamelot(track.key, track.key_scale);
-            return <div key={track.id} className="glass glass-hover p-3 sm:p-4 flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4" style={{ animationDelay: `${(results.artists.length + index) * 30}ms` }}><Cover src={track.cover_url} alt={`${track.title} cover`} /><div className="min-w-0 flex-1"><p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{track.title}</p><p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{track.artist} · {track.album} · {formatDuration(track.duration)}</p><div className="flex flex-wrap items-center gap-1.5 mt-2">{track.bpm !== null && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(255, 192, 64, 0.15)', color: 'var(--warning)' }}>{Math.round(track.bpm)} BPM</span>}{camelot && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(0, 184, 212, 0.15)', color: 'var(--info)' }}>{camelot}</span>}</div></div><span className="mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={qualityBadgeColor(track.quality)}>{track.quality}</span><div className="flex items-center gap-2 ml-auto"><button type="button" onClick={() => previewTrack(track)} className="btn-ghost text-xs px-2.5 py-1.5" aria-label={`${state.previewTrack?.id === track.id && state.previewPlaying ? 'Pause' : 'Preview'} ${track.title}`}>{state.previewTrack?.id === track.id && state.previewPlaying ? 'Pause' : 'Preview'}</button><button type="button" onClick={() => void handleAddToQueue(track.id, 'track', track.title, track.artist, track.album)} className="btn-primary text-xs px-3 py-1.5" aria-label={`Download ${track.title}`}>Download</button></div></div>;
-          })}
-          {results.albums.map((album, index) => <div key={album.id} className="glass glass-hover p-3 sm:p-4 flex items-center gap-3 sm:gap-4" style={{ animationDelay: `${results.artists.length + results.tracks.length + index * 30}ms` }}><Cover src={album.cover_url} alt={`${album.name} cover`} kind="album" /><div className="min-w-0 flex-1"><p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{album.name}</p><p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{album.artist} · {album.num_tracks} tracks{album.release_date ? ` · ${album.release_date}` : ''}</p><span className="mono text-[10px]" style={{ color: 'var(--text-dim)' }}>{album.quality}</span></div><button type="button" onClick={() => void handleAddToQueue(album.id, 'album', album.name, album.artist)} className="btn-primary text-xs px-3 py-1.5 shrink-0" aria-label={`Download album ${album.name}`}>Download</button></div>)}
+          {results.tracks.map((track) => <TrackRow key={track.id} track={track} isPreviewing={state.previewTrack?.id === track.id && state.previewPlaying} onPreview={() => previewTrack(track)} onDownload={() => void handleAddToQueue(track.id, 'track', track.title, track.artist, track.album)} onOpenArtist={track.artist_id !== null ? openArtist : undefined} onOpenAlbum={track.album_id !== null ? openAlbum : undefined} />)}
+          {results.albums.map((album) => <AlbumCard key={album.id} album={album} variant="compact" onOpen={(item) => void openAlbum(item.id)} onDownload={(item) => void handleAddToQueue(item.id, 'album', item.name, item.artist)} />)}
           {results.playlists.map((playlist, index) => <div key={playlist.id} className="glass glass-hover p-3 sm:p-4 flex items-center gap-3 sm:gap-4" style={{ animationDelay: `${results.artists.length + results.tracks.length + results.albums.length + index * 30}ms` }}><Cover src={playlist.cover_url} alt={`${playlist.name} cover`} kind="playlist" /><div className="min-w-0 flex-1"><p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{playlist.name}</p><p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{playlist.creator || 'Unknown creator'} · {playlist.num_tracks} tracks</p></div><button type="button" onClick={() => void handleAddToQueue(playlist.id, 'playlist', playlist.name)} className="btn-primary text-xs px-3 py-1.5 shrink-0" aria-label={`Download playlist ${playlist.name}`}>Download</button></div>)}
           {totalResults === 0 && <div className="glass p-8 text-center"><p className="text-sm font-medium" style={{ color: 'var(--text-bright)' }}>{hasActiveFilters ? 'No results match these filters.' : 'No results found.'}</p><p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{hasActiveFilters ? 'Clear a filter or try a broader search.' : 'Try another title, artist, or Tidal link.'}</p>{hasActiveFilters && <button type="button" className="btn-primary text-sm mt-5" onClick={clearFilters}>Clear filters</button>}</div>}
           {partialError && <div className="glass p-4 mt-4" role="status"><p className="text-sm" style={{ color: 'var(--text-bright)' }}>Some results are shown, but more could not be loaded.</p><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{partialError}</p><button type="button" className="btn-ghost text-xs mt-2 px-2 py-1" onClick={() => void handleLoadMore()}>Retry Load more</button></div>}
@@ -323,7 +394,7 @@ export default function SearchView() {
         </div>
       )}
 
-      {!artistResult && !loading && !error && !results && <div className="text-center py-20"><div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'var(--bg-mid)', border: '1px solid var(--glass-border)' }} aria-hidden="true"><svg width="26" height="26" viewBox="0 0 18 18" fill="none" stroke="var(--text-dim)" strokeWidth="1.5"><circle cx="7.5" cy="7.5" r="5.5" /><path d="M12 12l4 4" /></svg></div><p className="text-sm" style={{ color: 'var(--text-dim)' }}>Search the catalog or paste a Tidal link to begin.</p><p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>Genre-only searches are available under Refine.</p></div>}
+      {!detail && !loading && !error && !results && <div className="text-center py-20"><div className="w-14 h-14 rounded-2xl mx-auto mb-4 flex items-center justify-center" style={{ background: 'var(--bg-mid)', border: '1px solid var(--glass-border)' }} aria-hidden="true"><svg width="26" height="26" viewBox="0 0 18 18" fill="none" stroke="var(--text-dim)" strokeWidth="1.5"><circle cx="7.5" cy="7.5" r="5.5" /><path d="M12 12l4 4" /></svg></div><p className="text-sm" style={{ color: 'var(--text-dim)' }}>Search the catalog or paste a Tidal link to begin.</p><p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>Genre-only searches are available under Refine.</p></div>}
     </div>
   );
 }

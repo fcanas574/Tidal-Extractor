@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider } from '../context/AppContext';
-import type { AlbumResult, ArtistResult, QueueItem, SearchResult, TrackResult } from '../api';
+import type { AlbumDetailResult, AlbumResult, ArtistResult, QueueItem, SearchResult, TrackResult } from '../api';
 import { queue, resolve, search } from '../api';
 import SearchView from './SearchView';
 
@@ -30,6 +30,7 @@ const queueItem: QueueItem = {
 
 const album: AlbumResult = { id: 4, name: 'After Hours', artist: 'The Pilot', artist_id: 3, num_tracks: 10, release_date: '2024-01-01', release_type: 'ALBUM', quality: 'high_lossless', cover_url: null };
 const artist: ArtistResult = { id: 3, name: 'The Pilot', image_url: null, bio: null };
+const albumDetail: AlbumDetailResult = { album, tracks: [track] };
 
 function result(overrides: Partial<SearchResult> = {}): SearchResult {
   return { tracks: [], artists: [], albums: [], playlists: [], offset: 0, limit: 50, has_more: false, ...overrides };
@@ -79,6 +80,37 @@ describe('SearchView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Load more results' }));
     await waitFor(() => expect(screen.getByText('Second Track')).toBeInTheDocument());
     expect(search.query).toHaveBeenLastCalledWith('Night Drive', 'track', expect.objectContaining({ offset: 1, limit: 50 }), expect.any(AbortSignal));
+  });
+
+  it('opens an artist from a track result without replacing the committed search', async () => {
+    vi.mocked(search.query).mockResolvedValue(result({ tracks: [track] }));
+    vi.mocked(search.artist).mockResolvedValue({ artist, top_tracks: [track], tracks: [], albums: [album], playlists: [] });
+    renderSearch();
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'Night Drive' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open artist The Pilot' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Open artist The Pilot' }));
+
+    await waitFor(() => expect(screen.getByText('Artist details')).toBeInTheDocument());
+    expect(search.artist).toHaveBeenCalledWith(3, expect.any(AbortSignal));
+    expect(search.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('opens an album from a track result and renders its detail view', async () => {
+    vi.mocked(search.query).mockResolvedValue(result({ tracks: [track] }));
+    vi.mocked(search.albumTracks).mockResolvedValue(albumDetail);
+    renderSearch();
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'Night Drive' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Open album After Hours' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'After Hours' })).toBeInTheDocument());
+    expect(search.albumTracks).toHaveBeenCalledWith(4, expect.any(AbortSignal));
   });
 
   it('shows a retryable request error while preserving the query', async () => {
@@ -152,6 +184,89 @@ describe('SearchView', () => {
     expect(search.artist).toHaveBeenCalledWith(3, expect.any(AbortSignal));
   });
 
+  it('opens album results while keeping their download action independent', async () => {
+    vi.mocked(search.query).mockResolvedValue(result({ albums: [album] }));
+    vi.mocked(search.albumTracks).mockResolvedValue(albumDetail);
+    vi.mocked(queue.add).mockResolvedValue({ ...queueItem, item_type: 'album', title: album.name, artist: album.artist });
+    renderSearch();
+    fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'After Hours' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Download album After Hours' }));
+    expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({ tidal_id: '4', item_type: 'album' }));
+    expect(search.albumTracks).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open album After Hours' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'After Hours' })).toBeInTheDocument());
+    expect(search.albumTracks).toHaveBeenCalledWith(4, expect.any(AbortSignal));
+  });
+
+  it('opens an album URL as album detail instead of a download-only result', async () => {
+    vi.mocked(resolve.url).mockResolvedValue({ artist: null, top_tracks: [], tracks: [], albums: [album], playlists: [] });
+    vi.mocked(search.albumTracks).mockResolvedValue(albumDetail);
+    renderSearch();
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'https://tidal.com/album/4' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'After Hours' })).toBeInTheDocument());
+    expect(search.albumTracks).toHaveBeenCalledWith(4, expect.any(AbortSignal));
+    expect(search.query).not.toHaveBeenCalled();
+  });
+
+  it('restores the existing results after going back from an album detail', async () => {
+    vi.mocked(search.query).mockResolvedValue(result({ albums: [album] }));
+    vi.mocked(search.albumTracks).mockResolvedValue(albumDetail);
+    renderSearch();
+    fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'After Hours' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open album After Hours' }));
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'After Hours' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: '← Back to search' }));
+
+    expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument();
+    expect(input).toHaveValue('After Hours');
+    expect(search.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores an older album detail response after a newer detail completes', async () => {
+    const firstAlbum = { ...album, name: 'First Album' };
+    const secondAlbum = { ...album, id: 5, name: 'Second Album' };
+    const firstDetail = { album: firstAlbum, tracks: [{ ...track, album: firstAlbum.name, album_id: firstAlbum.id }] };
+    const secondDetail = { album: secondAlbum, tracks: [{ ...track, id: 8, title: 'Second Track', album: secondAlbum.name, album_id: secondAlbum.id }] };
+    const detailResolvers: Array<(value: AlbumDetailResult) => void> = [];
+    vi.mocked(search.query)
+      .mockResolvedValueOnce(result({ albums: [firstAlbum] }))
+      .mockResolvedValueOnce(result({ albums: [secondAlbum] }));
+    vi.mocked(search.albumTracks).mockImplementation(() => new Promise((resolve) => detailResolvers.push(resolve)));
+    renderSearch();
+    fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+
+    fireEvent.change(input, { target: { value: 'First Album' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open album First Album' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Open album First Album' }));
+
+    fireEvent.change(input, { target: { value: 'Second Album' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open album Second Album' })).toBeInTheDocument());
+    fireEvent.click(screen.getByRole('button', { name: 'Open album Second Album' }));
+    await waitFor(() => expect(detailResolvers).toHaveLength(2));
+
+    detailResolvers[1](secondDetail);
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Second Album' })).toBeInTheDocument());
+    detailResolvers[0](firstDetail);
+    await waitFor(() => expect(screen.queryByRole('heading', { name: 'First Album' })).not.toBeInTheDocument());
+  });
+
   it('restores the committed query and results after SearchView remounts', async () => {
     vi.mocked(search.query).mockResolvedValue(result({ tracks: [track] }));
     function Shell({ visible }: { visible: boolean }) {
@@ -209,17 +324,4 @@ describe('SearchView', () => {
     ));
   });
 
-  it('keeps album results download-only', async () => {
-    vi.mocked(search.query).mockResolvedValue(result({ albums: [album] }));
-    vi.mocked(queue.add).mockResolvedValue(queueItem);
-    renderSearch();
-    fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
-    const input = screen.getByRole('textbox', { name: /Search tracks/i });
-    fireEvent.change(input, { target: { value: 'After Hours' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
-
-    await waitFor(() => expect(screen.getByText('After Hours')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Download album After Hours' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Open album/i })).not.toBeInTheDocument();
-  });
 });

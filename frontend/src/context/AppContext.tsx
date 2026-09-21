@@ -511,6 +511,8 @@ function reducer(state: AppState, action: Action): AppState {
         search: {
           ...state.search,
           detail: { ...current, status: 'success', data: action.payload.data, error: null },
+          status: 'success',
+          error: null,
         },
       };
     }
@@ -522,6 +524,7 @@ function reducer(state: AppState, action: Action): AppState {
         search: {
           ...state.search,
           detail: { ...current, status: 'error', error: action.payload.error },
+          status: 'success',
         },
       };
     }
