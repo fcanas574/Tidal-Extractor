@@ -1,6 +1,6 @@
 import logging
 import re
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple
 
 import tidalapi
@@ -134,12 +134,17 @@ def format_album(album) -> dict:
         cover_url = album.image(640)
     except Exception:
         pass
+    release_date = _release_date(album)
+    release_type = getattr(album, "type", None)
+    if not isinstance(release_type, str):
+        release_type = None
     return {
         "id": album.id,
         "name": album.name or "Unknown",
         "artist": album.artist.name if album.artist else "Unknown",
         "num_tracks": album.num_tracks or 0,
-        "release_date": str(album.release_date) if album.release_date else None,
+        "release_date": release_date.isoformat() if release_date else None,
+        "release_type": release_type,
         "quality": album.audio_quality if hasattr(album, "audio_quality") else "UNKNOWN",
         "cover_url": cover_url,
     }
@@ -190,6 +195,62 @@ def format_artist(artist) -> dict:
     }
 
 
+def _release_date(album) -> Optional[date]:
+    """Return the best available release date for an album-like object."""
+    for attribute in ("available_release_date", "release_date", "tidal_release_date"):
+        value = getattr(album, attribute, None)
+        if isinstance(value, datetime):
+            return value.date()
+        if isinstance(value, date):
+            return value
+        if isinstance(value, str) and value:
+            try:
+                return date.fromisoformat(value[:10])
+            except ValueError:
+                continue
+    return None
+
+
+def _is_artist_release(album) -> bool:
+    """Keep artist releases while excluding compilations and other collections."""
+    release_type = getattr(album, "type", None)
+    if not isinstance(release_type, str):
+        return True
+    return release_type.upper() in {"ALBUM", "EP", "SINGLE"}
+
+
+def get_artist_details(session: tidalapi.Session, artist_id: int) -> dict:
+    """Load the artist page data while preserving independently available sections."""
+    artist = session.artist(artist_id)
+    result = {
+        "artist": format_artist(artist),
+        "top_tracks": [],
+        "albums": [],
+    }
+    errors = {}
+
+    try:
+        result["top_tracks"] = [format_track(track) for track in artist.get_top_tracks()]
+    except Exception as exc:
+        logger.warning("Failed to load top tracks for artist %s: %s", artist_id, exc)
+        errors["top_tracks"] = str(exc)
+
+    try:
+        albums = [album for album in artist.get_albums() if _is_artist_release(album)]
+        albums.sort(
+            key=lambda album: (_release_date(album) is not None, _release_date(album) or date.min),
+            reverse=True,
+        )
+        result["albums"] = [format_album(album) for album in albums[:8]]
+    except Exception as exc:
+        logger.warning("Failed to load releases for artist %s: %s", artist_id, exc)
+        errors["albums"] = str(exc)
+
+    if errors:
+        result["errors"] = errors
+    return result
+
+
 def resolve_url(session: tidalapi.Session, url: str) -> dict:
     parsed = parse_tidal_url(url)
     if parsed is None:
@@ -211,38 +272,45 @@ def resolve_url(session: tidalapi.Session, url: str) -> dict:
         return {**empty, "playlists": [format_playlist(playlist)]}
 
     if content_type == "artist":
-        artist = session.artist(int(content_id))
-        top_tracks = [format_track(t) for t in artist.get_top_tracks()]
-        albums = [format_album(a) for a in artist.get_albums()]
-        return {**empty, "artist": format_artist(artist), "top_tracks": top_tracks, "albums": albums}
+        details = get_artist_details(session, int(content_id))
+        return {**empty, **details}
 
     return empty
 
 
-def search_tidal(session: tidalapi.Session, query: str, models: Optional[List[str]] = None, limit: int = 50, artist_filter: Optional[str] = None) -> dict:
+def search_tidal(
+    session: tidalapi.Session,
+    query: str,
+    models: Optional[List[str]] = None,
+    limit: int = 50,
+    offset: int = 0,
+    artist_filter: Optional[str] = None,
+) -> dict:
     if models is None:
-        models = ["track", "album", "playlist"]
+        models = ["track", "artist", "album", "playlist"]
 
     model_map = {
         "track": tidalapi.Track,
+        "artist": tidalapi.Artist,
         "album": tidalapi.Album,
         "playlist": tidalapi.Playlist,
     }
     tidal_models = [model_map[m] for m in models if m in model_map]
 
     if not tidal_models:
-        return {"tracks": [], "albums": [], "playlists": []}
+        return {"tracks": [], "artists": [], "albums": [], "playlists": []}
 
-    results = session.search(query, models=tidal_models, limit=limit)
+    results = session.search(query, models=tidal_models, limit=limit, offset=offset)
 
     tracks = [format_track(t) for t in results.get("tracks", [])]
     if artist_filter:
         artist_lower = artist_filter.lower()
         tracks = [t for t in tracks if artist_lower in t["artist"].lower()]
+    artists = [format_artist(a) for a in results.get("artists", [])]
     albums = [format_album(a) for a in results.get("albums", [])]
     playlists = [format_playlist(p) for p in results.get("playlists", [])]
 
-    return {"tracks": tracks, "albums": albums, "playlists": playlists}
+    return {"tracks": tracks, "artists": artists, "albums": albums, "playlists": playlists}
 
 
 def get_album_tracks(session: tidalapi.Session, album_id: int) -> List[dict]:

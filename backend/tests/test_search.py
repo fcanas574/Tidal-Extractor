@@ -1,4 +1,5 @@
 import pytest
+import tidalapi
 from unittest.mock import MagicMock
 from backend.search import (
     search_tidal, format_track, format_album, format_playlist,
@@ -77,6 +78,38 @@ def test_search_tidal_tracks():
     results = search_tidal(mock_session, "Found Song", models=["track"])
     assert len(results["tracks"]) == 1
     assert results["tracks"][0]["title"] == "Found Song"
+
+
+def test_search_tidal_artists_returns_typed_artist_results():
+    mock_session = MagicMock()
+    mock_artist = MagicMock()
+    mock_artist.id = 42
+    mock_artist.name = "Found Artist"
+    mock_artist.image.return_value = "https://img.tidal.com/artist.jpg"
+    mock_artist.bio = None
+    mock_session.search.return_value = {
+        "tracks": [],
+        "artists": [mock_artist],
+        "albums": [],
+        "playlists": [],
+        "videos": [],
+        "top_hit": None,
+    }
+
+    results = search_tidal(mock_session, "Found Artist", models=["artist"], limit=25, offset=10)
+
+    assert results["artists"] == [{
+        "id": 42,
+        "name": "Found Artist",
+        "image_url": "https://img.tidal.com/artist.jpg",
+        "bio": None,
+    }]
+    assert results["tracks"] == []
+    assert results["albums"] == []
+    assert results["playlists"] == []
+    mock_session.search.assert_called_once_with(
+        "Found Artist", models=[tidalapi.Artist], limit=25, offset=10
+    )
 
 
 # --- parse_tidal_url tests ---
@@ -174,6 +207,7 @@ def test_resolve_url_artist():
     mock_album_obj.name = "Best Of"
     mock_album_obj.artist.name = "Test Artist"
     mock_album_obj.num_tracks = 12
+    mock_album_obj.type = "ALBUM"
     mock_album_obj.release_date = "2024-01-01"
     mock_album_obj.audio_quality = "LOSSLESS"
     mock_album_obj.image = MagicMock(return_value="https://img.tidal.com/album.jpg")
@@ -187,6 +221,80 @@ def test_resolve_url_artist():
     assert result["top_tracks"][0]["title"] == "Top Hit"
     assert len(result["albums"]) == 1
     assert result["albums"][0]["name"] == "Best Of"
+
+
+def _artist_album(album_id, name, release_type, release_date=None, available_release_date=None):
+    album = MagicMock()
+    album.id = album_id
+    album.name = name
+    album.artist.name = "Test Artist"
+    album.num_tracks = 8
+    album.type = release_type
+    album.release_date = release_date
+    album.available_release_date = available_release_date
+    album.tidal_release_date = None
+    album.audio_quality = "LOSSLESS"
+    album.image.return_value = f"https://img.tidal.com/{album_id}.jpg"
+    return album
+
+
+def test_resolve_url_artist_excludes_compilations_and_sorts_latest_releases():
+    mock_session = MagicMock()
+    mock_artist_obj = MagicMock()
+    mock_artist_obj.id = 42
+    mock_artist_obj.name = "Test Artist"
+    mock_artist_obj.image.return_value = "https://img.tidal.com/artist.jpg"
+    mock_artist_obj.bio = None
+    mock_artist_obj.get_top_tracks.return_value = []
+    mock_artist_obj.get_albums.return_value = [
+        _artist_album(1, "Older Album", "ALBUM", "2023-01-01"),
+        _artist_album(2, "New Single", "SINGLE", "2025-01-01"),
+        _artist_album(3, "Compilation", "COMPILATION", "2026-01-01"),
+        _artist_album(4, "Newest EP", "EP", available_release_date="2026-02-01"),
+        _artist_album(5, "Undated Album", "ALBUM"),
+    ]
+    mock_session.artist.return_value = mock_artist_obj
+
+    result = resolve_url(mock_session, "https://listen.tidal.com/artist/42")
+
+    assert [album["id"] for album in result["albums"]] == [4, 2, 1, 5]
+    assert all(album["release_type"] != "COMPILATION" for album in result["albums"])
+
+
+def test_resolve_url_artist_preserves_releases_when_top_tracks_fail():
+    mock_session = MagicMock()
+    mock_artist_obj = MagicMock()
+    mock_artist_obj.id = 42
+    mock_artist_obj.name = "Test Artist"
+    mock_artist_obj.image.return_value = "https://img.tidal.com/artist.jpg"
+    mock_artist_obj.bio = None
+    mock_artist_obj.get_top_tracks.side_effect = RuntimeError("top tracks unavailable")
+    mock_artist_obj.get_albums.return_value = [_artist_album(1, "Album", "ALBUM", "2024-01-01")]
+    mock_session.artist.return_value = mock_artist_obj
+
+    result = resolve_url(mock_session, "https://listen.tidal.com/artist/42")
+
+    assert result["top_tracks"] == []
+    assert len(result["albums"]) == 1
+    assert "top_tracks" in result["errors"]
+
+
+def test_resolve_url_artist_preserves_top_tracks_when_releases_fail():
+    mock_session = MagicMock()
+    mock_artist_obj = MagicMock()
+    mock_artist_obj.id = 42
+    mock_artist_obj.name = "Test Artist"
+    mock_artist_obj.image.return_value = "https://img.tidal.com/artist.jpg"
+    mock_artist_obj.bio = None
+    mock_artist_obj.get_top_tracks.return_value = []
+    mock_artist_obj.get_albums.side_effect = RuntimeError("releases unavailable")
+    mock_session.artist.return_value = mock_artist_obj
+
+    result = resolve_url(mock_session, "https://listen.tidal.com/artist/42")
+
+    assert result["top_tracks"] == []
+    assert result["albums"] == []
+    assert "albums" in result["errors"]
 
 def test_resolve_url_invalid():
     mock_session = MagicMock()
