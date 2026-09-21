@@ -104,7 +104,7 @@ describe('SearchView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
     await waitFor(() => expect(screen.getByText('Artist details')).toBeInTheDocument());
     expect(screen.getByText('Top tracks')).toBeInTheDocument();
-    expect(screen.getByText('Albums')).toBeInTheDocument();
+    expect(screen.getByText('Latest releases')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '← Back to search' }));
     expect(screen.getByText('Search the catalog or paste a Tidal link to begin.')).toBeInTheDocument();
     expect(resolve.url).toHaveBeenCalledTimes(1);
