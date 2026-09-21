@@ -1,7 +1,7 @@
 # TIDAL Metadata Enrichment and Refinement Design
 
 **Date:** 2026-09-21  
-**Status:** Design approved in chat; implementation pending written-spec review  
+**Status:** Design and written spec approved; implementation plan ready  
 **Scope:** First phase of FreqBlog-backed refinement for existing TIDAL catalog flows
 
 ## Goal
