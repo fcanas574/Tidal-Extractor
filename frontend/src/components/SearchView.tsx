@@ -300,7 +300,7 @@ export default function SearchView() {
         )}
       </div>
 
-      {artistResult?.artist && <ArtistView artist={artistResult.artist} topTracks={artistResult.top_tracks} albums={artistResult.albums} onBack={() => dispatch({ type: 'CLOSE_ARTIST' })} />}
+      {artistResult?.artist && <ArtistView artist={artistResult.artist} topTracks={artistResult.top_tracks} albums={artistResult.albums} errors={artistResult.errors} onBack={() => dispatch({ type: 'CLOSE_ARTIST' })} />}
       {!artistResult && loading && <SkeletonResults />}
 
       {!artistResult && !loading && error && (

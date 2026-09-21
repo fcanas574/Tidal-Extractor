@@ -110,6 +110,18 @@ describe('SearchView', () => {
     expect(resolve.url).toHaveBeenCalledTimes(1);
   });
 
+  it('surfaces partial artist errors without hiding the successful section', async () => {
+    vi.mocked(resolve.url).mockResolvedValue({ artist, top_tracks: [track], tracks: [], albums: [], playlists: [], errors: { albums: 'Releases unavailable' } });
+    renderSearch();
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'https://tidal.com/artist/3' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Resolve' }));
+
+    await waitFor(() => expect(screen.getByText('Night Drive')).toBeInTheDocument());
+    expect(screen.getByText(/Releases unavailable/)).toBeInTheDocument();
+    expect(screen.getByText('Top tracks')).toBeInTheDocument();
+  });
+
   it('searches artists and opens the selected artist by id', async () => {
     vi.mocked(search.query).mockResolvedValue(result({ artists: [artist] }));
     vi.mocked(search.artist).mockResolvedValue({ artist, top_tracks: [track], tracks: [], albums: [album], playlists: [] });
