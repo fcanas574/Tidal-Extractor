@@ -101,3 +101,18 @@ async def test_enrich_catalog_tracks_requests_only_missing_tracks_and_preserves_
     cached = await db.get_catalog_metadata([8, 9])
     assert cached[8]["status"] == "found"
     assert cached[9]["status"] == "miss"
+
+
+@pytest.mark.asyncio
+async def test_enrich_catalog_tracks_preserves_explicitly_empty_required_fields(monkeypatch, db):
+    async def provider_must_not_run(tracks):
+        raise AssertionError("empty required fields should not request provider metadata")
+
+    monkeypatch.setattr("backend.catalog_metadata.lookup_tracks_metadata", provider_must_not_run)
+    result = await enrich_catalog_tracks(
+        db,
+        [{"id": 7, "title": "Unrefined", "artist": "Artist", "bpm": None, "key": None, "genre": None}],
+        required_fields=set(),
+    )
+
+    assert result[0]["metadata_status"] == "complete"

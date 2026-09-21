@@ -104,7 +104,7 @@ async def enrich_catalog_tracks(
     lookup_limit: int | None = None,
 ) -> list[dict]:
     """Apply cached/provider metadata while preserving the input order and length."""
-    required = set(required_fields or DEFAULT_REQUIRED_FIELDS)
+    required = set(DEFAULT_REQUIRED_FIELDS if required_fields is None else required_fields)
     enriched = [_initialize_sources(track) for track in tracks]
     if not enriched:
         return []
