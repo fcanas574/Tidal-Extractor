@@ -506,11 +506,17 @@ function reducer(state: AppState, action: Action): AppState {
     case 'DETAIL_SUCCEEDED': {
       const current = state.search.detail;
       if (!current || current.kind !== action.payload.kind || current.id !== action.payload.id) return state;
+      const nextDetail = action.payload.kind === 'album' && current.kind === 'album'
+        ? { ...current, status: 'success' as const, data: action.payload.data, error: null }
+        : action.payload.kind === 'artist' && current.kind === 'artist'
+          ? { ...current, status: 'success' as const, data: action.payload.data, error: null }
+          : null;
+      if (!nextDetail) return state;
       return {
         ...state,
         search: {
           ...state.search,
-          detail: { ...current, status: 'success', data: action.payload.data, error: null },
+          detail: nextDetail,
           status: 'success',
           error: null,
         },
