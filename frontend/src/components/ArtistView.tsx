@@ -1,24 +1,8 @@
 import { queue } from '../api';
 import type { AlbumResult, ArtistResult, ResolveResult, TrackResult } from '../api';
 import { useApp } from '../context/AppContext';
-
-function formatDuration(seconds: number) {
-  return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
-}
-
-function toCamelot(key: string | null, scale: string | null) {
-  if (!key || !scale) return null;
-  const pitchToNum: Record<string, number> = { Ab: 1, GSharp: 1, Eb: 2, DSharp: 2, Bb: 3, ASharp: 3, F: 4, C: 5, G: 6, D: 7, A: 8, E: 9, B: 10, FSharp: 11, Gb: 11, Db: 12, CSharp: 12 };
-  const number = pitchToNum[key];
-  return number === undefined ? null : `${number}${scale.toUpperCase() === 'MINOR' ? 'A' : 'B'}`;
-}
-
-function qualityBadgeColor(quality: string) {
-  if (quality.includes('hi_res') || quality.includes('HI_RES')) return { background: 'rgba(0, 229, 199, 0.12)', color: 'var(--accent-primary)' };
-  if (quality.includes('lossless') || quality.includes('LOSSLESS')) return { background: 'rgba(0, 184, 212, 0.1)', color: 'var(--accent-secondary)' };
-  if (quality.includes('320')) return { background: 'rgba(255, 192, 64, 0.1)', color: 'var(--warning)' };
-  return { background: 'var(--bg-surface)', color: 'var(--text-dim)' };
-}
+import AlbumCard from './AlbumCard';
+import TrackRow from './TrackRow';
 
 function Cover({ src, alt, round = false, large = false, fallback = '♪' }: { src: string | null; alt: string; round?: boolean; large?: boolean; fallback?: string }) {
   const size = large ? 'w-20 h-20' : 'w-16 h-16';
@@ -30,41 +14,6 @@ function SectionMessage({ children, tone = 'muted' }: { children: React.ReactNod
   return <div className="glass p-4 text-sm" role={tone === 'error' ? 'status' : undefined} style={{ color: tone === 'error' ? 'var(--warning)' : 'var(--text-muted)' }}>{children}</div>;
 }
 
-function TrackRow({
-  track,
-  isPreviewing,
-  onPreview,
-  onDownload,
-}: {
-  track: TrackResult;
-  isPreviewing: boolean;
-  onPreview: () => void;
-  onDownload: () => void;
-}) {
-  const camelot = toCamelot(track.key, track.key_scale);
-
-  return (
-    <div className="glass glass-hover p-3 sm:p-4 flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4">
-      <Cover src={track.cover_url} alt={`${track.title} cover`} />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{track.title}</p>
-        <p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{track.artist} · {track.album} · {formatDuration(track.duration)}</p>
-        <div className="flex flex-wrap gap-1.5 mt-2">
-          {track.bpm !== null && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(255, 192, 64, 0.15)', color: 'var(--warning)' }}>{Math.round(track.bpm)} BPM</span>}
-          {camelot && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(0, 184, 212, 0.15)', color: 'var(--info)' }}>{camelot}</span>}
-        </div>
-      </div>
-      <span className="mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={qualityBadgeColor(track.quality)}>{track.quality}</span>
-      <div className="flex items-center gap-2 ml-auto">
-        <button type="button" className="btn-ghost text-xs px-2.5 py-1.5" onClick={onPreview} aria-label={`${isPreviewing ? 'Pause' : 'Preview'} ${track.title}`}>
-          {isPreviewing ? 'Pause' : 'Preview'}
-        </button>
-        <button type="button" className="btn-primary text-xs px-3 py-1.5" onClick={onDownload} aria-label={`Download ${track.title}`}>Download</button>
-      </div>
-    </div>
-  );
-}
-
 export default function ArtistView({
   artist,
   topTracks,
@@ -72,6 +21,8 @@ export default function ArtistView({
   albums,
   errors,
   onBack,
+  onOpenArtist,
+  onOpenAlbum,
 }: {
   artist: ArtistResult;
   topTracks: TrackResult[];
@@ -79,6 +30,8 @@ export default function ArtistView({
   albums: AlbumResult[];
   errors?: ResolveResult['errors'];
   onBack?: () => void;
+  onOpenArtist?: (artistId: number) => void;
+  onOpenAlbum?: (albumId: number) => void;
 }) {
   const { state, dispatch } = useApp();
   const visibleTopTracks = topTracks.slice(0, 5);
@@ -116,6 +69,8 @@ export default function ArtistView({
       isPreviewing={state.previewTrack?.id === track.id && state.previewPlaying}
       onPreview={() => previewTrack(track)}
       onDownload={() => void handleAddToQueue(track)}
+      onOpenArtist={onOpenArtist}
+      onOpenAlbum={onOpenAlbum}
     />
   );
 
@@ -141,7 +96,7 @@ export default function ArtistView({
         <section aria-labelledby="artist-releases" className="min-w-0">
           <div className="mb-3"><h3 id="artist-releases" className="text-sm font-semibold" style={{ color: 'var(--text-bright)' }}>Latest releases</h3><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Albums, EPs, and singles — newest first.</p></div>
           {errors?.albums && <SectionMessage tone="error">Latest releases could not be loaded: {errors.albums}</SectionMessage>}
-          {albums.length > 0 ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">{albums.map((album) => { const releaseType = album.release_type?.toUpperCase() || 'RELEASE'; return <div key={album.id} className="glass glass-hover p-4 flex items-center gap-4"><Cover src={album.cover_url} alt={`${album.name} cover`} large fallback="▣" /><div className="min-w-0 flex-1"><p className="text-sm font-semibold truncate" style={{ color: 'var(--text-bright)' }}>{album.name}</p><p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{album.artist} · {album.num_tracks} tracks</p><div className="flex items-center gap-2 mt-2"><span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--accent-dim)', color: 'var(--accent-primary)' }}>{releaseType}</span>{album.release_date && <span className="mono text-[10px]" style={{ color: 'var(--text-dim)' }}>{album.release_date}</span>}</div></div><button type="button" className="btn-primary text-xs px-3 py-1.5 shrink-0" onClick={() => void handleAddAlbum(album)} aria-label={`Download album ${album.name}`}>Download</button></div>; })}</div> : !errors?.albums && <SectionMessage>No latest releases were returned for this artist.</SectionMessage>}
+          {albums.length > 0 ? <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-1 gap-3">{albums.map((album) => <AlbumCard key={album.id} album={album} variant="release" onOpen={onOpenAlbum ? (item) => onOpenAlbum(item.id) : undefined} onDownload={(item) => void handleAddAlbum(item)} />)}</div> : !errors?.albums && <SectionMessage>No latest releases were returned for this artist.</SectionMessage>}
         </section>
       </div>
 

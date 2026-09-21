@@ -372,6 +372,8 @@ export default function SearchView() {
           albums={detail.data.albums}
           errors={detail.data.errors}
           onBack={closeDetail}
+          onOpenArtist={openArtist}
+          onOpenAlbum={openAlbum}
         />
       )}
 

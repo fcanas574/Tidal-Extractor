@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen } from '@testing-library/react';
+import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AppProvider } from '../context/AppContext';
 import type { AlbumResult, ArtistResult, TrackResult } from '../api';
@@ -60,20 +60,27 @@ function renderArtist(overrides: Partial<React.ComponentProps<typeof ArtistView>
 }
 
 describe('ArtistView', () => {
-  it('shows top tracks beside larger latest-release cards with download-only albums', () => {
-    renderArtist();
+  it('shows top tracks beside larger latest-release cards with navigable metadata', () => {
+    const onOpenArtist = vi.fn();
+    const onOpenAlbum = vi.fn();
+    renderArtist({ onOpenArtist, onOpenAlbum });
 
     expect(screen.getByRole('heading', { name: 'Top tracks' })).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Latest releases' })).toBeInTheDocument();
-    expect(screen.getByText('After Hours')).toBeInTheDocument();
+    expect(screen.getAllByText('After Hours')).toHaveLength(2);
     expect(screen.getByText('EP')).toBeInTheDocument();
-    expect(screen.getByText('2025-02-01')).toBeInTheDocument();
+    expect(screen.getByText(/2025-02-01/)).toBeInTheDocument();
     expect(screen.getByText('SINGLE')).toBeInTheDocument();
-    expect(screen.getByText('2025-04-01')).toBeInTheDocument();
+    expect(screen.getByText(/2025-04-01/)).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Preview Night Drive' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download Night Drive' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download album After Hours' })).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: /Open album/i })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open artist The Pilot' }));
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open album After Hours' })[0]);
+
+    expect(onOpenArtist).toHaveBeenCalledWith(3);
+    expect(onOpenAlbum).toHaveBeenCalledWith(4);
   });
 
   it('shows no more than five top tracks', () => {
