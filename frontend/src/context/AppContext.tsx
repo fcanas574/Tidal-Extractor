@@ -1,5 +1,15 @@
 import { createContext, useContext, useReducer, Dispatch } from 'react';
-import type { AuthStatus, QueueItem, Settings, WsMessage, HistoryItem } from '../api';
+import type {
+  AuthStatus,
+  HistoryItem,
+  QueueItem,
+  ResolveResult,
+  SearchFilters,
+  SearchResult,
+  SearchType,
+  Settings,
+  WsMessage,
+} from '../api';
 
 export interface PreviewTrack {
   id: number;
@@ -29,6 +39,20 @@ interface QueueMeta {
 const OPTIMISTIC_QUEUE_TTL = 30_000;
 const MAX_OPTIMISTIC_QUEUE_ITEMS = 50;
 
+export type SearchStatus = 'idle' | 'loading' | 'success' | 'error';
+
+export interface SearchSession {
+  query: string;
+  type: SearchType;
+  filters: SearchFilters;
+  results: SearchResult | null;
+  artist: ResolveResult | null;
+  status: SearchStatus;
+  error: string | null;
+  partialError: string | null;
+  loadingMore: boolean;
+}
+
 export interface AppState {
   auth: AuthStatus;
   activeTab: 'search' | 'queue' | 'history' | 'stats';
@@ -44,6 +68,7 @@ export interface AppState {
   history: HistoryItem[];
   historyLoading: boolean;
   stats: Record<string, number>;
+  search: SearchSession;
 }
 
 type Action =
@@ -65,7 +90,18 @@ type Action =
   | { type: 'SET_PREVIEW_PLAYING'; payload: boolean }
   | { type: 'SET_HISTORY'; payload: HistoryItem[] }
   | { type: 'SET_HISTORY_LOADING'; payload: boolean }
-  | { type: 'SET_STATS'; payload: Record<string, number> };
+  | { type: 'SET_STATS'; payload: Record<string, number> }
+  | { type: 'SET_SEARCH_QUERY'; payload: string }
+  | { type: 'SET_SEARCH_TYPE'; payload: SearchType }
+  | { type: 'SET_SEARCH_FILTERS'; payload: SearchFilters }
+  | { type: 'SEARCH_STARTED'; payload: { query: string; type: SearchType; filters: SearchFilters } }
+  | { type: 'SEARCH_SUCCEEDED'; payload: SearchResult }
+  | { type: 'SEARCH_FAILED'; payload: string }
+  | { type: 'SEARCH_MORE_STARTED' }
+  | { type: 'SEARCH_MORE_SUCCEEDED'; payload: { type: SearchType; result: SearchResult } }
+  | { type: 'SEARCH_MORE_FAILED'; payload: string }
+  | { type: 'OPEN_ARTIST'; payload: ResolveResult }
+  | { type: 'CLOSE_ARTIST' };
 
 const initialState: AppState = {
   auth: { authenticated: false, username: null },
@@ -82,6 +118,17 @@ const initialState: AppState = {
   history: [],
   historyLoading: false,
   stats: {},
+  search: {
+    query: '',
+    type: 'track',
+    filters: {},
+    results: null,
+    artist: null,
+    status: 'idle',
+    error: null,
+    partialError: null,
+    loadingMore: false,
+  },
 };
 
 type TerminalStatus = 'complete' | 'failed';
@@ -164,6 +211,42 @@ function mergeQueueSnapshot(state: AppState, incomingItems: QueueItem[]): Pick<A
   }
 
   return { queue: queueItems, queueMeta };
+}
+
+function mergeSearchItems<T extends { id: number | string }>(current: T[], incoming: T[]) {
+  const merged = [...current];
+  const seen = new Set(current.map((item) => String(item.id)));
+  for (const item of incoming) {
+    const id = String(item.id);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    merged.push(item);
+  }
+  return merged;
+}
+
+function appendSearchPage(
+  current: SearchResult | null,
+  incoming: SearchResult,
+  type: SearchType,
+): SearchResult {
+  if (!current) return incoming;
+  const page = {
+    offset: incoming.offset,
+    limit: incoming.limit,
+    has_more: incoming.has_more,
+  };
+
+  switch (type) {
+    case 'track':
+      return { ...current, tracks: mergeSearchItems(current.tracks, incoming.tracks), ...page };
+    case 'artist':
+      return { ...current, artists: mergeSearchItems(current.artists, incoming.artists), ...page };
+    case 'album':
+      return { ...current, albums: mergeSearchItems(current.albums, incoming.albums), ...page };
+    case 'playlist':
+      return { ...current, playlists: mergeSearchItems(current.playlists, incoming.playlists), ...page };
+  }
 }
 
 function reducer(state: AppState, action: Action): AppState {
@@ -335,6 +418,79 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, historyLoading: action.payload };
     case 'SET_STATS':
       return { ...state, stats: action.payload };
+    case 'SET_SEARCH_QUERY':
+      return { ...state, search: { ...state.search, query: action.payload } };
+    case 'SET_SEARCH_TYPE':
+      return { ...state, search: { ...state.search, type: action.payload } };
+    case 'SET_SEARCH_FILTERS':
+      return { ...state, search: { ...state.search, filters: action.payload } };
+    case 'SEARCH_STARTED':
+      return {
+        ...state,
+        search: {
+          ...state.search,
+          query: action.payload.query,
+          type: action.payload.type,
+          filters: action.payload.filters,
+          results: null,
+          artist: null,
+          status: 'loading',
+          error: null,
+          partialError: null,
+          loadingMore: false,
+        },
+      };
+    case 'SEARCH_SUCCEEDED':
+      return {
+        ...state,
+        search: {
+          ...state.search,
+          results: action.payload,
+          artist: null,
+          status: 'success',
+          error: null,
+          partialError: null,
+          loadingMore: false,
+        },
+      };
+    case 'SEARCH_FAILED':
+      return {
+        ...state,
+        search: {
+          ...state.search,
+          status: 'error',
+          error: action.payload,
+          loadingMore: false,
+        },
+      };
+    case 'SEARCH_MORE_STARTED':
+      return {
+        ...state,
+        search: { ...state.search, loadingMore: true, partialError: null },
+      };
+    case 'SEARCH_MORE_SUCCEEDED':
+      return {
+        ...state,
+        search: {
+          ...state.search,
+          results: appendSearchPage(state.search.results, action.payload.result, action.payload.type),
+          status: 'success',
+          partialError: null,
+          loadingMore: false,
+        },
+      };
+    case 'SEARCH_MORE_FAILED':
+      return {
+        ...state,
+        search: { ...state.search, partialError: action.payload, loadingMore: false },
+      };
+    case 'OPEN_ARTIST':
+      return {
+        ...state,
+        search: { ...state.search, artist: action.payload, status: 'success', error: null },
+      };
+    case 'CLOSE_ARTIST':
+      return { ...state, search: { ...state.search, artist: null } };
     default:
       return state;
   }

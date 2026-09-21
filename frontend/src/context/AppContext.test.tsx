@@ -1,7 +1,7 @@
 import { act, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useApp } from './AppContext';
-import type { QueueItem } from '../api';
+import type { AlbumResult, ArtistResult, QueueItem, ResolveResult, SearchResult, TrackResult } from '../api';
 
 type AppDispatch = ReturnType<typeof useApp>['dispatch'];
 
@@ -18,6 +18,7 @@ function Harness() {
       <output data-testid="queue-count">{state.queue.length}</output>
       <output data-testid="queue-meta">{JSON.stringify(state.queueMeta)}</output>
       <output data-testid="toast-state">{JSON.stringify(state.toasts.map(({ id, type }) => ({ id, type })))}</output>
+      <output data-testid="search-state">{JSON.stringify(state.search)}</output>
     </>
   );
 }
@@ -62,6 +63,65 @@ function queueMeta() {
 
 function toastState() {
   return JSON.parse(screen.getByTestId('toast-state').textContent || '[]') as { id: string; type: string }[];
+}
+
+type AppSearchState = {
+  query: string;
+  type: string;
+  filters: Record<string, unknown>;
+  results: SearchResult | null;
+  artist: ResolveResult | null;
+  status: string;
+  error: string | null;
+  partialError: string | null;
+  loadingMore: boolean;
+};
+
+function searchState() {
+  return JSON.parse(screen.getByTestId('search-state').textContent || '{}') as AppSearchState;
+}
+
+const track: TrackResult = {
+  id: 1,
+  title: 'Track One',
+  artist: 'Artist One',
+  album: 'Album One',
+  album_id: 20,
+  duration: 180,
+  quality: 'LOSSLESS',
+  explicit: false,
+  isrc: null,
+  url: '',
+  cover_url: null,
+  bpm: null,
+  key: null,
+  key_scale: null,
+};
+
+const album: AlbumResult = {
+  id: 20,
+  name: 'Album One',
+  artist: 'Artist One',
+  num_tracks: 8,
+  release_date: '2025-01-01',
+  release_type: 'ALBUM',
+  quality: 'LOSSLESS',
+  cover_url: null,
+};
+
+const artist: ArtistResult = { id: 10, name: 'Artist One', image_url: null, bio: null };
+
+function makeSearchResult(overrides: Partial<SearchResult> = {}): SearchResult {
+  return {
+    tracks: [],
+    artists: [],
+    albums: [],
+    playlists: [],
+    offset: 0,
+    limit: 50,
+    has_more: false,
+    ...overrides,
+  };
 }
 
 afterEach(() => {
@@ -138,5 +198,65 @@ describe('AppContext queue reconciliation', () => {
 
     dispatch({ type: 'SET_QUEUE', payload: [] });
     expect(screen.getByTestId('queue-count')).toHaveTextContent('0');
+  });
+});
+
+describe('search session persistence', () => {
+  it('keeps committed search results when switching tabs', () => {
+    renderHarness();
+
+    const results = makeSearchResult({ tracks: [track] });
+    dispatch({ type: 'SEARCH_STARTED', payload: { query: 'Track One', type: 'track', filters: {} } });
+    dispatch({ type: 'SEARCH_SUCCEEDED', payload: results });
+    const before = searchState();
+
+    dispatch({ type: 'SET_TAB', payload: 'queue' });
+    dispatch({ type: 'SET_TAB', payload: 'search' });
+
+    expect(searchState()).toEqual(before);
+  });
+
+  it('merges only the selected typed page and removes duplicate ids', () => {
+    renderHarness();
+
+    dispatch({ type: 'SEARCH_SUCCEEDED', payload: makeSearchResult({ tracks: [track], artists: [artist] }) });
+    dispatch({
+      type: 'SEARCH_MORE_SUCCEEDED',
+      payload: {
+        type: 'track',
+        result: makeSearchResult({
+          tracks: [track, { ...track, id: 2, title: 'Track Two' }],
+          artists: [{ ...artist, id: 11, name: 'Should Not Append' }],
+          offset: 1,
+          has_more: true,
+        }),
+      },
+    });
+
+    expect(searchState().results?.tracks.map((item) => item.id)).toEqual([1, 2]);
+    expect(searchState().results?.artists).toEqual([artist]);
+    expect(searchState().results?.offset).toBe(1);
+    expect(searchState().results?.has_more).toBe(true);
+  });
+
+  it('restores the prior result view after closing artist detail', () => {
+    renderHarness();
+
+    const results = makeSearchResult({ tracks: [track] });
+    const details: ResolveResult = {
+      artist,
+      top_tracks: [track],
+      tracks: [],
+      albums: [album],
+      playlists: [],
+    };
+    dispatch({ type: 'SEARCH_SUCCEEDED', payload: results });
+    dispatch({ type: 'OPEN_ARTIST', payload: details });
+    expect(searchState().artist).toEqual(details);
+
+    dispatch({ type: 'CLOSE_ARTIST' });
+
+    expect(searchState().artist).toBeNull();
+    expect(searchState().results).toEqual(results);
   });
 });
