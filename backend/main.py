@@ -2,6 +2,7 @@ import asyncio
 import dataclasses
 import logging
 import os
+import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Optional, List
@@ -13,7 +14,15 @@ from pydantic import BaseModel
 from backend.auth import AuthManager
 from backend.config import AppConfig
 from backend.models import Database
-from backend.search import search_tidal, get_album_tracks, get_playlist_tracks, resolve_url, score_results, enrich_tracks
+from backend.search import (
+    search_tidal,
+    get_album_tracks,
+    get_playlist_tracks,
+    resolve_url,
+    score_results,
+    enrich_tracks,
+    get_artist_details,
+)
 from backend.downloader import DownloadOrchestrator
 from backend.ws import WebSocketManager
 
@@ -38,8 +47,16 @@ freqblog_stats = {
     "cache_hits": 0,
 }
 
-# Search results cache: cache_key -> full list of track IDs (for pagination)
-_search_results_cache: dict[str, list[dict]] = {}
+# Search response cache. Entries are deliberately short-lived because Tidal
+# search results can change while the app is open.
+@dataclasses.dataclass
+class _SearchCacheEntry:
+    expires_at: float
+    result: dict
+
+
+_SEARCH_CACHE_TTL_SECONDS = 60.0
+_search_results_cache: dict[str, _SearchCacheEntry] = {}
 
 
 def _cleanup_tmp_files(output_dir: str) -> int:
@@ -167,12 +184,59 @@ def filter_tracks_by_dj_metadata(
     return filtered
 
 
+_SEARCH_TYPES = {"track", "artist", "album", "playlist"}
+_SEARCH_RESULT_KEYS = ("tracks", "artists", "albums", "playlists")
+
+
+def _normalized_search_value(value: Optional[str]) -> str:
+    return " ".join((value or "").split()).casefold()
+
+
+def _search_cache_key(
+    query: str,
+    result_type: str,
+    offset: int,
+    limit: int,
+    bpm_min: Optional[int],
+    bpm_max: Optional[int],
+    key: Optional[str],
+    key_compatible: bool,
+    genre: Optional[str],
+    artist_filter: Optional[str],
+) -> str:
+    return repr(
+        (
+            _normalized_search_value(query),
+            result_type,
+            offset,
+            limit,
+            bpm_min,
+            bpm_max,
+            _normalized_search_value(key),
+            key_compatible,
+            _normalized_search_value(genre),
+            _normalized_search_value(artist_filter),
+        )
+    )
+
+
+def _copy_search_response(result: dict) -> dict:
+    """Return a response copy so callers cannot mutate cached list values."""
+    return {
+        **{key: list(result.get(key, [])) for key in _SEARCH_RESULT_KEYS},
+        "offset": result["offset"],
+        "limit": result["limit"],
+        "has_more": result["has_more"],
+    }
+
+
 @app.get("/search")
 async def search(
     q: str,
     type: str = "track",
     offset: int = 0,
     limit: int = 50,
+    refresh: bool = False,
     bpm_min: Optional[int] = None,
     bpm_max: Optional[int] = None,
     key: Optional[str] = None,
@@ -181,56 +245,101 @@ async def search(
 ):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    models = [type] if type in ("track", "album", "playlist") else ["track", "album", "playlist"]
+    if type not in _SEARCH_TYPES:
+        raise HTTPException(status_code=400, detail=f"Unsupported search type: {type}")
+
+    offset = max(0, offset)
+    limit = max(1, min(limit, 300))
+    query = " ".join(q.split())
     artist_filter = None
 
-    # Handle "track - artist" format
-    if " - " in q and type == "track":
-        parts = q.split(" - ", 1)
-        q = parts[0]
-        artist_filter = parts[1]
+    # Handle "track - artist" format only for track searches.
+    if " - " in query and type == "track":
+        query, artist_filter = query.split(" - ", 1)
 
-    # Prepend genre prefix if selected
-    search_query = q
+    # Prepend genre prefix if selected. Tidal supports genre: prefixes in the
+    # normal search query, while the other filters are applied locally.
+    search_query = query
     if genre:
-        # Tidal's genre: prefix filters by genre
-        search_query = f"genre:{genre} {q}" if q else f"genre:{genre}"
+        search_query = f"genre:{genre} {query}" if query else f"genre:{genre}"
 
-    # Get raw search results - always fetch full batch (Tidal doesn't support offset)
-    # Cache key: just search_query + type (filters applied per-request, not cached)
-    cache_key = f"{search_query}:{type}"
+    cache_key = _search_cache_key(
+        search_query,
+        type,
+        offset,
+        limit,
+        bpm_min,
+        bpm_max,
+        key,
+        key_compatible,
+        genre,
+        artist_filter,
+    )
+    now = time.monotonic()
+    cached = _search_results_cache.get(cache_key)
+    if not refresh and cached and cached.expires_at > now:
+        return _copy_search_response(cached.result)
+    if cached:
+        _search_results_cache.pop(cache_key, None)
 
-    # Check cache first
-    if cache_key in _search_results_cache:
-        all_tracks = _search_results_cache[cache_key]
-    else:
-        # First request - fetch and cache ALL results (no filters yet)
-        raw = await asyncio.to_thread(search_tidal, auth_manager.session, search_query, models, artist_filter=artist_filter, limit=500)
-        all_tracks = raw.get("tracks", [])
+    raw = await asyncio.to_thread(
+        search_tidal,
+        auth_manager.session,
+        search_query,
+        [type],
+        limit=300,
+        offset=0,
+        artist_filter=artist_filter if type == "track" else None,
+    )
+    all_results = {
+        key: list(raw.get(key, []) or []) for key in _SEARCH_RESULT_KEYS
+    }
 
-        # Score and sort
-        if all_tracks:
-            scored = score_results(all_tracks, q, artist_filter)
-            all_tracks = [t for t, _ in scored]
+    selected_results = all_results[f"{type}s"]
+    if type == "track":
+        if selected_results:
+            scored = score_results(selected_results, query, artist_filter)
+            selected_results = [track for track, _ in scored]
 
-        # Cache unfiltered results
-        _search_results_cache[cache_key] = all_tracks
+        if bpm_min is not None or bpm_max is not None or key:
+            selected_results = filter_tracks_by_dj_metadata(
+                selected_results, bpm_min, bpm_max, key, key_compatible
+            )
 
-    # Apply DJ filters (BPM, Key) to the full set BEFORE pagination
-    filtered_tracks = all_tracks
-    if (bpm_min is not None or bpm_max is not None or key):
-        filtered_tracks = filter_tracks_by_dj_metadata(
-            all_tracks, bpm_min, bpm_max, key, key_compatible
+    page_results = selected_results[offset:offset + limit]
+    if type == "track" and page_results:
+        page_results = await asyncio.to_thread(
+            enrich_tracks, auth_manager.session, page_results, 5
         )
 
-    # Slice the page we need
-    page_tracks = filtered_tracks[offset:offset + limit]
+    response = {
+        key: page_results if key == f"{type}s" else []
+        for key in _SEARCH_RESULT_KEYS
+    }
+    response.update(
+        {
+            "offset": offset,
+            "limit": limit,
+            "has_more": offset + len(page_results) < len(selected_results),
+        }
+    )
+    _search_results_cache[cache_key] = _SearchCacheEntry(
+        expires_at=time.monotonic() + _SEARCH_CACHE_TTL_SECONDS,
+        result=response,
+    )
+    return _copy_search_response(response)
 
-    # Enrich top 5 titles
-    if page_tracks:
-        page_tracks = await asyncio.to_thread(enrich_tracks, auth_manager.session, page_tracks, 5)
 
-    return {"tracks": page_tracks, "albums": [], "playlists": []}
+@app.get("/artist/{artist_id}")
+async def artist_details(artist_id: int):
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    try:
+        return await asyncio.to_thread(
+            get_artist_details, auth_manager.session, artist_id
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"Artist not found: {exc}")
 
 
 @app.get("/album/{album_id}/tracks")
