@@ -1,5 +1,6 @@
 import '@testing-library/jest-dom'
 import { vi } from 'vitest'
+// @ts-expect-error jsdom is already a test dependency but this workspace has no @types/jsdom package.
 import { JSDOM } from 'jsdom'
 
 // Node 25 exposes a partial global localStorage object. Bind the complete
