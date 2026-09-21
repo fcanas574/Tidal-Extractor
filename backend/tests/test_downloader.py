@@ -255,3 +255,4 @@ async def test_download_track_removes_tmp_file_after_conversion(tmp_path):
     # into 0, which _resolve_dj_metadata treats as "no Tidal BPM") -- the local analysis's
     # own BPM (120.0) should reach tag_dj_metadata unchanged, alongside the Camelot key.
     mock_tag_dj.assert_called_once_with(final_path, "8B", 120.0)
+    await db.close()
