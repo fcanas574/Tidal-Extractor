@@ -130,6 +130,48 @@ async def test_search_cache_expires(monkeypatch, authenticated):
     assert search_mock.call_count == 2
 
 
+async def test_search_route_enriches_before_dj_filtering(monkeypatch, authenticated):
+    raw_track = {
+        "id": 7,
+        "title": "Night Drive",
+        "artist": "The Pilot",
+        "bpm": None,
+        "key": None,
+        "key_scale": None,
+    }
+    monkeypatch.setattr(
+        main,
+        "search_tidal",
+        MagicMock(return_value={"tracks": [raw_track], "artists": [], "albums": [], "playlists": []}),
+    )
+
+    async def enrich(tracks, *, required_fields, lookup_limit=None):
+        return [{**track, "bpm": 128.0, "key": None, "camelot": "8A", "genre": "house"} for track in tracks]
+
+    monkeypatch.setattr(main, "_enrich_response_tracks", enrich, raising=False)
+
+    result = await main.search(q="Night Drive", type="track", key="8A")
+
+    assert result["tracks"] == [{**raw_track, "bpm": 128.0, "key": None, "camelot": "8A", "genre": "house"}]
+
+
+async def test_search_route_keeps_raw_tracks_when_enrichment_fails(monkeypatch, authenticated):
+    raw_track = {"id": 8, "title": "Fallback", "artist": "Artist", "bpm": None, "key": None}
+    monkeypatch.setattr(
+        main,
+        "search_tidal",
+        MagicMock(return_value={"tracks": [raw_track], "artists": [], "albums": [], "playlists": []}),
+    )
+    async def enrich_catalog_metadata_fails(*args, **kwargs):
+        raise RuntimeError("provider unavailable")
+
+    monkeypatch.setattr(main, "enrich_catalog_tracks", enrich_catalog_metadata_fails)
+
+    result = await main.search(q="Fallback", type="track")
+
+    assert result["tracks"] == [raw_track]
+
+
 async def test_artist_id_route_uses_shared_artist_detail_helper(
     monkeypatch, authenticated
 ):
@@ -163,6 +205,45 @@ async def test_artist_summary_route_returns_overview_without_full_track_wait(
 
     assert result == {**expected, "playlists": []}
     helper.assert_called_once_with(authenticated.session, 42)
+
+
+async def test_artist_summary_route_enriches_top_tracks(monkeypatch, authenticated):
+    expected = {
+        "artist": {"id": 42, "name": "Test Artist"},
+        "top_tracks": [{"id": 7, "title": "Night Drive"}],
+        "tracks": [],
+        "albums": [],
+    }
+    monkeypatch.setattr(main, "get_artist_summary", MagicMock(return_value=expected))
+    calls = []
+
+    async def enrich(tracks, *, required_fields, lookup_limit=None):
+        calls.append((tracks, required_fields))
+        return [{**track, "genre": "house"} for track in tracks]
+
+    monkeypatch.setattr(main, "_enrich_response_tracks", enrich, raising=False)
+
+    result = await main.artist_summary(42)
+
+    assert result["top_tracks"] == [{"id": 7, "title": "Night Drive", "genre": "house"}]
+    assert calls[0][0] == expected["top_tracks"]
+
+
+async def test_album_tracks_route_enriches_tracks(monkeypatch, authenticated):
+    expected = {
+        "album": {"id": 42, "name": "After Hours"},
+        "tracks": [{"id": 7, "title": "Night Drive"}],
+    }
+    monkeypatch.setattr(main, "get_album_details", MagicMock(return_value=expected))
+
+    async def enrich(tracks, *, required_fields, lookup_limit=None):
+        return [{**track, "genre": "house"} for track in tracks]
+
+    monkeypatch.setattr(main, "_enrich_response_tracks", enrich, raising=False)
+
+    result = await main.album_tracks(42)
+
+    assert result["tracks"] == [{"id": 7, "title": "Night Drive", "genre": "house"}]
 
 
 async def test_artist_tracks_route_returns_full_track_catalog(

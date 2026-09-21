@@ -1,5 +1,6 @@
 import pytest
 import tidalapi
+import backend.main as main
 from threading import Barrier
 from unittest.mock import MagicMock
 from backend.search import (
@@ -618,3 +619,9 @@ def test_enrich_tracks_only_enrichs_top_n():
     assert enriched[1]["title"] == "Enriched"
     # Third should remain unchanged (not enriched due to top_n=2)
     assert enriched[2]["title"] == "Track 3"
+
+
+def test_filter_tracks_by_dj_metadata_accepts_provider_camelot():
+    tracks = [{"id": 7, "bpm": None, "key": None, "key_scale": None, "camelot": "8A"}]
+
+    assert main.filter_tracks_by_dj_metadata(tracks, None, None, "8A", False) == tracks

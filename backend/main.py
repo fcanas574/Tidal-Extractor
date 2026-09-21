@@ -13,6 +13,7 @@ from pydantic import BaseModel
 
 from backend.auth import AuthManager
 from backend.config import AppConfig
+from backend.catalog_metadata import enrich_catalog_tracks
 from backend.models import Database
 from backend.search import (
     search_tidal,
@@ -173,17 +174,52 @@ def filter_tracks_by_dj_metadata(
 
         # Key filter
         if target_keys:
-            track_key = track.get("key")
-            track_scale = track.get("key_scale")
-            if not track_key or not track_scale:
-                continue  # Skip tracks without key data
-            track_camelot = convert_to_camelot(track_key, track_scale)
+            track_camelot = track.get("camelot")
+            if not track_camelot:
+                track_key = track.get("key")
+                track_scale = track.get("key_scale")
+                if not track_key or not track_scale:
+                    continue  # Skip tracks without key data
+                track_camelot = convert_to_camelot(track_key, track_scale)
             if not track_camelot or track_camelot not in target_keys:
                 continue
 
         filtered.append(track)
 
     return filtered
+
+
+async def _enrich_response_tracks(
+    tracks: List[dict],
+    *,
+    required_fields: set[str] | None = None,
+    lookup_limit: int | None = None,
+) -> List[dict]:
+    """Apply optional catalog metadata without making catalog routes fail closed."""
+    if not tracks:
+        return []
+    try:
+        return await enrich_catalog_tracks(
+            db,
+            tracks,
+            required_fields=required_fields,
+            lookup_limit=lookup_limit,
+        )
+    except Exception as exc:
+        logger.warning("Catalog metadata enrichment failed: %s", exc)
+        return tracks
+
+
+async def _enrich_response_payload(payload: dict) -> dict:
+    """Enrich every track list carried by a catalog or resolved-URL response."""
+    result = dict(payload)
+    for key in ("top_tracks", "tracks"):
+        if key in result and result[key]:
+            result[key] = await _enrich_response_tracks(
+                result[key],
+                required_fields={"bpm", "key", "genre"},
+            )
+    return result
 
 
 _SEARCH_TYPES = {"track", "artist", "album", "playlist"}
@@ -303,13 +339,22 @@ async def search(
             scored = score_results(selected_results, query, artist_filter)
             selected_results = [track for track, _ in scored]
 
-        if bpm_min is not None or bpm_max is not None or key:
+        dj_filters_active = bpm_min is not None or bpm_max is not None or key
+        if dj_filters_active:
+            selected_results = await _enrich_response_tracks(
+                selected_results,
+                required_fields={"bpm", "key"},
+            )
             selected_results = filter_tracks_by_dj_metadata(
                 selected_results, bpm_min, bpm_max, key, key_compatible
             )
 
     page_results = selected_results[offset:offset + limit]
     if type == "track" and page_results:
+        page_results = await _enrich_response_tracks(
+            page_results,
+            required_fields={"bpm", "key", "genre"},
+        )
         page_results = await asyncio.to_thread(
             enrich_tracks, auth_manager.session, page_results, 5
         )
@@ -340,7 +385,7 @@ async def artist_details(artist_id: int):
         details = await asyncio.to_thread(
             get_artist_details, auth_manager.session, artist_id
         )
-        return {"tracks": [], "playlists": [], **details}
+        return await _enrich_response_payload({"tracks": [], "playlists": [], **details})
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Artist not found: {exc}")
 
@@ -353,7 +398,7 @@ async def artist_summary(artist_id: int):
         details = await asyncio.to_thread(
             get_artist_summary, auth_manager.session, artist_id
         )
-        return {"tracks": [], "playlists": [], **details}
+        return await _enrich_response_payload({"tracks": [], "playlists": [], **details})
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Artist not found: {exc}")
 
@@ -363,9 +408,10 @@ async def artist_tracks(artist_id: int):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        return await asyncio.to_thread(
+        result = await asyncio.to_thread(
             get_artist_tracks, auth_manager.session, artist_id
         )
+        return await _enrich_response_payload(result)
     except Exception as exc:
         raise HTTPException(status_code=404, detail=f"Artist tracks not found: {exc}")
 
@@ -374,7 +420,8 @@ async def artist_tracks(artist_id: int):
 async def album_tracks(album_id: int):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
-    return await asyncio.to_thread(get_album_details, auth_manager.session, album_id)
+    result = await asyncio.to_thread(get_album_details, auth_manager.session, album_id)
+    return await _enrich_response_payload(result)
 
 
 @app.get("/playlist/{playlist_id}/tracks")
@@ -382,7 +429,7 @@ async def playlist_tracks(playlist_id: str):
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     tracks = await asyncio.to_thread(get_playlist_tracks, auth_manager.session, playlist_id)
-    return {"tracks": tracks}
+    return await _enrich_response_payload({"tracks": tracks})
 
 
 @app.get("/resolve")
@@ -395,7 +442,7 @@ async def resolve_tidal_url(url: str):
         raise HTTPException(status_code=422, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=404, detail=f"Content not found: {e}")
-    return result
+    return await _enrich_response_payload(result)
 
 
 # --- Preview Endpoint ---

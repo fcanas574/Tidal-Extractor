@@ -52,6 +52,18 @@ def format_track(track) -> dict:
         "bpm": track.bpm,
         "key": track.key,
         "key_scale": track.key_scale,
+        # Optional catalog metadata populated by the enrichment service.
+        "genre": None,
+        "camelot": None,
+        "open_key": None,
+        "key_label": None,
+        "bpm_alt": None,
+        "bpm_confidence": None,
+        "key_confidence": None,
+        "bpm_source": None,
+        "key_source": None,
+        "genre_source": None,
+        "metadata_status": None,
     }
 
 
