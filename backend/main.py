@@ -15,6 +15,7 @@ from backend.auth import AuthManager
 from backend.config import AppConfig
 from backend.catalog_metadata import enrich_catalog_tracks
 from backend.models import Database
+from backend.search_metadata_jobs import SearchMetadataJobManager
 from backend.search import (
     search_tidal,
     get_album_details,
@@ -41,6 +42,7 @@ db = Database()
 auth_manager = AuthManager()
 ws_manager = WebSocketManager()
 orchestrator: DownloadOrchestrator = None
+search_metadata_jobs: SearchMetadataJobManager | None = None
 
 # FreqBlog stats counters (in-memory, reset on restart)
 freqblog_stats = {
@@ -84,13 +86,20 @@ def _cleanup_tmp_files(output_dir: str) -> int:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global orchestrator
+    global orchestrator, search_metadata_jobs
     await db.init()
+    search_metadata_jobs = SearchMetadataJobManager(
+        enrich=_enrich_search_metadata_in_background,
+        on_complete=_apply_search_metadata_completion,
+    )
     _cleanup_tmp_files(config.output_dir)
     if auth_manager.load_saved_session(config.default_quality):
         orchestrator = DownloadOrchestrator(db=db, config=config, ws_manager=ws_manager)
         orchestrator.set_session(auth_manager.session)
     yield
+    if search_metadata_jobs is not None:
+        await search_metadata_jobs.close()
+        search_metadata_jobs = None
     await db.close()
 
 
@@ -210,6 +219,37 @@ async def _enrich_response_tracks(
         return tracks
 
 
+async def _enrich_search_metadata_in_background(tracks: List[dict]) -> List[dict]:
+    """Resolve provider metadata after the visible search page is rendered."""
+    return await _enrich_response_tracks(
+        tracks,
+        required_fields={"bpm", "key", "genre"},
+    )
+
+
+async def _apply_search_metadata_completion(
+    subscriptions: dict[str, tuple[int, ...]], tracks: List[dict]
+) -> None:
+    """Patch only search cache entries that still show the enriched page."""
+    enriched_by_id = {int(track["id"]): track for track in tracks}
+    for cache_key, expected_ids in subscriptions.items():
+        entry = _search_results_cache.get(cache_key)
+        if entry is None:
+            continue
+
+        current_tracks = entry.result.get("tracks", [])
+        current_ids = tuple(int(track["id"]) for track in current_tracks)
+        if current_ids != expected_ids:
+            continue
+
+        entry.result["tracks"] = [
+            enriched_by_id.get(int(track["id"]), track) for track in current_tracks
+        ]
+        entry.result["metadata_pending"] = False
+
+    await ws_manager.broadcast({"type": "catalog_metadata", "tracks": tracks})
+
+
 async def _enrich_response_payload(payload: dict) -> dict:
     """Enrich every track list carried by a catalog or resolved-URL response."""
     result = dict(payload)
@@ -265,6 +305,7 @@ def _copy_search_response(result: dict) -> dict:
         "offset": result["offset"],
         "limit": result["limit"],
         "has_more": result["has_more"],
+        "metadata_pending": bool(result.get("metadata_pending", False)),
     }
 
 
@@ -357,6 +398,12 @@ async def search(
                 page_results,
                 required_fields={"bpm", "key", "genre"},
             )
+        else:
+            page_results = await _enrich_response_tracks(
+                page_results,
+                required_fields={"bpm", "key", "genre"},
+                lookup_limit=0,
+            )
         page_results = await asyncio.to_thread(
             enrich_tracks, auth_manager.session, page_results, 5
         )
@@ -370,12 +417,21 @@ async def search(
             "offset": offset,
             "limit": limit,
             "has_more": offset + len(page_results) < len(selected_results),
+            "metadata_pending": False,
         }
     )
     _search_results_cache[cache_key] = _SearchCacheEntry(
         expires_at=time.monotonic() + _SEARCH_CACHE_TTL_SECONDS,
         result=response,
     )
+    if (
+        type == "track"
+        and not dj_filters_active
+        and page_results
+        and search_metadata_jobs is not None
+        and any(track.get("metadata_status") != "complete" for track in page_results)
+    ):
+        response["metadata_pending"] = search_metadata_jobs.schedule(cache_key, page_results)
     return _copy_search_response(response)
 
 

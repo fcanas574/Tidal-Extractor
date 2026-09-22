@@ -1,6 +1,8 @@
+import time
+from unittest.mock import AsyncMock, MagicMock
+
 import pytest
 from fastapi import HTTPException
-from unittest.mock import MagicMock
 
 import backend.main as main
 
@@ -117,31 +119,126 @@ async def test_search_cache_is_scoped_to_page_and_refreshable(
     assert search_mock.call_count == 3
 
 
-async def test_search_route_skips_catalog_enrichment_without_dj_filters(
+async def test_unfiltered_search_merges_cached_metadata_and_schedules_background_work(
     monkeypatch, authenticated
 ):
-    raw_track = {
+    track = {
         "id": 7,
         "title": "Night Drive",
-        "artist": "The Pilot",
+        "artist": "Pilot",
         "bpm": None,
         "key": None,
-        "genre": None,
+    }
+    cached_track = {**track, "genre": "dance", "metadata_status": "partial"}
+    monkeypatch.setattr(
+        main,
+        "search_tidal",
+        MagicMock(return_value={"tracks": [track], "artists": [], "albums": [], "playlists": []}),
+    )
+    enrich = AsyncMock(return_value=[cached_track])
+    jobs = MagicMock()
+    jobs.schedule.return_value = True
+    monkeypatch.setattr(main, "_enrich_response_tracks", enrich)
+    monkeypatch.setattr(main, "search_metadata_jobs", jobs)
+    monkeypatch.setattr(main, "enrich_tracks", lambda session, tracks, top_n: tracks)
+
+    result = await main.search(q="Night Drive", type="track")
+
+    assert result["tracks"][0]["genre"] == "dance"
+    assert result["metadata_pending"] is True
+    enrich.assert_awaited_once_with(
+        [track], required_fields={"bpm", "key", "genre"}, lookup_limit=0
+    )
+    assert jobs.schedule.call_args.args[1] == [cached_track]
+
+
+async def test_filtered_search_enriches_before_filtering_without_background_job(
+    monkeypatch, authenticated
+):
+    track = {
+        "id": 7,
+        "title": "Night Drive",
+        "artist": "Pilot",
+        "bpm": None,
+        "key": None,
+        "key_scale": None,
     }
     monkeypatch.setattr(
         main,
         "search_tidal",
-        MagicMock(return_value={"tracks": [raw_track], "artists": [], "albums": [], "playlists": []}),
+        MagicMock(return_value={"tracks": [track], "artists": [], "albums": [], "playlists": []}),
+    )
+    calls = []
+
+    async def enrich(tracks, *, required_fields, lookup_limit=None):
+        calls.append((required_fields, lookup_limit))
+        return [{**track, "camelot": "8A", "metadata_status": "complete"}]
+
+    jobs = MagicMock()
+    monkeypatch.setattr(main, "_enrich_response_tracks", enrich)
+    monkeypatch.setattr(main, "search_metadata_jobs", jobs)
+    monkeypatch.setattr(main, "enrich_tracks", lambda session, tracks, top_n: tracks)
+
+    result = await main.search(q="Night Drive", type="track", key="8A")
+
+    assert result["tracks"][0]["camelot"] == "8A"
+    assert calls[0] == ({"bpm", "key"}, None)
+    jobs.schedule.assert_not_called()
+
+
+async def test_metadata_completion_updates_matching_cache_and_broadcasts(monkeypatch):
+    key = "matching-page"
+    original = {"id": 7, "title": "Night Drive", "genre": None}
+    enriched = {**original, "genre": "dance", "genre_source": "freqblog"}
+    main._search_results_cache[key] = main._SearchCacheEntry(
+        expires_at=time.monotonic() + 60,
+        result={
+            "tracks": [original],
+            "artists": [],
+            "albums": [],
+            "playlists": [],
+            "offset": 0,
+            "limit": 50,
+            "has_more": False,
+            "metadata_pending": True,
+        },
+    )
+    broadcast = AsyncMock()
+    monkeypatch.setattr(main.ws_manager, "broadcast", broadcast)
+
+    await main._apply_search_metadata_completion({key: (7,)}, [enriched])
+
+    assert main._search_results_cache[key].result["tracks"] == [enriched]
+    assert main._search_results_cache[key].result["metadata_pending"] is False
+    broadcast.assert_awaited_once_with({"type": "catalog_metadata", "tracks": [enriched]})
+
+
+async def test_metadata_completion_does_not_overwrite_changed_cache_page(monkeypatch):
+    key = "refreshed-page"
+    current = {"id": 99, "title": "New Search"}
+    main._search_results_cache[key] = main._SearchCacheEntry(
+        expires_at=time.monotonic() + 60,
+        result={
+            "tracks": [current],
+            "artists": [],
+            "albums": [],
+            "playlists": [],
+            "offset": 0,
+            "limit": 50,
+            "has_more": False,
+            "metadata_pending": True,
+        },
+    )
+    broadcast = AsyncMock()
+    monkeypatch.setattr(main.ws_manager, "broadcast", broadcast)
+
+    await main._apply_search_metadata_completion(
+        {key: (7,)}, [{"id": 7, "title": "Old Search", "genre": "dance"}]
     )
 
-    async def enrichment_must_not_run(*args, **kwargs):
-        raise AssertionError("unfiltered search should not wait for catalog enrichment")
-
-    monkeypatch.setattr(main, "_enrich_response_tracks", enrichment_must_not_run)
-
-    result = await main.search(q="Night Drive", type="track")
-
-    assert result["tracks"] == [raw_track]
+    assert main._search_results_cache[key].result["tracks"] == [current]
+    assert main._search_results_cache[key].result["metadata_pending"] is True
+    broadcast.assert_awaited_once()
 
 
 async def test_search_cache_expires(monkeypatch, authenticated):
