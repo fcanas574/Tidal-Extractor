@@ -398,7 +398,12 @@ export default function SearchView() {
 
       {!detail && !loading && !error && results && (
         <div className="space-y-2" aria-live="polite">
-          {totalResults > 0 && <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>{totalResults} result{totalResults === 1 ? '' : 's'}</p>}
+          {totalResults > 0 && <p className="text-xs mb-3" style={{ color: 'var(--text-muted)' }}>
+            {totalResults} result{totalResults === 1 ? '' : 's'}
+            {results.metadata_pending && searchType === 'track' && (
+              <span className="ml-2" role="status">Completing DJ metadata…</span>
+            )}
+          </p>}
           {results.artists.map((artist, index) => <button key={artist.id} type="button" className="glass glass-hover p-3 sm:p-4 w-full text-left flex items-center gap-3 sm:gap-4" style={{ animationDelay: `${index * 30}ms` }} onClick={() => void openArtist(artist.id)} aria-label={`Open artist ${artist.name}`}><Cover src={artist.image_url} alt={`${artist.name} portrait`} kind="artist" /><span className="min-w-0 flex-1"><span className="block text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{artist.name}</span><span className="block text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Artist</span></span><span className="btn-ghost text-xs px-3 py-1.5 shrink-0">Open</span></button>)}
           {results.tracks.map((track) => <TrackRow key={track.id} track={track} isPreviewing={state.previewTrack?.id === track.id && state.previewPlaying} onPreview={() => previewTrack(track)} onDownload={() => void handleAddToQueue(track.id, 'track', track.title, track.artist, track.album)} onOpenArtist={track.artist_id !== null ? openArtist : undefined} onOpenAlbum={track.album_id !== null ? openAlbum : undefined} />)}
           {results.albums.map((album) => <AlbumCard key={album.id} album={album} variant="compact" onOpen={(item) => void openAlbum(item.id)} onDownload={(item) => void handleAddToQueue(item.id, 'album', item.name, item.artist)} />)}

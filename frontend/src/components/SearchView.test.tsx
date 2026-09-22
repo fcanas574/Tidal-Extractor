@@ -114,6 +114,22 @@ describe('SearchView', () => {
     expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument();
   });
 
+  it('shows a non-blocking metadata status while a search result is being enriched', async () => {
+    vi.mocked(search.query).mockResolvedValue(result({
+      tracks: [track],
+      metadata_pending: true,
+    }));
+    renderSearch();
+
+    fireEvent.change(screen.getByRole('textbox', { name: /Search tracks/i }), {
+      target: { value: 'Night Drive' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+
+    expect(await screen.findByText('Completing DJ metadata…')).toHaveAttribute('role', 'status');
+    expect(screen.getByText('Night Drive')).toBeInTheDocument();
+  });
+
   it('opens an artist from a track result without replacing the committed search', async () => {
     vi.mocked(search.query).mockResolvedValue(result({ tracks: [track] }));
     vi.mocked(search.artist).mockResolvedValue({ artist, top_tracks: [track], tracks: [], albums: [album], playlists: [] });
