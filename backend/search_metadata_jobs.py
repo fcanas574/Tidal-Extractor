@@ -28,6 +28,7 @@ class SearchMetadataJobManager:
         self._enrich = enrich
         self._on_complete = on_complete
         self._jobs: dict[tuple[int, ...], _PendingJob] = {}
+        self._tasks: set[asyncio.Task[None]] = set()
 
     def schedule(self, cache_key: str, tracks: list[dict]) -> bool:
         """Schedule enrichment, joining an existing job for the same IDs."""
@@ -48,11 +49,13 @@ class SearchMetadataJobManager:
         )
         self._jobs[job_key] = pending
         pending.task = asyncio.create_task(self._run(job_key, pending))
+        self._tasks.add(pending.task)
+        pending.task.add_done_callback(self._tasks.discard)
         return True
 
     async def close(self) -> None:
         """Cancel outstanding work before application resources are released."""
-        tasks = [pending.task for pending in self._jobs.values() if pending.task is not None]
+        tasks = list(self._tasks)
         for task in tasks:
             task.cancel()
         if tasks:
@@ -69,8 +72,11 @@ class SearchMetadataJobManager:
             except Exception:
                 logger.exception("Background search metadata enrichment failed")
 
+            subscriptions = dict(pending.subscriptions)
+            if self._jobs.get(job_key) is pending:
+                self._jobs.pop(job_key, None)
             try:
-                await self._on_complete(dict(pending.subscriptions), tracks)
+                await self._on_complete(subscriptions, tracks)
             except asyncio.CancelledError:
                 raise
             except Exception:

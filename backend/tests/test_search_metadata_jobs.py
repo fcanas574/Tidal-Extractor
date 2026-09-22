@@ -57,3 +57,30 @@ async def test_schedule_notifies_with_original_tracks_after_enrichment_failure()
 
     assert completed == [({"search": (7,)}, source)]
     await manager.close()
+
+
+@pytest.mark.asyncio
+async def test_schedule_after_completion_snapshot_starts_a_new_job():
+    notifications = []
+    provider_calls = []
+    second_completed = asyncio.Event()
+    source = [{"id": 7, "title": "Night Drive"}]
+
+    async def enrich(tracks):
+        provider_calls.append([track["id"] for track in tracks])
+        return tracks
+
+    async def on_complete(subscriptions, tracks):
+        notifications.append(subscriptions)
+        if "first" in subscriptions:
+            assert manager.schedule("second", source) is True
+        else:
+            second_completed.set()
+
+    manager = SearchMetadataJobManager(enrich=enrich, on_complete=on_complete)
+    assert manager.schedule("first", source) is True
+    await asyncio.wait_for(second_completed.wait(), timeout=1)
+
+    assert notifications == [{"first": (7,)}, {"second": (7,)}]
+    assert provider_calls == [[7], [7]]
+    await manager.close()
