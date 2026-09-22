@@ -334,6 +334,7 @@ async def search(
     }
 
     selected_results = all_results[f"{type}s"]
+    dj_filters_active = False
     if type == "track":
         if selected_results:
             scored = score_results(selected_results, query, artist_filter)
@@ -351,10 +352,11 @@ async def search(
 
     page_results = selected_results[offset:offset + limit]
     if type == "track" and page_results:
-        page_results = await _enrich_response_tracks(
-            page_results,
-            required_fields={"bpm", "key", "genre"},
-        )
+        if dj_filters_active:
+            page_results = await _enrich_response_tracks(
+                page_results,
+                required_fields={"bpm", "key", "genre"},
+            )
         page_results = await asyncio.to_thread(
             enrich_tracks, auth_manager.session, page_results, 5
         )

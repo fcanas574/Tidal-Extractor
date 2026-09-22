@@ -117,6 +117,33 @@ async def test_search_cache_is_scoped_to_page_and_refreshable(
     assert search_mock.call_count == 3
 
 
+async def test_search_route_skips_catalog_enrichment_without_dj_filters(
+    monkeypatch, authenticated
+):
+    raw_track = {
+        "id": 7,
+        "title": "Night Drive",
+        "artist": "The Pilot",
+        "bpm": None,
+        "key": None,
+        "genre": None,
+    }
+    monkeypatch.setattr(
+        main,
+        "search_tidal",
+        MagicMock(return_value={"tracks": [raw_track], "artists": [], "albums": [], "playlists": []}),
+    )
+
+    async def enrichment_must_not_run(*args, **kwargs):
+        raise AssertionError("unfiltered search should not wait for catalog enrichment")
+
+    monkeypatch.setattr(main, "_enrich_response_tracks", enrichment_must_not_run)
+
+    result = await main.search(q="Night Drive", type="track")
+
+    assert result["tracks"] == [raw_track]
+
+
 async def test_search_cache_expires(monkeypatch, authenticated):
     search_mock = MagicMock(
         return_value={"tracks": [], "artists": [], "albums": [], "playlists": []}
