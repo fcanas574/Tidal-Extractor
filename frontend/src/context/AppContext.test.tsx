@@ -220,6 +220,57 @@ describe('search session persistence', () => {
     expect(searchState()).toEqual(before);
   });
 
+  it('merges a matching catalog metadata patch without replacing TIDAL values', () => {
+    renderHarness();
+
+    dispatch({ type: 'SEARCH_SUCCEEDED', payload: makeSearchResult({
+      tracks: [{ ...track, bpm: 126, key: 'C', bpm_source: 'tidal', key_source: 'tidal' }],
+      metadata_pending: true,
+    }) });
+    dispatch({ type: 'WS_MESSAGE', payload: {
+      type: 'catalog_metadata',
+      tracks: [{
+        ...track,
+        bpm: 128,
+        key: 'Am',
+        camelot: '8A',
+        genre: 'dance',
+        bpm_source: 'freqblog',
+        key_source: 'freqblog',
+        genre_source: 'freqblog',
+        metadata_status: 'complete',
+      }],
+    } });
+
+    expect(searchState().results?.tracks[0]).toMatchObject({
+      bpm: 126,
+      key: 'C',
+      camelot: '8A',
+      genre: 'dance',
+      bpm_source: 'tidal',
+      key_source: 'tidal',
+      genre_source: 'freqblog',
+    });
+    expect(searchState().results?.metadata_pending).toBe(false);
+  });
+
+  it('ignores a catalog metadata patch for a stale search result', () => {
+    renderHarness();
+
+    dispatch({ type: 'SEARCH_SUCCEEDED', payload: makeSearchResult({
+      tracks: [track],
+      metadata_pending: true,
+    }) });
+    const before = searchState().results;
+
+    dispatch({ type: 'WS_MESSAGE', payload: {
+      type: 'catalog_metadata',
+      tracks: [{ ...track, id: 99, genre: 'dance', metadata_status: 'complete' }],
+    } });
+
+    expect(searchState().results).toEqual(before);
+  });
+
   it('merges only the selected typed page and removes duplicate ids', () => {
     renderHarness();
 

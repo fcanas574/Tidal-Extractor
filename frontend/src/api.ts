@@ -20,6 +20,7 @@ export interface SearchResult {
   offset: number;
   limit: number;
   has_more: boolean;
+  metadata_pending?: boolean;
 }
 
 export type SearchType = 'track' | 'artist' | 'album' | 'playlist';
@@ -59,6 +60,9 @@ export interface TrackResult {
   bpm_alt?: number | null;
   bpm_confidence?: number | null;
   key_confidence?: number | null;
+  key_int?: number | null;
+  mode?: string | null;
+  source?: string | null;
   bpm_source?: 'tidal' | 'freqblog' | null;
   key_source?: 'tidal' | 'freqblog' | null;
   genre_source?: 'freqblog' | null;
@@ -161,12 +165,19 @@ export interface HistoryItem {
   downloaded_at: string;
 }
 
-export interface WsMessage {
+export interface QueueWsMessage {
   type: 'progress' | 'quality' | 'complete' | 'error' | 'queue_update';
   id: string;
   revision?: number;
   [key: string]: unknown;
 }
+
+export interface CatalogMetadataMessage {
+  type: 'catalog_metadata';
+  tracks: TrackResult[];
+}
+
+export type WsMessage = QueueWsMessage | CatalogMetadataMessage;
 
 export const auth = {
   getDeviceLink: () => request<DeviceLink>('/auth/device-link', { method: 'POST' }),

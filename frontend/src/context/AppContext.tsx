@@ -10,6 +10,7 @@ import type {
   SearchResult,
   SearchType,
   Settings,
+  TrackResult,
   WsMessage,
 } from '../api';
 
@@ -264,6 +265,28 @@ function appendSearchPage(
   }
 }
 
+function mergeCatalogMetadataPatch(current: TrackResult, patch: TrackResult): TrackResult {
+  return {
+    ...current,
+    bpm: current.bpm ?? patch.bpm,
+    key: current.key ?? patch.key,
+    bpm_source: current.bpm_source ?? patch.bpm_source,
+    key_source: current.key_source ?? patch.key_source,
+    camelot: patch.camelot ?? current.camelot,
+    open_key: patch.open_key ?? current.open_key,
+    key_label: patch.key_label ?? current.key_label,
+    genre: patch.genre ?? current.genre,
+    bpm_alt: patch.bpm_alt ?? current.bpm_alt,
+    bpm_confidence: patch.bpm_confidence ?? current.bpm_confidence,
+    key_confidence: patch.key_confidence ?? current.key_confidence,
+    key_int: patch.key_int ?? current.key_int,
+    mode: patch.mode ?? current.mode,
+    source: patch.source ?? current.source,
+    genre_source: patch.genre_source ?? current.genre_source,
+    metadata_status: patch.metadata_status ?? current.metadata_status,
+  };
+}
+
 function reducer(state: AppState, action: Action): AppState {
   switch (action.type) {
     case 'SET_AUTH':
@@ -297,6 +320,28 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, settings: action.payload };
     case 'WS_MESSAGE': {
       const msg = action.payload;
+      if (msg.type === 'catalog_metadata') {
+        const results = state.search.results;
+        if (!results) return state;
+
+        const patches = new Map(msg.tracks.map((track) => [track.id, track]));
+        let updated = false;
+        const tracks = results.tracks.map((track) => {
+          const patch = patches.get(track.id);
+          if (!patch) return track;
+          updated = true;
+          return mergeCatalogMetadataPatch(track, patch);
+        });
+        if (!updated) return state;
+
+        return {
+          ...state,
+          search: {
+            ...state.search,
+            results: { ...results, tracks, metadata_pending: false },
+          },
+        };
+      }
       if (msg.type === 'progress') {
         const item = state.queue.find((candidate) => String(candidate.id) === msg.id);
         if (!item) return state;
