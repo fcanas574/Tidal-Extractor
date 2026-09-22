@@ -107,9 +107,10 @@ job finishes, its corresponding entry is replaced with the enriched visible
 rows and `metadata_pending: false`. A repeat request therefore sees the
 enriched result without another TIDAL or FreqBlog request.
 
-The update is conditional on the cached page still containing the expected
-track IDs. A stale task must never overwrite a newer page that reused the same
-cache key after expiry or refresh.
+The update is conditional on each cached page still containing the original
+ordered track-ID sequence recorded when that page joined the job. A stale task
+must never overwrite a newer page that reused the same cache key after expiry
+or refresh.
 
 ### WebSocket contract
 
