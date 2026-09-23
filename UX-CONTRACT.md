@@ -43,6 +43,8 @@ Billing, payment, multi-role permissions, and regulated-market copy do not apply
 | Form | Search command form; Settings draft/save form | Search/Settings component state and existing API calls | search submit; explicit settings save | `SearchView.test.tsx`, `SettingsPanel.test.tsx` |
 | Scrollbar | `frontend/src/index.css`; active list/pane owns overflow | CSS custom properties and each view's content | document scroll on narrow screens; bounded Search/Queue panes at >=1100px | computed-style/browser review; visible chrome; no hidden scrollbar rules |
 | Toast | `ToastContainer` presentation; `AppContext` toast actions/state | canonical app toast state | success / warning / info / error; progress is excluded | `ToastContainer.test.tsx`, Context tests |
+| Preview artist navigation | `SearchView` artist lookup and inspector; player emits a request through `AppContext` | `TrackResult.artist_id` carried by the active preview | activate Search and open the same artist inspector while preserving search session | `AudioPlayerFooter.test.tsx`, `SearchView.test.tsx` |
+| Preview player expansion | `AudioPlayerFooter` and its fixed-player styles | active preview track plus local expanded state | up/down arrow overlays the cover on hover (and is available on keyboard focus/touch); expansion enlarges and anchors the cover left, moves waveform/details beside it with key/BPM left-aligned beneath, preserves right-anchored transport, and reserves the extra height | `AudioPlayerFooter.test.tsx`; responsive player review |
 | CRUD | No generic CRUD workspace | feature-specific API calls own mutations | not applicable; queue/settings have dedicated flows | queue/settings component tests and API tests |
 
 ## Component behavior
@@ -88,17 +90,18 @@ Downloads do not upload a local file. The app does not currently expose soft-del
 - Sidebar/drawer/bottom-sheet transformation: desktop rail at >=1100px; labeled horizontal top navigation below; Activity and Settings use one app-owned surface each, lateral on wide screens and full-width/bottom-sheet treatment on mobile.
 - Responsive table strategy: use compact list rows, not a wide data grid; labels and primary actions remain reachable at 390px; no horizontal page overflow.
 - Truncation/full-value access: long titles may truncate visually while their text remains in the DOM; title/artist context and explicit detail view expose full values.
-- Focus restoration and sticky-obstruction policy: Escape and close controls dismiss app-owned panels; return focus to the opening Activity/Settings control; reserve player and safe-area space so actionable content is not covered.
+- Focus restoration and sticky-obstruction policy: Escape and close controls dismiss app-owned panels; return focus to the opening control; the desktop player starts after the persistent rail and content reserves player/safe-area space so actionable content is not covered.
+- Preview navigation: a preview artist action activates Search and opens its canonical artist inspector without clearing the committed search; when cover art exists, a hover-revealed up/down arrow overlays the cover and toggles the fixed preview player inline between compact and expanded sizes. Expansion reveals the details on mobile; the player does not open a modal. The expanded cover is 100px on desktop and 88px on mobile, anchors left, and moves the waveform and key/BPM closer into the same composition while transport stays on the right. The control remains available on keyboard focus and touch, and respects reduced-motion preferences.
 
 ## Overlays and feedback
 
-- Dialog primitive: existing app-owned Activity/Settings components; keep a single instance and existing Context open flags; provide close control, Escape, focus placement/containment, and focus restoration for modal presentation.
+- Dialog primitive: existing app-owned Activity/Settings components own their documented modal/panel behavior; preview-player expansion is inline and non-modal, with no focus trap or dialog layer.
 - Destructive confirmation levels: active download cancellation keeps inline `Cancel download` and `Keep downloading`; no browser-native confirmation dialogs.
 - Toast placement/duration/deduplication: `ToastContainer`; at most three visible, dismissible messages, existing duration/deduplication behavior; progress remains in Queue/Activity.
 - Alert/banner scope and persistence: inline field/view errors persist with the owning operation; connection/reconnecting is a persistent shell status.
 - Tooltip delay/dismissal: native `title` only for supplementary labels; essential actions never rely on a tooltip.
 - Unsaved-changes behavior: Settings Discard resets its draft; failed save retains the draft and leaves Retry available; explicit close/Escape behavior must match current modal tests.
-- Layer/z-index contract: modal backdrop/dialog > Activity/Settings surface > app navigation/content; fixed player stays visible unless an active modal intentionally covers it; toast is above non-modal content and must not block its close/action controls.
+- Layer/z-index contract: Activity/Settings surfaces > app navigation/content; the fixed player stays within the desktop workspace, remains visible unless an active modal intentionally covers it, and reserves additional content space while expanded; toast is above non-modal content and must not block its close/action controls.
 
 ## Async and resilience
 

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useCallback, useState } from 'react';
+import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { preview } from '../api';
 import type { WaveformData } from '../api';
@@ -199,6 +199,14 @@ export default function AudioPlayerFooter() {
   const { state, dispatch } = useApp();
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const artworkRef = useRef<HTMLDivElement | null>(null);
+  const trackCopyRef = useRef<HTMLDivElement | null>(null);
+  const previewDetailsRef = useRef<HTMLDivElement | null>(null);
+  const previousLayoutRectsRef = useRef<{
+    artwork: DOMRect | null;
+    trackCopy: DOMRect | null;
+    details: DOMRect | null;
+  } | null>(null);
   const previewTokenRef = useRef(0);
   const { previewTrack, previewPlaying } = state;
   const [currentTime, setCurrentTime] = useState(0);
@@ -210,6 +218,7 @@ export default function AudioPlayerFooter() {
   const DEFAULT_VOLUME = 0.8;
   const [waveformFailed, setWaveformFailed] = useState(false);
   const [mobileExpanded, setMobileExpanded] = useState(false);
+  const [expandedPreviewTrackId, setExpandedPreviewTrackId] = useState<number | null>(null);
   const [volumeSlider, setVolumeSlider] = useState<number>(() => {
     try {
       const saved = localStorage.getItem('tidal_preview_volume');
@@ -416,27 +425,86 @@ export default function AudioPlayerFooter() {
     seekToFraction(nextTime / wfDuration);
   }, [currentTime, duration, seekToFraction, waveform]);
 
+  const playerExpanded = !!previewTrack && expandedPreviewTrackId === previewTrack.id;
+
+  useLayoutEffect(() => {
+    const previousRects = previousLayoutRectsRef.current;
+    previousLayoutRectsRef.current = null;
+    if (!previousRects || typeof Element === 'undefined' || typeof Element.prototype.animate !== 'function') return;
+
+    const reducedMotion = typeof window !== 'undefined'
+      ? window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+      : true;
+    if (reducedMotion) return;
+
+    const animateFromPreviousPosition = (element: HTMLDivElement | null, previousRect: DOMRect | null) => {
+      if (!element || !previousRect || previousRect.width === 0 || previousRect.height === 0) return;
+
+      const nextRect = element.getBoundingClientRect();
+      if (nextRect.width === 0 || nextRect.height === 0) return;
+
+      element.animate([
+        {
+          transform: `translate3d(${previousRect.left - nextRect.left}px, ${previousRect.top - nextRect.top}px, 0)`,
+          width: `${previousRect.width}px`,
+          height: `${previousRect.height}px`,
+        },
+        {
+          transform: 'translate3d(0, 0, 0)',
+          width: `${nextRect.width}px`,
+          height: `${nextRect.height}px`,
+        },
+      ], {
+        duration: 240,
+        easing: 'cubic-bezier(0.22, 1, 0.36, 1)',
+      });
+    };
+
+    animateFromPreviousPosition(artworkRef.current, previousRects.artwork);
+    animateFromPreviousPosition(trackCopyRef.current, previousRects.trackCopy);
+    animateFromPreviousPosition(previewDetailsRef.current, previousRects.details);
+  }, [playerExpanded]);
+
   if (!previewTrack) return null;
 
   const waveformMode = (state.settings?.waveform_color as WaveformMode) || '3band';
   const totalDuration = waveform?.duration || duration;
-  const detailVisibility = mobileExpanded ? 'block' : 'hidden md:block';
-  const secondaryVisibility = mobileExpanded ? 'flex' : 'hidden md:flex';
+  const detailVisibility = playerExpanded || mobileExpanded ? 'block' : 'hidden md:block';
+  const secondaryVisibility = playerExpanded || mobileExpanded ? 'flex' : 'hidden md:flex';
+
+  const toggleExpandedPreview = () => {
+    const reducedMotion = typeof window !== 'undefined'
+      ? window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+      : true;
+    const canAnimate = !reducedMotion
+      && typeof Element !== 'undefined'
+      && typeof Element.prototype.animate === 'function';
+
+    previousLayoutRectsRef.current = canAnimate ? {
+      artwork: artworkRef.current?.getBoundingClientRect() ?? null,
+      trackCopy: trackCopyRef.current?.getBoundingClientRect() ?? null,
+      details: previewDetailsRef.current?.getBoundingClientRect() ?? null,
+    } : null;
+
+    setMobileExpanded(false);
+    setExpandedPreviewTrackId(playerExpanded ? null : previewTrack.id);
+  };
 
   return (
     <div
       role="region"
       aria-label={`Preview player: ${previewPlaying ? 'Playing' : 'Paused'} ${previewTrack.title} by ${previewTrack.artist}`}
-      className="preview-player fixed bottom-0 left-0 right-0 z-50 px-3 py-2 sm:px-4"
+      className={`preview-player fixed bottom-0 left-0 right-0 z-50 px-3 py-2 sm:px-4${playerExpanded ? ' is-expanded' : ''}`}
       style={{
         background: 'var(--glass-bg)',
         borderTop: '1px solid var(--glass-border)',
         boxShadow: '0 -12px 32px rgba(11, 13, 18, 0.24)',
         backdropFilter: 'blur(16px)',
       }}
-      >
+    >
       <span data-testid="waveform-color-mode" className="hidden">{waveformMode}</span>
-      <div id="preview-player-details" className={`preview-player-details ${detailVisibility}`}>
+      <div id="preview-player-main" className="preview-player-main">
+      <div id="preview-player-details" ref={previewDetailsRef} className={`preview-player-details ${detailVisibility}`}>
         <div className="preview-player-instrument">
           <div className="preview-player-waveform">
             {waveform ? (
@@ -485,34 +553,72 @@ export default function AudioPlayerFooter() {
           />
         </div>
       </div>
-
-      <div className="preview-player-main">
-        <div className="preview-player-identity">
           {previewTrack.cover_url ? (
-            <img
-              src={previewTrack.cover_url}
-              alt=""
-              className="preview-player-artwork w-9 h-9 rounded object-cover shrink-0"
-              style={{ border: '1px solid var(--glass-border)' }}
-            />
+            <div ref={artworkRef} className="preview-player-artwork-cluster">
+              <img
+                src={previewTrack.cover_url}
+                alt=""
+                className="preview-player-artwork w-9 h-9 rounded object-cover shrink-0"
+                style={{ border: '1px solid var(--glass-border)' }}
+              />
+              <button
+                type="button"
+                className="preview-player-expand-button preview-player-artwork-overlay"
+                onClick={toggleExpandedPreview}
+                aria-label={`${playerExpanded ? 'Collapse' : 'Expand'} preview player`}
+                aria-expanded={playerExpanded}
+                aria-controls="preview-player-main preview-player-details"
+                title={`${playerExpanded ? 'Collapse' : 'Expand'} preview player`}
+              >
+                <svg
+                  width="22"
+                  height="22"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  data-direction={playerExpanded ? 'down' : 'up'}
+                  aria-hidden="true"
+                >
+                  {playerExpanded ? (
+                    <path d="M12 5v14m-7-7 7 7 7-7" />
+                  ) : (
+                    <path d="M12 19V5m-7 7 7-7 7 7" />
+                  )}
+                </svg>
+              </button>
+            </div>
           ) : (
             <div
+              ref={artworkRef}
               data-testid="preview-artwork-fallback"
-              className="preview-player-artwork w-9 h-9 rounded shrink-0 flex items-center justify-center"
+              className="preview-player-artwork-cluster preview-player-artwork w-9 h-9 rounded shrink-0 flex items-center justify-center"
               style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}
             >
               <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.5 11.5V3l4-1v8.5" /><path d="M9.5 5 13.5 4" /><ellipse cx="6" cy="12" rx="2" ry="1.5" /><ellipse cx="12" cy="10.5" rx="2" ry="1.5" /></svg>
             </div>
           )}
-          <div className="preview-player-track-copy">
+          <div ref={trackCopyRef} className="preview-player-track-copy">
             <p className="preview-player-track-title text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
               {previewTrack.title}
             </p>
-            <p className="preview-player-track-artist text-xs truncate" style={{ color: 'var(--text-muted)' }}>
-              {previewTrack.artist}
-            </p>
+            {typeof previewTrack.artist_id === 'number' ? (
+              <button
+                type="button"
+                className="preview-player-track-artist preview-player-track-artist-link text-xs truncate"
+                aria-label={`Open artist ${previewTrack.artist}`}
+                onClick={() => dispatch({ type: 'REQUEST_ARTIST_DETAIL', payload: previewTrack.artist_id! })}
+              >
+                {previewTrack.artist}
+              </button>
+            ) : (
+              <p className="preview-player-track-artist text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+                {previewTrack.artist}
+              </p>
+            )}
           </div>
-        </div>
 
         <div className="preview-player-controls">
           <VolumeControl
@@ -551,19 +657,21 @@ export default function AudioPlayerFooter() {
           <span className="sr-only" aria-live="polite">
             {previewPlaying ? 'Playing preview' : 'Preview paused'}
           </span>
-          <button
-            type="button"
-            onClick={() => setMobileExpanded((expanded) => !expanded)}
-            className="preview-player-details-toggle md:hidden p-2 rounded transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
-            aria-label={mobileExpanded ? 'Hide preview details' : 'Show preview details'}
-            aria-expanded={mobileExpanded}
-            aria-controls="preview-player-details preview-player-secondary"
-            style={{ color: 'var(--text-muted)', background: mobileExpanded ? 'var(--accent-dim)' : 'transparent' }}
-          >
-            <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
-              <polyline points={mobileExpanded ? '3,9 7,5 11,9' : '3,5 7,9 11,5'} />
-            </svg>
-          </button>
+          {!playerExpanded && (
+            <button
+              type="button"
+              onClick={() => setMobileExpanded((expanded) => !expanded)}
+              className="preview-player-details-toggle md:hidden p-2 rounded transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
+              aria-label={mobileExpanded ? 'Hide preview details' : 'Show preview details'}
+              aria-expanded={mobileExpanded}
+              aria-controls="preview-player-details preview-player-secondary"
+              style={{ color: 'var(--text-muted)', background: mobileExpanded ? 'var(--accent-dim)' : 'transparent' }}
+            >
+              <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                <polyline points={mobileExpanded ? '3,9 7,5 11,9' : '3,5 7,9 11,5'} />
+              </svg>
+            </button>
+          )}
           <button
             type="button"
             onClick={togglePlay}

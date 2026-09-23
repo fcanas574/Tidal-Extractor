@@ -15,7 +15,7 @@ const testSettings: api.Settings = {
 vi.mock('../context/AppContext', () => ({
   useApp: () => ({
     state: {
-      previewTrack: { id: 7, title: 'Sample Song', artist: 'Sample Artist', cover_url: null },
+      previewTrack: { id: 7, title: 'Sample Song', artist: 'Sample Artist', artist_id: null, cover_url: null },
       previewPlaying: true,
       settings: testSettings,
     },

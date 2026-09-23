@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { AppProvider } from '../context/AppContext';
+import { AppProvider, useApp } from '../context/AppContext';
 import type { AlbumDetailResult, AlbumResult, ArtistResult, QueueItem, SearchResult, TrackResult } from '../api';
 import { queue, resolve, search } from '../api';
 import SearchView from './SearchView';
@@ -49,6 +49,18 @@ function result(overrides: Partial<SearchResult> = {}): SearchResult {
 
 function renderSearch() {
   return render(<AppProvider><SearchView /></AppProvider>);
+}
+
+function PreviewArtistRequestHarness() {
+  const { state, dispatch } = useApp();
+
+  return (
+    <>
+      <button type="button" onClick={() => dispatch({ type: 'SET_TAB', payload: 'queue' })}>Show queue tab</button>
+      <button type="button" onClick={() => dispatch({ type: 'REQUEST_ARTIST_DETAIL', payload: 3 })}>Open preview artist</button>
+      {state.activeTab === 'search' ? <SearchView /> : <p>Queue tab</p>}
+    </>
+  );
 }
 
 beforeEach(() => {
@@ -151,6 +163,20 @@ describe('SearchView', () => {
     expect(input).toHaveValue('Night Drive');
     expect(search.artist).toHaveBeenCalledWith(3, expect.any(AbortSignal));
     expect(search.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns to Search and opens the existing artist inspector for a preview artist request', async () => {
+    vi.mocked(search.artist).mockResolvedValue({ artist, top_tracks: [track], tracks: [], albums: [album], playlists: [] });
+    render(<AppProvider><PreviewArtistRequestHarness /></AppProvider>);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Show queue tab' }));
+    expect(screen.queryByRole('form', { name: 'Search Tidal catalog' })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open preview artist' }));
+
+    expect(await screen.findByRole('complementary', { name: 'Artist details inspector' })).toBeInTheDocument();
+    expect(search.artist).toHaveBeenCalledWith(3, expect.any(AbortSignal));
+    expect(screen.getByText('Artist details')).toBeInTheDocument();
   });
 
   it('renders the artist overview before the full track catalog finishes loading', async () => {

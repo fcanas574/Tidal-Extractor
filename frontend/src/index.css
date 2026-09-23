@@ -33,6 +33,7 @@
   --studio-rail-width: 216px;
   --player-reserved-desktop: 124px;
   --player-reserved-mobile: 168px;
+  --player-expanded-reserve: 60px;
   --scrollbar-thumb: #3A3A3F;
   --scrollbar-thumb-hover: #626269;
   --scrollbar-thumb-active: #85858D;
@@ -302,6 +303,10 @@ textarea,
 
 .has-preview .workspace-main {
   padding-bottom: var(--player-reserved-desktop);
+}
+
+.has-preview:has(.preview-player.is-expanded) .workspace-main {
+  padding-bottom: calc(var(--player-reserved-desktop) + var(--player-expanded-reserve));
 }
 
 /* Solid surfaces keep dense results and queue rows readable. */
@@ -745,6 +750,10 @@ textarea,
   .has-preview .workspace-main {
     padding-bottom: calc(var(--player-reserved-desktop) + env(safe-area-inset-bottom));
   }
+
+  .has-preview:has(.preview-player.is-expanded) .workspace-main {
+    padding-bottom: calc(var(--player-reserved-desktop) + var(--player-expanded-reserve) + env(safe-area-inset-bottom));
+  }
 }
 
 @media (max-width: 767px) {
@@ -762,6 +771,10 @@ textarea,
   .workspace-main { padding: 18px 16px 24px; }
   .has-preview .workspace-main {
     padding-bottom: calc(var(--player-reserved-mobile) + env(safe-area-inset-bottom));
+  }
+
+  .has-preview:has(.preview-player.is-expanded) .workspace-main {
+    padding-bottom: calc(var(--player-reserved-mobile) + var(--player-expanded-reserve) + env(safe-area-inset-bottom));
   }
 
   .fixed.top-0.right-0.bottom-0 {
@@ -1859,12 +1872,20 @@ button.album-detail-artist:hover { color: var(--porcelain); text-decoration: und
 }
 
 /* Preview player: static DJ metadata, clear transport, and a real seek surface. */
-.preview-player { padding: 8px 16px; background: var(--graphite) !important; border-top-color: var(--glass-border) !important; box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.28) !important; backdrop-filter: blur(18px) !important; }
-.preview-player-main,
-.preview-player-details { width: min(100%, 1440px); margin-inline: auto; }
-.preview-player-details { margin-top: 9px; }
+.preview-player { padding: 8px 16px; background: var(--graphite) !important; border-top-color: var(--glass-border) !important; box-shadow: 0 -10px 28px rgba(0, 0, 0, 0.28) !important; backdrop-filter: blur(18px) !important; transition: padding 180ms ease; }
+.preview-player.is-expanded { padding-block: 12px; }
+.preview-player-main { display: grid; width: min(100%, 1440px); grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-rows: auto auto; grid-template-areas: "details details details" "artwork track controls"; align-items: center; column-gap: 11px; row-gap: 9px; min-height: 44px; margin-inline: auto; }
+.preview-player-details { grid-area: details; width: 100%; min-width: 0; margin-top: 0; }
 .preview-player-instrument { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 16px; }
 .preview-player-waveform { min-width: 0; overflow: hidden; background: #000; border: 1px solid rgba(255, 255, 255, 0.07); border-radius: 5px; }
+.preview-player-artwork-cluster { position: relative; display: grid; width: 44px; height: 44px; grid-area: artwork; flex: none; place-items: center; overflow: hidden; border-radius: 5px; }
+.preview-player-artwork-overlay { position: absolute; inset: 0; z-index: 1; }
+.preview-player-expand-button { display: grid; width: 100%; height: 100%; place-items: center; padding: 0; color: var(--porcelain); background: rgba(0, 0, 0, 0.58); border: 0; border-radius: inherit; opacity: 0; pointer-events: none; cursor: pointer; transition: opacity 140ms ease, background-color 140ms ease; }
+.preview-player-artwork-cluster:hover .preview-player-expand-button,
+.preview-player-artwork-cluster:focus-within .preview-player-expand-button { opacity: 1; pointer-events: auto; }
+.preview-player-expand-button:hover { background: rgba(0, 0, 0, 0.72); }
+.preview-player-expand-button:focus-visible { outline: 2px solid var(--mint); outline-offset: -3px; }
+.preview-player-artwork-cluster:hover .preview-player-artwork { border-color: rgba(255, 255, 255, 0.28) !important; }
 .preview-waveform-canvas { height: 42px !important; border: 0 !important; border-radius: inherit !important; }
 .preview-waveform-placeholder { display: grid; min-height: 42px; place-items: center; background: #000; color: var(--text-dim); font-size: 10px; }
 .preview-player-meta { justify-content: flex-end; gap: 7px; }
@@ -1872,14 +1893,20 @@ button.album-detail-artist:hover { color: var(--porcelain); text-decoration: und
 .preview-bpm-badge { display: inline-flex; align-items: center; min-height: 27px; padding: 0 9px; color: var(--silver); background: rgba(255, 255, 255, 0.045); border: 1px solid var(--glass-border); border-radius: 5px; font: 10px var(--font-mono, monospace); white-space: nowrap; }
 .preview-key-badge { color: var(--mint); background: rgba(141, 231, 213, 0.075); border-color: rgba(141, 231, 213, 0.22); }
 .preview-bpm-badge { color: var(--porcelain); }
-.preview-player-main { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 18px; min-height: 44px; }
-.preview-player-identity { display: flex; align-items: center; gap: 11px; min-width: 0; }
-.preview-player-artwork { width: 38px; height: 38px; flex: none; overflow: hidden; background: var(--obsidian); border: 1px solid var(--glass-border); border-radius: 5px; object-fit: cover; }
+.preview-player-artwork { width: 38px; height: 38px; flex: none; overflow: hidden; background: var(--obsidian); border: 1px solid var(--glass-border); border-radius: 5px; object-fit: cover; transition: width 180ms ease, height 180ms ease; }
+.preview-player.is-expanded .preview-player-main { grid-template-columns: 108px minmax(0, 1fr) auto; grid-template-areas: "artwork track controls" "artwork details controls"; column-gap: 16px; row-gap: 8px; }
+.preview-player.is-expanded .preview-player-artwork-cluster { width: 108px; height: 108px; }
+.preview-player.is-expanded .preview-player-artwork { width: 100px; height: 100px; }
+.preview-player.is-expanded .preview-player-instrument { grid-template-columns: minmax(0, 1fr); gap: 8px; }
+.preview-player.is-expanded .preview-player-meta { justify-content: flex-start; }
+.preview-player.is-expanded .preview-player-details { align-self: center; }
 .preview-player-artwork[data-testid="preview-artwork-fallback"] { color: var(--text-dim); }
-.preview-player-track-copy { flex: 1; min-width: 0; }
+.preview-player-track-copy { grid-area: track; min-width: 0; }
 .preview-player-track-title { margin: 0; color: var(--porcelain); font-size: 11px; font-weight: 550; }
 .preview-player-track-artist { margin: 3px 0 0; color: var(--text-muted); font-size: 10px; }
-.preview-player-controls { display: flex; align-items: center; justify-content: flex-end; gap: 5px; flex: none; }
+.preview-player-track-artist-link { display: block; max-width: 100%; overflow: hidden; padding: 0; color: var(--text-muted); text-align: left; text-overflow: ellipsis; white-space: nowrap; background: transparent; border: 0; cursor: pointer; }
+.preview-player-track-artist-link:hover { color: var(--porcelain); text-decoration: underline; text-underline-offset: 2px; }
+.preview-player-controls { display: flex; grid-area: controls; align-items: center; justify-content: flex-end; gap: 5px; flex: none; }
 .preview-player-time { padding-inline: 8px; color: var(--text-dim) !important; font-size: 10px !important; white-space: nowrap; }
 .preview-player-desktop-volume { margin-right: 5px; }
 .preview-player-mute { display: none; }
@@ -1893,6 +1920,9 @@ button.album-detail-artist:hover { color: var(--porcelain); text-decoration: und
 .preview-player-close:hover,
 .preview-player-details-toggle:hover { color: var(--porcelain) !important; background: rgba(255, 255, 255, 0.05) !important; }
 .preview-player-mobile-volume { display: none; }
+@media (min-width: 1100px) {
+  .preview-player { left: var(--studio-rail-width); }
+}
 
 @media (min-width: 768px) {
   .preview-player-details-toggle { display: none; }
@@ -1900,9 +1930,12 @@ button.album-detail-artist:hover { color: var(--porcelain); text-decoration: und
 
 @media (max-width: 767px) {
   .preview-player { padding: 7px 10px calc(7px + env(safe-area-inset-bottom)); }
-  .preview-player-main { grid-template-columns: minmax(0, 1fr) auto; gap: 7px; min-height: 48px; }
-  .preview-player-identity { gap: 8px; }
+  .preview-player.is-expanded { padding-top: 10px; padding-bottom: calc(10px + env(safe-area-inset-bottom)); }
+  .preview-player-main { grid-template-columns: 44px minmax(0, 1fr) auto; column-gap: 8px; row-gap: 7px; min-height: 48px; }
+  .preview-player.is-expanded .preview-player-main { grid-template-columns: 96px minmax(0, 1fr) auto; grid-template-areas: "artwork track controls" "artwork details details"; column-gap: 8px; row-gap: 7px; }
+  .preview-player.is-expanded .preview-player-artwork-cluster { width: 96px; height: 96px; }
   .preview-player-artwork { width: 36px; height: 36px; }
+  .preview-player.is-expanded .preview-player-artwork { width: 88px; height: 88px; }
   .preview-player-track-title { font-size: 11px; }
   .preview-player-track-artist { font-size: 10px; }
   .preview-player-controls { gap: 2px; }
@@ -1919,10 +1952,13 @@ button.album-detail-artist:hover { color: var(--porcelain); text-decoration: und
   .preview-player-mobile-volume { display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 48px; margin-top: 9px; padding: 6px 4px 0; border-top: 1px solid var(--glass-border); }
 }
 
+@media (hover: none), (pointer: coarse) {
+  .preview-player-expand-button { opacity: 1; pointer-events: auto; }
+}
+
 @media (max-width: 360px) {
   .preview-player { padding-inline: 6px; }
-  .preview-player-main { gap: 3px; }
-  .preview-player-identity { gap: 6px; }
+  .preview-player-main { column-gap: 3px; row-gap: 6px; }
   .preview-player-track-title { max-width: 132px; }
   .preview-player-controls { gap: 0; }
   .preview-player-details-toggle,

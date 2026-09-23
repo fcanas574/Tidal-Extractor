@@ -94,6 +94,7 @@ Reglas de color:
 - El workspace usa gutters de `24–32 px`; las superficies no se expanden a un dashboard de tarjetas.
 - La actividad y los ajustes se abren como panel lateral sin cambiar la pestaña ni perder filtros.
 - El reproductor fijo reserva espacio inferior para que la última acción no quede tapada.
+- En escritorio, el reproductor ocupa solo el workspace desde el borde del rail; nunca cubre los controles de navegación ni cuenta.
 
 ### Tablet (768–1099 px)
 
@@ -190,6 +191,8 @@ La pestaña activa debe tener `aria-current="page"` y una señal visual de alto 
 ### Preview player
 
 - Barra fija inferior con portada, título/artista, play/pause, seek y duración.
+- El control sobre la portada disponible expande el reproductor en línea: la portada gana protagonismo a la izquierda, mientras waveform y metadatos DJ se agrupan a su lado; transporte permanece anclado al extremo derecho.
+- La expansión muestra una portada de `100 px` en escritorio y `88 px` en móvil, con waveform y key/BPM accesibles sin perder el seek ni los controles de reproducción. No abre un diálogo.
 - Waveform como visualización técnica, no como fondo ornamental.
 - En móvil se reduce a título, portada y controles esenciales; la acción de detalles expone waveform/seek, volumen y metadatos técnicos.
 - El reproductor no debe tapar contenido ni robar el foco al cambiar de vista.
@@ -229,6 +232,7 @@ La pestaña activa debe tener `aria-current="page"` y una señal visual de alto 
 
 - Motion comunica causalidad: apertura de panel, cambio de progreso, selección y reproducción.
 - Duraciones orientativas: `120–180 ms` para controles y `180–240 ms` para paneles.
+- La expansión del reproductor usa un único movimiento coordinado de portada, título y detalles; respetar `prefers-reduced-motion`.
 - No animar layout completo, blur grande ni elementos constantemente para crear “vida”. El badge Camelot y BPM permanecen estáticos; el movimiento del waveform se limita a representar playback/progreso.
 - Respetar `prefers-reduced-motion: reduce`; eliminar transforms y loops no esenciales.
 - Reservar dimensiones de portadas e imágenes; usar lazy loading fuera del viewport.

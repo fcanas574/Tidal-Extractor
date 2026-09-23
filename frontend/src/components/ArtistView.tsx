@@ -64,7 +64,7 @@ export default function ArtistView({
     for (const track of visibleTopTracks) await handleAddToQueue(track);
   };
 
-  const previewTrack = (track: TrackResult) => dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, cover_url: track.cover_url, key: null, camelot: null } });
+  const previewTrack = (track: TrackResult) => dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, artist_id: track.artist_id, cover_url: track.cover_url, key: null, camelot: null } });
 
   const renderTrack = (track: TrackResult) => (
     <TrackRow

@@ -18,6 +18,7 @@ export interface PreviewTrack {
   id: number;
   title: string;
   artist: string;
+  artist_id: number | null;
   cover_url: string | null;
   key: string | null;
   camelot: string | null;
@@ -74,6 +75,7 @@ export interface AppState {
   toasts: Toast[];
   previewTrack: PreviewTrack | null;
   previewPlaying: boolean;
+  requestedArtistId: number | null;
   history: HistoryItem[];
   historyLoading: boolean;
   stats: Record<string, number>;
@@ -97,6 +99,8 @@ type Action =
   | { type: 'SET_PREVIEW'; payload: PreviewTrack }
   | { type: 'CLEAR_PREVIEW' }
   | { type: 'SET_PREVIEW_PLAYING'; payload: boolean }
+  | { type: 'REQUEST_ARTIST_DETAIL'; payload: number }
+  | { type: 'CONSUME_ARTIST_DETAIL_REQUEST'; payload: number }
   | { type: 'SET_HISTORY'; payload: HistoryItem[] }
   | { type: 'SET_HISTORY_LOADING'; payload: boolean }
   | { type: 'SET_STATS'; payload: Record<string, number> }
@@ -131,6 +135,7 @@ const initialState: AppState = {
   toasts: [],
   previewTrack: null,
   previewPlaying: false,
+  requestedArtistId: null,
   history: [],
   historyLoading: false,
   stats: {},
@@ -472,6 +477,12 @@ function reducer(state: AppState, action: Action): AppState {
       return { ...state, previewTrack: null, previewPlaying: false };
     case 'SET_PREVIEW_PLAYING':
       return { ...state, previewPlaying: action.payload };
+    case 'REQUEST_ARTIST_DETAIL':
+      return { ...state, activeTab: 'search', requestedArtistId: action.payload };
+    case 'CONSUME_ARTIST_DETAIL_REQUEST':
+      return state.requestedArtistId === action.payload
+        ? { ...state, requestedArtistId: null }
+        : state;
     case 'SET_HISTORY':
       return { ...state, history: action.payload, historyLoading: false };
     case 'SET_HISTORY_LOADING':

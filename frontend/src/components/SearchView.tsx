@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { queue, resolve, search } from '../api';
 import type { AlbumResult, SearchFilters, SearchResult, SearchType, TrackResult } from '../api';
 import { useApp } from '../context/AppContext';
@@ -120,28 +120,28 @@ export default function SearchView() {
     if (detail?.status === 'error') detailActionRef.current?.focus();
   }, [detail?.kind, detail?.id, detail?.status]);
 
-  const beginRequest = () => {
+  const beginRequest = useCallback(() => {
     requestController.current?.abort();
     const controller = new AbortController();
     requestController.current = controller;
     generation.current += 1;
     return { controller, requestId: generation.current };
-  };
+  }, []);
 
-  const isCurrentRequest = (requestId: number, controller: AbortController) => (
+  const isCurrentRequest = useCallback((requestId: number, controller: AbortController) => (
     generation.current === requestId && !controller.signal.aborted
-  );
+  ), []);
 
-  const notifyError = (title: string, detail: string) => {
+  const notifyError = useCallback((title: string, detail: string) => {
     dispatch({ type: 'ADD_TOAST', payload: { id: `search-err-${Date.now()}`, type: 'error', title, detail, dismissAt: Date.now() + 5000 } });
-  };
+  }, [dispatch]);
 
   const closeDetail = () => {
     dispatch({ type: 'CLOSE_DETAIL' });
     window.setTimeout(() => searchInputRef.current?.focus(), 0);
   };
 
-  const openArtist = async (artistId: number) => {
+  const openArtist = useCallback(async (artistId: number) => {
     const { controller, requestId } = beginRequest();
     dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'artist', id: artistId } });
     try {
@@ -167,7 +167,15 @@ export default function SearchView() {
       dispatch({ type: 'DETAIL_FAILED', payload: { kind: 'artist', id: artistId, error: message } });
       notifyError('Artist lookup failed', message);
     }
-  };
+  }, [beginRequest, dispatch, isCurrentRequest, notifyError]);
+
+  useEffect(() => {
+    const requestedArtistId = state.requestedArtistId;
+    if (requestedArtistId === null) return;
+
+    dispatch({ type: 'CONSUME_ARTIST_DETAIL_REQUEST', payload: requestedArtistId });
+    void openArtist(requestedArtistId);
+  }, [dispatch, openArtist, state.requestedArtistId]);
 
   const openAlbum = async (albumId: number) => {
     const { controller, requestId } = beginRequest();
@@ -283,7 +291,7 @@ export default function SearchView() {
     }
   };
 
-  const previewTrack = (track: TrackResult) => dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, cover_url: track.cover_url, key: null, camelot: null } });
+  const previewTrack = (track: TrackResult) => dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, artist_id: track.artist_id, cover_url: track.cover_url, key: null, camelot: null } });
 
   const isUrl = TIDAL_URL_RE.test(query.trim());
   const loading = session.status === 'loading';

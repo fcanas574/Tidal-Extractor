@@ -3,6 +3,19 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, render, waitFor, cleanup, screen } from '@testing-library/react';
 import * as api from '../api';
 
+const { mockDispatch, mockPreviewTrack } = vi.hoisted(() => ({
+  mockDispatch: vi.fn(),
+  mockPreviewTrack: {
+    id: 7,
+    title: 'T',
+    artist: 'A',
+    artist_id: 3 as number | null,
+    cover_url: null as string | null,
+    key: null,
+    camelot: null,
+  },
+}));
+
 let currentSettings: api.Settings = {
   default_quality: 'high_lossless',
   default_format: 'FLAC',
@@ -13,11 +26,11 @@ let currentSettings: api.Settings = {
 vi.mock('../context/AppContext', () => ({
   useApp: () => ({
     state: {
-      previewTrack: { id: 7, title: 'T', artist: 'A', cover_url: null },
+      previewTrack: mockPreviewTrack,
       previewPlaying: true,
       settings: currentSettings,
     },
-    dispatch: vi.fn(),
+    dispatch: mockDispatch,
   }),
 }));
 vi.mock('../api', async (orig) => ({
@@ -46,6 +59,9 @@ describe('AudioPlayerFooter fast lifecycle', () => {
       output_dir: '~/Music/TidalDownloads',
       waveform_color: '3band',
     };
+    mockPreviewTrack.artist_id = 3;
+    mockPreviewTrack.cover_url = null;
+    mockDispatch.mockClear();
     cleanup();
     vi.restoreAllMocks();
   });
@@ -67,6 +83,59 @@ describe('AudioPlayerFooter fast lifecycle', () => {
     expect(screen.getByRole('button', { name: 'Hide preview details' }).getAttribute('aria-expanded')).toBe('true');
     expect(screen.getByText('T')).toBeTruthy();
     expect(screen.getByText('A')).toBeTruthy();
+  });
+
+  it('expands inline from a larger up/down control over the cover on hover', () => {
+    mockPreviewTrack.cover_url = '/covers/7.jpg';
+    (api.preview.getStream as any).mockImplementation(() => new Promise(() => {}));
+    render(<AudioPlayerFooter />);
+
+    const player = screen.getByRole('region', { name: 'Preview player: Playing T by A' });
+    const expandButton = screen.getByRole('button', { name: 'Expand preview player' });
+    const artworkCluster = expandButton.parentElement;
+    const artwork = document.querySelector('.preview-player-artwork');
+    const playerMain = document.getElementById('preview-player-main');
+    const playerDetails = document.getElementById('preview-player-details');
+    const arrow = expandButton.querySelector('svg');
+
+    expect(artworkCluster).toHaveClass('preview-player-artwork-cluster');
+    expect(expandButton).toHaveClass('preview-player-artwork-overlay');
+    expect(artworkCluster?.firstElementChild).toBe(artwork);
+    expect(artworkCluster?.lastElementChild).toBe(expandButton);
+    expect(playerDetails?.parentElement).toBe(playerMain);
+    expect(playerDetails).toHaveClass('hidden');
+    expect(arrow).toHaveAttribute('width', '22');
+    expect(arrow).toHaveAttribute('height', '22');
+    expect(arrow).toHaveAttribute('data-direction', 'up');
+    expect(expandButton).toHaveAttribute('aria-expanded', 'false');
+    expect(player).not.toHaveClass('is-expanded');
+
+    fireEvent.click(expandButton);
+
+    const collapseButton = screen.getByRole('button', { name: 'Collapse preview player' });
+    expect(collapseButton).toHaveAttribute('aria-expanded', 'true');
+    expect(collapseButton).toHaveAttribute('aria-controls', 'preview-player-main preview-player-details');
+    expect(collapseButton.querySelector('svg')).toHaveAttribute('data-direction', 'down');
+    expect(playerDetails).toHaveClass('block');
+    expect(player).toHaveClass('is-expanded');
+    expect(screen.getByRole('button', { name: 'Pause preview' })).toBeInTheDocument();
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(collapseButton);
+
+    expect(screen.getByRole('button', { name: 'Expand preview player' })).toHaveAttribute('aria-expanded', 'false');
+    expect(playerDetails).toHaveClass('hidden');
+    expect(player).not.toHaveClass('is-expanded');
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+
+  it('opens the preview artist through the shared catalog detail request', () => {
+    (api.preview.getStream as any).mockImplementation(() => new Promise(() => {}));
+    render(<AudioPlayerFooter />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open artist A' }));
+
+    expect(mockDispatch).toHaveBeenCalledWith({ type: 'REQUEST_ARTIST_DETAIL', payload: 3 });
   });
 
   it('keeps BPM and Camelot visible as static metadata while playing and retains keyboard seeking', async () => {
