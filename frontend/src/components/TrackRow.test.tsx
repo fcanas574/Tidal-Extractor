@@ -102,4 +102,23 @@ describe('TrackRow', () => {
     expect(screen.getByText('Night Drive')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download Night Drive' })).toBeInTheDocument();
   });
+
+  it('keeps technical DJ details and both track actions together and accessible', () => {
+    render(
+      <TrackRow
+        track={track}
+        isPreviewing={false}
+        onPreview={vi.fn()}
+        onDownload={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('3:33')).toBeInTheDocument();
+    const technicalDetails = screen.getByRole('group', { name: 'Technical details for Night Drive' });
+    expect(technicalDetails).toHaveTextContent('128 BPM');
+    expect(technicalDetails).toHaveTextContent('5A');
+    expect(technicalDetails).toHaveTextContent('high_lossless');
+    expect(screen.getByRole('button', { name: 'Preview Night Drive' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Download Night Drive' })).toBeInTheDocument();
+  });
 });

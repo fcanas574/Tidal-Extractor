@@ -31,4 +31,20 @@ describe('AlbumCard', () => {
     expect(onDownload).toHaveBeenCalledWith(album);
     expect(onOpen).toHaveBeenCalledTimes(1);
   });
+
+  it('preserves album identity, release metadata, and actions with a long title', () => {
+    const longAlbum = {
+      ...album,
+      name: 'After Hours — Extended Club Reissue and Remastered Sessions',
+    };
+    const onOpen = vi.fn();
+    const onDownload = vi.fn();
+
+    render(<AlbumCard album={longAlbum} onOpen={onOpen} onDownload={onDownload} />);
+
+    expect(screen.getByRole('button', { name: `Open album ${longAlbum.name}` })).toBeInTheDocument();
+    expect(screen.getByText(/The Pilot · 10 tracks · 2024-01-01/)).toBeInTheDocument();
+    expect(screen.getByText('high_lossless')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: `Download album ${longAlbum.name}` })).toBeInTheDocument();
+  });
 });

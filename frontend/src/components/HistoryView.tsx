@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { history as historyApi } from '../api';
 import type { HistoryItem } from '../api';
 import { useApp } from '../context/AppContext';
+import WorkspaceInspector from './WorkspaceInspector';
 
 function formatSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`;
@@ -15,6 +16,9 @@ export default function HistoryView() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionState, setActionState] = useState<Record<number, 'loading' | 'success' | 'error'>>({});
+  const [selectedId, setSelectedId] = useState<number | null>(null);
+  const detailTitleRef = useRef<HTMLHeadingElement>(null);
+  const detailTriggerRefs = useRef(new Map<number, HTMLButtonElement>());
 
   const loadHistory = useCallback(async () => {
     setLoading(true);
@@ -32,6 +36,22 @@ export default function HistoryView() {
   }, [dispatch]);
 
   useEffect(() => { void loadHistory(); }, [loadHistory]);
+
+  const selectedItem = state.history.find((item) => item.id === selectedId) ?? null;
+
+  useEffect(() => {
+    if (!selectedItem) return undefined;
+    const frame = window.requestAnimationFrame(() => detailTitleRef.current?.focus());
+    return () => window.cancelAnimationFrame(frame);
+  }, [selectedId, selectedItem]);
+
+  const closeInspector = () => {
+    const previousId = selectedId;
+    setSelectedId(null);
+    if (previousId !== null) {
+      window.requestAnimationFrame(() => detailTriggerRefs.current.get(previousId)?.focus());
+    }
+  };
 
   const handleReDownload = async (item: HistoryItem) => {
     setActionState((previous) => ({ ...previous, [item.id]: 'loading' }));
@@ -54,32 +74,108 @@ export default function HistoryView() {
     }
   };
 
-  return (
-    <div className="max-w-4xl mx-auto px-6 py-8 animate-fade-in">
-      <div className="flex items-end justify-between gap-4 mb-6">
-        <div><h1 className="text-lg font-bold" style={{ color: 'var(--text-bright)' }}>Download History</h1><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Previously saved tracks, ready to download again.</p></div>
-        {!loading && !error && state.history.length > 0 && <span className="mono text-xs" style={{ color: 'var(--text-dim)' }}>{state.history.length} items</span>}
+  const renderReDownloadButton = (item: HistoryItem) => {
+    const status = actionState[item.id];
+    return (
+      <div className="history-row-action">
+        <span
+          className="history-action-status"
+          role={status === 'error' ? 'alert' : status === 'success' ? 'status' : undefined}
+        >
+          {status === 'success' ? 'Added to queue' : status === 'error' ? 'Try again' : ''}
+        </span>
+        <button
+          type="button"
+          className="history-download-button"
+          disabled={status === 'loading'}
+          onClick={() => void handleReDownload(item)}
+        >
+          {status === 'loading' ? 'Adding…' : status === 'error' ? 'Retry re-download' : 'Re-download'}
+        </button>
       </div>
+    );
+  };
 
-      {loading ? (
-        <div className="glass p-8 text-center" role="status" aria-live="polite"><span className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading download history…</span></div>
-      ) : error ? (
-        <div className="glass p-8 text-center" role="alert"><p className="text-sm" style={{ color: 'var(--text-bright)' }}>Could not load history.</p><p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{error}</p><button type="button" className="btn-primary text-xs mt-4" onClick={() => void loadHistory()}>Retry</button></div>
-      ) : state.history.length === 0 ? (
-        <div className="glass p-10 text-center" role="status"><p className="text-sm" style={{ color: 'var(--text-muted)' }}>No download history yet.</p><p className="text-xs mt-2" style={{ color: 'var(--text-dim)' }}>Completed downloads will appear here.</p></div>
-      ) : (
-        <ul className="space-y-3" aria-label="Download history">
-          {state.history.map((item) => {
-            const status = actionState[item.id];
-            return (
-              <li key={item.id} className="glass p-4 flex flex-wrap items-center justify-between gap-4">
-                <div className="min-w-0 flex-1"><p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{item.title}</p><p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{[item.artist, item.album, item.quality, item.format].filter(Boolean).join(' · ')}</p><p className="text-xs mt-2" style={{ color: 'var(--text-dim)' }}>{formatSize(item.file_size)} · {new Date(item.downloaded_at).toLocaleDateString()}</p></div>
-                <div className="flex items-center gap-3"><span className="text-xs" role={status === 'error' ? 'alert' : undefined} style={{ color: status === 'success' ? 'var(--success)' : status === 'error' ? 'var(--danger)' : 'var(--text-muted)' }}>{status === 'success' ? 'Added to queue' : status === 'error' ? 'Try again' : ''}</span><button type="button" className="btn-primary text-xs px-3 py-1.5" disabled={status === 'loading'} onClick={() => void handleReDownload(item)}>{status === 'loading' ? 'Adding…' : status === 'error' ? 'Retry re-download' : 'Re-download'}</button></div>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+  const historyList = (
+    <ul className="history-items" aria-label="Download history">
+      {state.history.map((item) => {
+        const isSelected = selectedItem?.id === item.id;
+        const context = [item.artist, item.album, item.quality, item.format].filter(Boolean).join(' · ');
+        const status = actionState[item.id];
+        return (
+          <li key={item.id} className={`history-item${isSelected ? ' is-selected' : ''}`}>
+            <div className="history-item-main">
+              <button
+                ref={(node) => {
+                  if (node) detailTriggerRefs.current.set(item.id, node);
+                  else detailTriggerRefs.current.delete(item.id);
+                }}
+                type="button"
+                className="history-item-details"
+                aria-label={`Details for ${item.title}`}
+                aria-pressed={isSelected}
+                onClick={() => setSelectedId(item.id)}
+              >
+                <span className="history-item-title" title={item.title}>{item.title}</span>
+                {context && <span className="history-item-context" title={context}>{context}</span>}
+                <span className="history-item-date">{formatSize(item.file_size)} · {new Date(item.downloaded_at).toLocaleDateString()}</span>
+              </button>
+              {isSelected ? (
+                <span className="history-action-status" role={status === 'error' ? 'alert' : status === 'success' ? 'status' : undefined}>
+                  {status === 'success' ? 'Added to queue' : status === 'error' ? 'Try again' : ''}
+                </span>
+              ) : renderReDownloadButton(item)}
+            </div>
+          </li>
+        );
+      })}
+    </ul>
+  );
+
+  return (
+    <div className="history-workspace animate-fade-in">
+      <header className="history-command">
+        <div><h1 className="history-page-title">History</h1><p className="history-page-subtitle">Your saved files, ready to add again.</p></div>
+        {!loading && !error && state.history.length > 0 && <span className="history-count mono">{state.history.length} items</span>}
+      </header>
+
+      <div className={`history-workspace-body${selectedItem ? ' has-inspector' : ''}`}>
+        <section className="history-results-column" aria-label="History items">
+          {loading ? (
+            <div className="history-state" role="status" aria-live="polite">Loading download history…</div>
+          ) : error ? (
+            <div className="history-state is-error" role="alert">
+              <p>Could not load history.</p><p>{error}</p>
+              <button type="button" className="history-download-button" onClick={() => void loadHistory()}>Retry</button>
+            </div>
+          ) : state.history.length === 0 ? (
+            <div className="history-state" role="status"><p>No download history yet.</p><span>Completed downloads will appear here.</span></div>
+          ) : historyList}
+        </section>
+
+        {selectedItem && (
+          <WorkspaceInspector
+            label="History"
+            title={selectedItem.title}
+            eyebrow="Download history"
+            returnLabel="← Back to history"
+            onClose={closeInspector}
+          >
+            <div className="history-inspector-content">
+              <h2 ref={detailTitleRef} id="history-inspector-title" className="history-inspector-track-title" tabIndex={-1}>{selectedItem.title}</h2>
+              {selectedItem.artist && <p className="history-inspector-artist">{selectedItem.artist}</p>}
+              <dl className="history-metadata">
+                {selectedItem.album && <div><dt>Album</dt><dd>{selectedItem.album}</dd></div>}
+                {selectedItem.quality && <div><dt>Quality</dt><dd>{selectedItem.quality}</dd></div>}
+                {selectedItem.format && <div><dt>Format</dt><dd>{selectedItem.format}</dd></div>}
+                <div><dt>File size</dt><dd>{formatSize(selectedItem.file_size)}</dd></div>
+                {selectedItem.downloaded_at && <div><dt>Downloaded</dt><dd>{new Date(selectedItem.downloaded_at).toLocaleDateString()}</dd></div>}
+              </dl>
+              {renderReDownloadButton(selectedItem)}
+            </div>
+          </WorkspaceInspector>
+        )}
+      </div>
     </div>
   );
 }

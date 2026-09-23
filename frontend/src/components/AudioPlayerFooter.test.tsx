@@ -69,6 +69,39 @@ describe('AudioPlayerFooter fast lifecycle', () => {
     expect(screen.getByText('A')).toBeTruthy();
   });
 
+  it('keeps BPM and Camelot visible as static metadata while playing and retains keyboard seeking', async () => {
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const capturedAudio: { current: HTMLAudioElement | null } = { current: null };
+    vi.spyOn(window, 'Audio').mockImplementation((url?: string) => {
+      const audio = document.createElement('audio');
+      if (url) audio.src = url;
+      capturedAudio.current = audio;
+      return audio as any;
+    });
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 240 });
+    (api.preview.getMetadata as any).mockResolvedValue({
+      track_id: 7, status: 'complete', revision: 1,
+      waveform: { bands: { low: [0.5, 0.4], mid: [0.4, 0.3], high: [0.3, 0.2] }, colors: {}, duration: 240 },
+      key: null, camelot: '8A', bpm: 128, error: null,
+    });
+    render(<AudioPlayerFooter />);
+
+    const camelot = await screen.findByTestId('camelot-key', {}, { timeout: 2500 });
+    const bpm = await screen.findByTestId('bpm-badge', {}, { timeout: 2500 });
+    expect(camelot).toHaveTextContent('8A');
+    expect(bpm).toHaveTextContent('128 BPM');
+    expect(camelot.style.animation).toBe('');
+    expect(bpm.style.animation).toBe('');
+    expect(screen.getByRole('button', { name: 'Pause preview' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByTestId('preview-artwork-fallback')).toBeInTheDocument();
+
+    const seekSlider = await screen.findByRole('slider', { name: 'Seek preview: T' });
+    fireEvent.keyDown(seekSlider, { key: 'ArrowRight' });
+    expect(capturedAudio.current?.currentTime).toBe(5);
+    expect(play).toHaveBeenCalled();
+  });
+
   it('uses RGB colors without requesting new metadata', async () => {
     (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 240 });
     (api.preview.getMetadata as any).mockResolvedValue({

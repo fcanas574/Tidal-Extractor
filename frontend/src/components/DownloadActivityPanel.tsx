@@ -37,11 +37,18 @@ export default function DownloadActivityPanel() {
   const [now, setNow] = useState(() => Date.now());
   const [completedCollapsed, setCompletedCollapsed] = useState(true);
   const [confirmingId, setConfirmingId] = useState<number | null>(null);
+  const [isNarrow, setIsNarrow] = useState(() => window.innerWidth <= 767);
 
   const activeItems = state.queue.filter((item) => item.status === 'queued' || item.status === 'downloading');
   const failedItems = state.queue.filter((item) => item.status === 'failed');
   const completedItems = state.queue.filter((item) => item.status === 'complete');
   const hasActiveWork = activeItems.length > 0;
+
+  useEffect(() => {
+    const updateWidth = () => setIsNarrow(window.innerWidth <= 767);
+    window.addEventListener('resize', updateWidth);
+    return () => window.removeEventListener('resize', updateWidth);
+  }, []);
 
   useEffect(() => {
     if (!state.activityPanelOpen) {
@@ -57,13 +64,40 @@ export default function DownloadActivityPanel() {
   useEffect(() => {
     if (!state.activityPanelOpen) return undefined;
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      dispatch({ type: 'TOGGLE_ACTIVITY_PANEL' });
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        dispatch({ type: 'TOGGLE_ACTIVITY_PANEL' });
+        return;
+      }
+      if (event.key !== 'Tab' || !isNarrow) return;
+
+      const panel = document.getElementById('download-activity-panel');
+      if (!panel) return;
+      const focusable = Array.from(panel.querySelectorAll<HTMLElement>(
+        'a[href], button:not([disabled]), input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      ));
+      if (focusable.length === 0) {
+        event.preventDefault();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const activeElement = document.activeElement;
+      if (!panel.contains(activeElement)) {
+        event.preventDefault();
+        (event.shiftKey ? last : first).focus();
+      } else if (event.shiftKey && activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
     };
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [dispatch, state.activityPanelOpen]);
+  }, [dispatch, isNarrow, state.activityPanelOpen]);
 
   useEffect(() => {
     if (!hasActiveWork) return;
@@ -193,11 +227,10 @@ export default function DownloadActivityPanel() {
         id="download-activity-panel"
         className="activity-panel"
         role="dialog"
-        aria-modal="false"
+        aria-modal={isNarrow}
         aria-labelledby="download-activity-title"
-        aria-live="polite"
       >
-        <div className="flex items-center justify-between gap-4 px-5 py-4">
+        <div className="activity-panel-header flex items-center justify-between gap-4 px-5 py-4">
           <div>
             <h2 id="download-activity-title" className="text-sm font-semibold" style={{ color: 'var(--text-bright)' }}>Download activity</h2>
             <p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>

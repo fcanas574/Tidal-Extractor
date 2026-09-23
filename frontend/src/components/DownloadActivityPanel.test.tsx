@@ -5,6 +5,8 @@ import type { QueueItem } from '../api';
 import DownloadActivityPanel from './DownloadActivityPanel';
 import { queue } from '../api';
 
+const defaultWindowWidth = window.innerWidth;
+
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
   return {
@@ -57,6 +59,7 @@ function renderPanel(item: QueueItem, connected = true) {
 afterEach(() => {
   vi.clearAllMocks();
   vi.useRealTimers();
+  Object.defineProperty(window, 'innerWidth', { configurable: true, value: defaultWindowWidth });
 });
 
 describe('DownloadActivityPanel', () => {
@@ -114,5 +117,21 @@ describe('DownloadActivityPanel', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(screen.queryByRole('dialog', { name: 'Download activity' })).not.toBeInTheDocument();
     expect(trigger).toHaveFocus();
+  });
+
+  it('contains focus and exposes modal semantics for the mobile activity sheet', () => {
+    Object.defineProperty(window, 'innerWidth', { configurable: true, value: 390 });
+    renderPanel(makeItem());
+
+    const dialog = screen.getByRole('dialog', { name: 'Download activity' });
+    const closeButton = within(dialog).getByRole('button', { name: 'Close download activity' });
+    const removeButton = within(dialog).getByRole('button', { name: 'Cancel Track 1' });
+    expect(dialog).toHaveAttribute('aria-modal', 'true');
+    expect(closeButton).toHaveFocus();
+
+    fireEvent.keyDown(closeButton, { key: 'Tab', shiftKey: true });
+    expect(removeButton).toHaveFocus();
+    fireEvent.keyDown(removeButton, { key: 'Tab' });
+    expect(closeButton).toHaveFocus();
   });
 });

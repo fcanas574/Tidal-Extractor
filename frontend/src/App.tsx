@@ -92,18 +92,16 @@ function AppContent() {
 
   return (
     <AuthGate>
-      <div className={`min-h-screen flex flex-col${state.activityPanelOpen ? ' activity-open' : ''}`}>
+      <div className={`app-shell${state.activityPanelOpen ? ' activity-open' : ''}${state.previewTrack ? ' has-preview' : ''}`}>
         <NavBar />
-        <main
-          id="main-content"
-          className="app-main min-w-0 w-full max-w-[1280px] flex-1 mx-auto"
-          style={{ paddingBottom: state.previewTrack ? 'calc(120px + env(safe-area-inset-bottom))' : undefined }}
-        >
-          {renderView()}
-        </main>
-        <DownloadActivityPanel />
-        <SettingsPanel />
-        <ToastContainer />
+        <div className="workspace-column">
+          <main id="main-content" className="app-main workspace-main">
+            {renderView()}
+          </main>
+          <DownloadActivityPanel />
+          <SettingsPanel />
+          <ToastContainer />
+        </div>
         <AudioPlayerFooter />
       </div>
     </AuthGate>

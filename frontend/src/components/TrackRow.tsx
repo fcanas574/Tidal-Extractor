@@ -15,19 +15,14 @@ function toCamelot(key: string | null, scale: string | null) {
   return number === undefined ? null : `${number}${scale.toUpperCase() === 'MINOR' ? 'A' : 'B'}`;
 }
 
-function qualityBadgeColor(quality: string) {
-  if (quality.includes('hi_res') || quality.includes('HI_RES')) return { background: 'rgba(0, 229, 199, 0.12)', color: 'var(--accent-primary)' };
-  if (quality.includes('lossless') || quality.includes('LOSSLESS')) return { background: 'rgba(0, 184, 212, 0.1)', color: 'var(--accent-secondary)' };
-  if (quality.includes('320')) return { background: 'rgba(255, 192, 64, 0.1)', color: 'var(--warning)' };
-  return { background: 'var(--bg-surface)', color: 'var(--text-dim)' };
-}
-
 function Cover({ src, alt }: { src: string | null; alt: string }) {
-  if (src) return <img src={src} alt={alt} className="w-12 h-12 rounded-md object-cover shrink-0" />;
+  if (src) return <img src={src} alt={alt} className="track-row-cover" loading="lazy" />;
   return (
-    <div className="w-12 h-12 rounded-md shrink-0 flex items-center justify-center text-sm" style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }} aria-hidden="true">
-      ♪
-    </div>
+    <span className="track-row-cover track-row-cover-fallback" aria-hidden="true">
+      <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M12.8 4v9.3a2.7 2.7 0 1 1-1.6-2.5V6l5-1.2v6.8a2.7 2.7 0 1 1-1.6-2.5V3.7L12.8 4Z" />
+      </svg>
+    </span>
   );
 }
 
@@ -55,40 +50,52 @@ export default function TrackRow({
   const canOpenArtist = track.artist_id !== null && onOpenArtist;
   const canOpenAlbum = track.album_id !== null && onOpenAlbum;
 
+  const metadata = [
+    track.bpm !== null ? { value: `${Math.round(track.bpm)} BPM` } : null,
+    camelot ? { value: camelot } : null,
+    track.genre ? { value: track.genre } : null,
+    track.quality ? { value: track.quality } : null,
+    hasFreqBlogMetadata ? { value: 'FreqBlog', label: 'FreqBlog metadata' } : null,
+  ].filter((value): value is { value: string; label?: string } => Boolean(value));
+
   return (
-    <div className="glass glass-hover p-3 sm:p-4 flex flex-wrap sm:flex-nowrap items-center gap-3 sm:gap-4">
+    <article className="track-row">
       <Cover src={track.cover_url} alt={`${track.title} cover`} />
-      <div className="min-w-0 flex-1">
-        <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{track.title}</p>
-        <div className="text-xs truncate mt-1 flex items-center gap-1" style={{ color: 'var(--text-muted)' }}>
+      <div className="track-row-copy">
+        <p className="track-row-title" title={track.title}>{track.title}</p>
+        <div className="track-row-context">
           {canOpenArtist ? (
-            <button type="button" className="hover:underline focus-visible:underline text-left truncate" style={{ color: 'inherit' }} onClick={() => onOpenArtist(track.artist_id!)} aria-label={`Open artist ${track.artist}`}>
+            <button type="button" className="track-row-link" onClick={() => onOpenArtist(track.artist_id!)} aria-label={`Open artist ${track.artist}`}>
               {track.artist}
             </button>
-          ) : <span className="truncate">{track.artist}</span>}
+          ) : <span className="track-row-context-name" title={track.artist}>{track.artist}</span>}
           <span aria-hidden="true">·</span>
           {canOpenAlbum ? (
-            <button type="button" className="hover:underline focus-visible:underline text-left truncate" style={{ color: 'inherit' }} onClick={() => onOpenAlbum(track.album_id!)} aria-label={`Open album ${track.album}`}>
+            <button type="button" className="track-row-link" onClick={() => onOpenAlbum(track.album_id!)} aria-label={`Open album ${track.album}`}>
               {track.album}
             </button>
-          ) : <span className="truncate">{track.album}</span>}
-          <span aria-hidden="true">·</span>
-          <span className="shrink-0">{formatDuration(track.duration)}</span>
+          ) : <span className="track-row-context-name" title={track.album}>{track.album}</span>}
+          <span className="track-row-duration">{formatDuration(track.duration)}</span>
         </div>
-        <div className="flex flex-wrap gap-1.5 mt-2 min-h-5 items-start">
-          {track.bpm !== null && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(255, 192, 64, 0.15)', color: 'var(--warning)' }}>{Math.round(track.bpm)} BPM</span>}
-          {camelot && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(0, 184, 212, 0.15)', color: 'var(--info)' }}>{camelot}</span>}
-          {track.genre && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}>{track.genre}</span>}
-          {hasFreqBlogMetadata && <span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: 'rgba(176, 120, 255, 0.12)', color: 'var(--text-muted)' }} aria-label="FreqBlog metadata">FreqBlog</span>}
-        </div>
+        {metadata.length > 0 && (
+          <div className="track-row-metadata mono" role="group" aria-label={`Technical details for ${track.title}`}>
+            {metadata.map((value, index) => (
+              <span className="track-row-metadata-item" key={`${value.value}-${index}`}>
+                {index > 0 && <span aria-hidden="true" className="track-row-metadata-separator">·</span>}
+                <span aria-label={value.label}>{value.value}</span>
+              </span>
+            ))}
+          </div>
+        )}
       </div>
-      <span className="mono text-[10px] px-1.5 py-0.5 rounded shrink-0" style={qualityBadgeColor(track.quality)}>{track.quality}</span>
-      <div className="flex items-center gap-2 ml-auto">
-        <button type="button" className="btn-ghost text-xs px-2.5 py-1.5" onClick={onPreview} aria-label={`${isPreviewing ? 'Pause' : 'Preview'} ${track.title}`}>
+      <div className="track-row-actions">
+        <button type="button" className="track-row-action track-row-preview" onClick={onPreview} aria-label={`${isPreviewing ? 'Pause' : 'Preview'} ${track.title}`}>
           {isPreviewing ? 'Pause' : 'Preview'}
         </button>
-        <button type="button" className="btn-primary text-xs px-3 py-1.5" onClick={onDownload} aria-label={`Download ${track.title}`}>Download</button>
+        <button type="button" className="track-row-action track-row-download" onClick={onDownload} aria-label={`Download ${track.title}`}>
+          Download
+        </button>
       </div>
-    </div>
+    </article>
   );
 }

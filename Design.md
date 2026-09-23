@@ -21,7 +21,7 @@ Tidal Extractor debe sentirse como un espacio de trabajo musical confiable: ráp
 
 Este documento define la dirección visual y la distribución para el frontend actual. El rework conserva el modelo de pestañas existente (`search`, `queue`, `history`, `stats`), la lógica de autenticación y la API/WebSocket de descargas.
 
-- La barra lateral izquierda de Stitch es la referencia de densidad e información. En la implementación actual se adapta a una navegación superior compacta para conservar el estado de pestañas, simplificar el uso en pantallas pequeñas y evitar introducir un router para este cambio.
+- La barra lateral compacta de Stitch informa la jerarquía de escritorio; se adapta a navegación superior horizontal por debajo de 1100px. Los mismos cuatro tabs conservan el estado existente sin introducir un router.
 - El reproductor permanece fijo en la parte inferior.
 - Actividad de descargas y preferencias son superficies contextuales: panel lateral en escritorio y sheet inferior en móvil.
 - La copia visible actual permanece en inglés para respetar el contrato existente de la app. El idioma del producto y el idioma preferido de subtítulos son decisiones independientes.
@@ -86,23 +86,25 @@ Reglas de color:
 
 ## 4. Shell y distribución
 
-### Escritorio (>= 1280 px)
+### Escritorio (>= 1100 px)
 
-- Contenedor de contenido: máximo aproximado de `1280 px`, centrado.
-- Márgenes laterales: `32–48 px`; gutters internos: `16–32 px`.
-- Shell vertical: navegación superior → contenido desplazable → reproductor fijo.
-- La actividad de descargas y ajustes se abre como panel lateral sin cambiar la ruta ni perder filtros.
-- El reproductor reserva espacio inferior para que la última fila nunca quede oculta.
+- Shell de dos columnas: rail de `216 px` y workspace flexible con `min-width: 0` y `min-height: 0`.
+- El rail concentra marca, Search, Queue, History, Stats, estado realtime, Activity y Settings.
+- Cada vista es dueña de su encabezado/comandos. Search y Queue pueden acotar su lista con scroll interno solo tras establecer la cadena completa de alturas; el shell y el documento no esconden scrollbars.
+- El workspace usa gutters de `24–32 px`; las superficies no se expanden a un dashboard de tarjetas.
+- La actividad y los ajustes se abren como panel lateral sin cambiar la pestaña ni perder filtros.
+- El reproductor fijo reserva espacio inferior para que la última acción no quede tapada.
 
-### Tablet (768–1279 px)
+### Tablet (768–1099 px)
 
-- Reducir márgenes a `24 px` y pasar grids de cuatro a dos columnas.
-- Mantener la navegación horizontal con etiquetas; ocultar solo texto no esencial, nunca acciones sin alternativa accesible.
-- Los paneles pueden ocupar hasta `min(520px, 100vw)`.
+- El rail pasa a una barra superior compacta: marca/utilidades en una fila y los cuatro tabs etiquetados en una fila desplazable visible.
+- El documento conserva el scroll natural. Los paneles laterales respetan el espacio del player.
+- Mantener una jerarquía de una columna y gutters cercanos a `24 px`.
 
 ### Móvil (< 768 px)
 
-- Una columna, padding de `16 px` y navegación horizontal desplazable.
+- Una columna, padding de `16 px` y navegación horizontal desplazable con scrollbar visible.
+- Marca y acciones persistentes caben en una sola línea; los iconos compactos conservan nombres accesibles.
 - El reproductor se convierte en una barra compacta; controles secundarios viven en el sheet.
 - El sheet de actividad ocupa la pantalla disponible y respeta `env(safe-area-inset-bottom)`.
 - Tablas se convierten en filas apiladas; la acción principal permanece visible.
@@ -189,7 +191,7 @@ La pestaña activa debe tener `aria-current="page"` y una señal visual de alto 
 
 - Barra fija inferior con portada, título/artista, play/pause, seek y duración.
 - Waveform como visualización técnica, no como fondo ornamental.
-- En móvil se reduce a título, portada y control principal; abrir el resto con una acción accesible.
+- En móvil se reduce a título, portada y controles esenciales; la acción de detalles expone waveform/seek, volumen y metadatos técnicos.
 - El reproductor no debe tapar contenido ni robar el foco al cambiar de vista.
 
 ## 7. Componentes y estados
@@ -227,7 +229,7 @@ La pestaña activa debe tener `aria-current="page"` y una señal visual de alto 
 
 - Motion comunica causalidad: apertura de panel, cambio de progreso, selección y reproducción.
 - Duraciones orientativas: `120–180 ms` para controles y `180–240 ms` para paneles.
-- No animar layout completo, blur grande ni elementos constantemente para crear “vida”.
+- No animar layout completo, blur grande ni elementos constantemente para crear “vida”. El badge Camelot y BPM permanecen estáticos; el movimiento del waveform se limita a representar playback/progreso.
 - Respetar `prefers-reduced-motion: reduce`; eliminar transforms y loops no esenciales.
 - Reservar dimensiones de portadas e imágenes; usar lazy loading fuera del viewport.
 - Debounce para búsquedas y evitar polling duplicado; el WebSocket sigue siendo la fuente de actualizaciones en vivo.

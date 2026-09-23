@@ -11,66 +11,21 @@ function formatTime(seconds: number): string {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// Key badge with rainbow gradient animation when playing
-function KeyBadge({ camelot, playing }: { camelot: string | null; playing: boolean }) {
+function KeyBadge({ camelot }: { camelot: string | null }) {
   if (!camelot) return null;
 
   return (
-    <div
-      key={playing ? 'playing' : 'paused'}
-      className="ml-3 px-2 py-0.5 rounded text-xs font-mono shrink-0"
-      style={{
-        background: playing
-          ? 'linear-gradient(90deg, #ff0000, #ff7f00, #ffff00, #00ff00, #0000ff, #8b00ff, #ff0000)'
-          : 'var(--accent-dim)',
-        backgroundSize: '200% 100%',
-        animation: playing ? 'rainbow 1.5s linear infinite' : 'none',
-        color: playing ? '#000' : 'var(--text-bright)',
-        border: `1px solid ${playing ? 'rgba(255,255,255,0.3)' : 'rgba(0, 229, 199, 0.2)'}`,
-        textShadow: playing ? 'none' : '0 1px 2px rgba(0,0,0,0.3)',
-      }}
-    >
+    <span data-testid="camelot-key" className="preview-key-badge">
       {camelot}
-    </div>
+    </span>
   );
 }
 
-// BPM badge - subtle display with beat animation
-function BPMBadge({ bpm, playing }: { bpm: number | null; playing: boolean }) {
+function BPMBadge({ bpm }: { bpm: number | null }) {
   if (!bpm) return null;
 
-  // Calculate animation duration based on BPM (60 seconds / BPM = seconds per beat)
-  const beatDuration = bpm > 0 ? 60 / bpm : 0;
-
   return (
-    <div
-      className="ml-2 px-2 py-0.5 rounded text-xs font-mono shrink-0 relative overflow-hidden"
-      style={{
-        background: 'var(--bg-surface)',
-        color: 'var(--text-muted)',
-        border: '1px solid rgba(255,255,255,0.1)',
-      }}
-    >
-      {/* Animated beat line - rises from bottom on each beat */}
-      {playing && beatDuration > 0 && (
-        <div
-          key="beat-animation"
-          style={{
-            position: 'absolute',
-            bottom: 0,
-            left: 0,
-            right: 0,
-            height: '100%',
-            background: 'linear-gradient(to top, rgba(0, 229, 199, 0.5), transparent)',
-            animation: `beatPulse ${beatDuration}s ease-in-out infinite`,
-            pointerEvents: 'none',
-          }}
-        />
-      )}
-      <span style={{ position: 'relative', zIndex: 1 }}>
-        {Math.round(bpm)} BPM
-      </span>
-    </div>
+    <span data-testid="bpm-badge" className="preview-bpm-badge">{Math.round(bpm)} BPM</span>
   );
 }
 
@@ -472,48 +427,54 @@ export default function AudioPlayerFooter() {
     <div
       role="region"
       aria-label={`Preview player: ${previewPlaying ? 'Playing' : 'Paused'} ${previewTrack.title} by ${previewTrack.artist}`}
-      className="fixed bottom-0 left-0 right-0 z-50 px-3 py-2 sm:px-4"
+      className="preview-player fixed bottom-0 left-0 right-0 z-50 px-3 py-2 sm:px-4"
       style={{
         background: 'var(--glass-bg)',
         borderTop: '1px solid var(--glass-border)',
         boxShadow: '0 -12px 32px rgba(11, 13, 18, 0.24)',
         backdropFilter: 'blur(16px)',
       }}
-    >
+      >
       <span data-testid="waveform-color-mode" className="hidden">{waveformMode}</span>
-      <div id="preview-player-details" className={`${detailVisibility} mb-2`}>
-        {waveform ? (
-          <canvas
-            ref={canvasRef}
-            role="slider"
-            tabIndex={0}
-            aria-label={`Seek preview: ${previewTrack.title}`}
-            aria-valuemin={0}
-            aria-valuemax={totalDuration}
-            aria-valuenow={Math.min(currentTime, totalDuration)}
-            aria-valuetext={`${formatTime(currentTime)} of ${formatTime(totalDuration)}`}
-            onClick={seek}
-            onKeyDown={seekWithKeyboard}
-            onMouseMove={(e) => {
-              const c = canvasRef.current;
-              if (!c) return;
-              const r = c.getBoundingClientRect();
-              setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
-            }}
-            onMouseLeave={() => setHoverFraction(null)}
-            className="w-full cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-offset-2"
-            style={{ display: 'block', height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}
-          />
-        ) : waveformFailed ? (
-          <div className="w-full rounded flex items-center justify-center" role="status" aria-live="polite" style={{ height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}>
-            <span className="text-xs" style={{ color: 'var(--text-dim)' }}>waveform unavailable</span>
+      <div id="preview-player-details" className={`preview-player-details ${detailVisibility}`}>
+        <div className="preview-player-instrument">
+          <div className="preview-player-waveform">
+            {waveform ? (
+              <canvas
+                ref={canvasRef}
+                role="slider"
+                tabIndex={0}
+                aria-label={`Seek preview: ${previewTrack.title}`}
+                aria-valuemin={0}
+                aria-valuemax={totalDuration}
+                aria-valuenow={Math.min(currentTime, totalDuration)}
+                aria-valuetext={`${formatTime(currentTime)} of ${formatTime(totalDuration)}`}
+                onClick={seek}
+                onKeyDown={seekWithKeyboard}
+                onMouseMove={(e) => {
+                  const c = canvasRef.current;
+                  if (!c) return;
+                  const r = c.getBoundingClientRect();
+                  setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
+                }}
+                onMouseLeave={() => setHoverFraction(null)}
+                className="preview-waveform-canvas w-full cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-offset-2"
+                style={{ display: 'block', height: '44px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}
+              />
+            ) : waveformFailed ? (
+              <div className="preview-waveform-placeholder" role="status" aria-live="polite">
+                <span>waveform unavailable</span>
+              </div>
+            ) : (
+              <div className="preview-waveform-placeholder animate-pulse" aria-label="Loading waveform" role="status" />
+            )}
           </div>
-        ) : (
-          <div className="w-full rounded animate-pulse" aria-label="Loading waveform" role="status"
-               style={{ height: '56px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }} />
-        )}
-        {/* Mobile expanded volume bar */}
-        <div className="sm:hidden flex items-center justify-between mt-2 pt-2 border-t border-white/10 px-1">
+          <div id="preview-player-secondary" className={`preview-player-meta ${secondaryVisibility} items-center shrink-0`}>
+            <KeyBadge camelot={keyCamelot} />
+            <BPMBadge bpm={bpm} />
+          </div>
+        </div>
+        <div className="preview-player-mobile-volume sm:hidden">
           <span className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>Volume</span>
           <VolumeControl
             sliderValue={volumeSlider}
@@ -525,50 +486,47 @@ export default function AudioPlayerFooter() {
         </div>
       </div>
 
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2 sm:gap-3 flex-1 min-w-0">
+      <div className="preview-player-main">
+        <div className="preview-player-identity">
           {previewTrack.cover_url ? (
             <img
               src={previewTrack.cover_url}
               alt=""
-              className="w-9 h-9 rounded object-cover shrink-0"
+              className="preview-player-artwork w-9 h-9 rounded object-cover shrink-0"
               style={{ border: '1px solid var(--glass-border)' }}
             />
           ) : (
             <div
-              className="w-9 h-9 rounded shrink-0 flex items-center justify-center"
+              data-testid="preview-artwork-fallback"
+              className="preview-player-artwork w-9 h-9 rounded shrink-0 flex items-center justify-center"
               style={{ background: 'var(--bg-surface)', color: 'var(--text-dim)' }}
             >
-              &#9835;
+              <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9.5 11.5V3l4-1v8.5" /><path d="M9.5 5 13.5 4" /><ellipse cx="6" cy="12" rx="2" ry="1.5" /><ellipse cx="12" cy="10.5" rx="2" ry="1.5" /></svg>
             </div>
           )}
-          <div className="min-w-0 flex-1">
-            <p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
+          <div className="preview-player-track-copy">
+            <p className="preview-player-track-title text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
               {previewTrack.title}
             </p>
-            <p className="text-xs truncate" style={{ color: 'var(--text-muted)' }}>
+            <p className="preview-player-track-artist text-xs truncate" style={{ color: 'var(--text-muted)' }}>
               {previewTrack.artist}
             </p>
           </div>
-          <div id="preview-player-secondary" className={`${secondaryVisibility} items-center shrink-0`}>
-            <KeyBadge camelot={keyCamelot} playing={previewPlaying} />
-            <BPMBadge bpm={bpm} playing={previewPlaying} />
-          </div>
         </div>
 
-        <div className="flex items-center gap-1.5 sm:gap-3 shrink-0 ml-2 sm:ml-4">
+        <div className="preview-player-controls">
           <VolumeControl
             sliderValue={volumeSlider}
             isMuted={isMuted}
             onSliderChange={handleVolumeChange}
             onToggleMute={toggleMute}
-            className="hidden sm:flex"
+            className="preview-player-desktop-volume hidden sm:flex"
           />
           {/* Quick mute button on mobile */}
           <button
             type="button"
             onClick={toggleMute}
-            className="sm:hidden p-2 rounded transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
+            className="preview-player-mute sm:hidden p-2 rounded transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
             style={{ color: isMuted ? 'var(--danger, #E11D48)' : 'var(--text-muted)' }}
             aria-label={isMuted ? 'Unmute preview' : 'Mute preview'}
             aria-pressed={isMuted}
@@ -587,7 +545,7 @@ export default function AudioPlayerFooter() {
               </svg>
             )}
           </button>
-          <span className={`${mobileExpanded ? 'inline' : 'hidden md:inline'} mono text-xs`} style={{ color: 'var(--text-dim)' }} aria-label={`Preview time ${formatTime(currentTime)} of ${formatTime(duration)}`}>
+          <span className={`preview-player-time ${mobileExpanded ? 'inline' : 'hidden md:inline'} mono text-xs`} style={{ color: 'var(--text-dim)' }} aria-label={`Preview time ${formatTime(currentTime)} of ${formatTime(duration)}`}>
             {formatTime(currentTime)} / {formatTime(duration)}
           </span>
           <span className="sr-only" aria-live="polite">
@@ -596,7 +554,7 @@ export default function AudioPlayerFooter() {
           <button
             type="button"
             onClick={() => setMobileExpanded((expanded) => !expanded)}
-            className="md:hidden p-2 rounded transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
+            className="preview-player-details-toggle md:hidden p-2 rounded transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
             aria-label={mobileExpanded ? 'Hide preview details' : 'Show preview details'}
             aria-expanded={mobileExpanded}
             aria-controls="preview-player-details preview-player-secondary"
@@ -609,7 +567,7 @@ export default function AudioPlayerFooter() {
           <button
             type="button"
             onClick={togglePlay}
-            className="p-2 rounded-full transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
+            className="preview-player-play p-2 rounded-full transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
             aria-label={previewPlaying ? 'Pause preview' : 'Play preview'}
             aria-pressed={previewPlaying}
             style={{
@@ -632,7 +590,7 @@ export default function AudioPlayerFooter() {
           <button
             type="button"
             onClick={close}
-            className="p-2 rounded-full transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
+            className="preview-player-close p-2 rounded-full transition-all duration-200 focus-visible:outline-2 focus-visible:outline-offset-2"
             aria-label="Close preview player"
             style={{ color: 'var(--text-dim)' }}
           >

@@ -60,6 +60,7 @@ afterEach(() => vi.clearAllMocks());
 describe('SearchView', () => {
   it('keeps the short search prompt and exposes URL detection', () => {
     renderSearch();
+    expect(screen.getByRole('form', { name: 'Search Tidal catalog' })).toHaveAttribute('novalidate');
     const input = screen.getByRole('textbox', { name: /Search tracks/i });
     expect(input).toHaveAttribute('placeholder', 'Search tracks, artists, albums, or paste a Tidal link');
     fireEvent.change(input, { target: { value: 'https://listen.tidal.com/track/7' } });
@@ -142,6 +143,12 @@ describe('SearchView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open artist The Pilot' }));
 
     await waitFor(() => expect(screen.getByText('Artist details')).toBeInTheDocument());
+    expect(screen.getByRole('complementary', { name: 'Artist details inspector' })).toBeInTheDocument();
+    const backButton = screen.getByRole('button', { name: '← Back to search' });
+    expect(backButton).toBeInTheDocument();
+    expect(backButton).toHaveTextContent(/^Back to search$/);
+    expect(screen.getAllByText('Night Drive')).toHaveLength(2);
+    expect(input).toHaveValue('Night Drive');
     expect(search.artist).toHaveBeenCalledWith(3, expect.any(AbortSignal));
     expect(search.query).toHaveBeenCalledTimes(1);
   });

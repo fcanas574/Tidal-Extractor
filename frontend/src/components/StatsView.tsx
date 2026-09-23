@@ -40,30 +40,42 @@ export default function StatsView() {
   const maxQuality = Math.max(...qualityBreakdown.map((quality) => quality.value), 1);
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-8 animate-fade-in">
-      <div className="mb-6"><h1 className="text-lg font-bold" style={{ color: 'var(--text-bright)' }}>Stats</h1><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>A quiet view of your local download library.</p></div>
+    <div className="stats-workspace animate-fade-in">
+      <header className="stats-command">
+        <h1 className="stats-page-title">Stats</h1>
+      </header>
 
       {loading ? (
-        <div className="glass p-8 text-center" role="status" aria-live="polite"><span className="text-sm" style={{ color: 'var(--text-muted)' }}>Loading stats…</span></div>
+        <div className="stats-state" role="status" aria-live="polite">Loading stats…</div>
       ) : error ? (
-        <div className="glass p-8 text-center" role="alert"><p className="text-sm" style={{ color: 'var(--text-bright)' }}>Could not load stats.</p><p className="text-xs mt-2" style={{ color: 'var(--text-muted)' }}>{error}</p><button type="button" className="btn-primary text-xs mt-4" onClick={() => void loadStats()}>Retry</button></div>
+        <div className="stats-state is-error" role="alert"><p>Could not load stats.</p><p>{error}</p><button type="button" className="history-download-button" onClick={() => void loadStats()}>Retry</button></div>
       ) : (
         <>
-          <section className="glass p-5 mb-7" aria-labelledby="stats-summary-heading">
-            <h2 id="stats-summary-heading" className="text-xs font-medium uppercase tracking-wider mb-5" style={{ color: 'var(--text-muted)' }}>Library summary</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-5">
-              <div><p className="mono text-3xl font-semibold" style={{ color: 'var(--text-bright)' }}>{totalTracks.toLocaleString()}</p><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Downloaded tracks</p></div>
-              <div><p className="mono text-3xl font-semibold" style={{ color: 'var(--text-bright)' }}>{formatSize(totalBytes)}</p><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>Storage used</p></div>
+          <section className="stats-summary" aria-labelledby="stats-summary-heading">
+            <h2 id="stats-summary-heading" className="stats-section-label">Library</h2>
+            <div className="stats-metrics">
+              <div className="stats-metric"><p className="stats-metric-value mono">{totalTracks.toLocaleString()}</p><p className="stats-metric-label">Downloaded tracks</p></div>
+              <div className="stats-metric"><p className="stats-metric-value mono">{formatSize(totalBytes)}</p><p className="stats-metric-label">Storage used</p></div>
             </div>
           </section>
 
-          <section aria-labelledby="quality-breakdown-heading"><div className="flex items-center justify-between mb-4"><h2 id="quality-breakdown-heading" className="text-sm font-medium" style={{ color: 'var(--text-bright)' }}>Quality distribution</h2><span className="text-xs" style={{ color: 'var(--text-dim)' }}>Tracks by format</span></div><div className="space-y-3">
+          <section className="stats-quality" aria-labelledby="quality-breakdown-heading">
+            <div className="stats-section-heading"><h2 id="quality-breakdown-heading">Quality distribution</h2><span>Tracks by format</span></div>
+            <ul className="stats-quality-list">
             {qualityBreakdown.map((quality) => {
               const percent = totalTracks > 0 ? Math.round((quality.value / totalTracks) * 100) : 0;
-              return <div key={quality.label} className="glass p-3"><div className="flex items-center justify-between gap-4 mb-2"><span className="text-xs" style={{ color: 'var(--text-muted)' }}>{quality.label}</span><span className="mono text-xs" style={{ color: 'var(--text-bright)' }}>{quality.value.toLocaleString()} <span style={{ color: 'var(--text-dim)' }}>({percent}%)</span></span></div><div className="progress-track" role="progressbar" aria-label={`${quality.label} quality distribution`} aria-valuemin={0} aria-valuemax={maxQuality} aria-valuenow={quality.value}><div className="progress-fill" style={{ width: `${(quality.value / maxQuality) * 100}%`, background: 'var(--accent-primary)' }} /></div></div>;
+              return (
+                <li key={quality.label} className="stats-quality-row">
+                  <div className="stats-quality-values"><span>{quality.label}</span><span className="mono">{quality.value.toLocaleString()} <span className="stats-quality-percent">({percent}%)</span></span></div>
+                  <div className="stats-quality-track" role="progressbar" aria-label={`${quality.label} quality distribution`} aria-valuemin={0} aria-valuemax={maxQuality} aria-valuenow={quality.value}>
+                    <div className="stats-quality-fill" style={{ width: `${(quality.value / maxQuality) * 100}%` }} />
+                  </div>
+                </li>
+              );
             })}
-          </div></section>
-          <p className="text-xs mt-6" style={{ color: 'var(--text-dim)' }}>Stats are stored device-wide and are not tied to your Tidal account.</p>
+            </ul>
+          </section>
+          <p className="stats-note">Stats are stored device-wide and are not tied to your Tidal account.</p>
         </>
       )}
     </div>

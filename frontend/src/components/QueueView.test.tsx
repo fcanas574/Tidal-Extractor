@@ -27,6 +27,23 @@ function renderQueue(items: QueueItem[]) {
 afterEach(() => vi.clearAllMocks());
 
 describe('QueueView', () => {
+  it('summarizes queue work and exposes active progress in one glance', () => {
+    renderQueue([
+      makeItem({ id: 1, title: 'Active mix', status: 'downloading', progress: 42 }),
+      makeItem({ id: 2, title: 'Next mix', status: 'queued' }),
+      makeItem({ id: 3, title: 'Failed mix', status: 'failed', error: 'Network error' }),
+      makeItem({ id: 4, title: 'Finished mix', status: 'complete', progress: 100 }),
+    ]);
+
+    const summary = screen.getByRole('region', { name: 'Queue summary' });
+    expect(summary).toHaveTextContent('1 downloading');
+    expect(summary).toHaveTextContent('1 queued');
+    expect(summary).toHaveTextContent('1 failed');
+    expect(summary).toHaveTextContent('1 completed');
+    expect(screen.getByRole('progressbar', { name: 'Download progress for Active mix' })).toHaveAttribute('aria-valuenow', '42');
+    expect(screen.queryByText('Finished mix')).not.toBeInTheDocument();
+  });
+
   it('groups queue items and collapses completed items by default', () => {
     renderQueue([
       makeItem({ id: 1, title: 'Active track', status: 'downloading', progress: 42 }),

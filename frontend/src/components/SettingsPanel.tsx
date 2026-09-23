@@ -129,22 +129,106 @@ export default function SettingsPanel() {
 
   return (
     <>
-      <button type="button" className="fixed inset-0 z-40" aria-label="Dismiss settings overlay" onClick={close} style={{ background: 'rgba(4, 8, 18, 0.6)' }} />
-      <aside ref={panelRef} id="settings-panel" className="fixed top-0 right-0 bottom-0 z-50 w-full max-w-[380px] animate-slide-in-right overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="settings-title" aria-describedby="settings-save-status" style={{ background: 'var(--bg-deep)', borderLeft: '1px solid var(--glass-border)', boxShadow: '-20px 0 60px rgba(0, 0, 0, 0.5)' }}>
-        <div className="p-6">
-          <div className="flex items-center justify-between mb-6"><div><h2 id="settings-title" className="text-sm font-semibold uppercase tracking-widest" style={{ color: 'var(--accent-primary)' }}>Settings</h2><p className="text-xs mt-1" style={{ color: 'var(--text-muted)' }}>{dirty ? 'Unsaved changes' : 'Download preferences'}</p></div><button ref={closeButtonRef} type="button" onClick={close} className="btn-ghost p-2" aria-label="Close settings"><svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg></button></div>
-          <div className="glow-line mb-6" />
+      <button type="button" className="settings-overlay" aria-label="Dismiss settings overlay" onClick={close} />
+      <aside
+        ref={panelRef}
+        id="settings-panel"
+        className="settings-panel animate-slide-in-right"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+        aria-describedby="settings-save-status"
+      >
+        <header className="settings-panel-header">
+          <div>
+            <h2 id="settings-title">Settings</h2>
+            <p>{dirty ? 'Unsaved changes' : 'Download and preview preferences'}</p>
+          </div>
+          <button ref={closeButtonRef} type="button" onClick={close} className="settings-close" aria-label="Close settings">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8" /></svg>
+          </button>
+        </header>
 
-          <section className="mb-7" aria-labelledby="settings-account-heading"><h3 id="settings-account-heading" className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>Account</h3><div className="glass p-4"><div className="flex items-center gap-3"><div className="w-8 h-8 rounded-full flex items-center justify-center text-sm font-bold" aria-hidden="true" style={{ background: 'var(--accent-dim)', color: 'var(--accent-primary)' }}>{(state.auth.username || '?')[0].toUpperCase()}</div><div className="min-w-0"><p className="text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>{state.auth.username || 'Unknown'}</p><p className="text-xs" style={{ color: 'var(--text-muted)' }}>Connected</p></div></div></div></section>
+        <div className="settings-body">
+          <nav className="settings-section-nav" aria-label="Settings sections">
+            <a href="#settings-section-account">Account</a>
+            <a href="#settings-section-download">Download</a>
+            <a href="#settings-section-preview">Preview</a>
+            <a href="#settings-section-output">Output</a>
+          </nav>
 
-          <section className="mb-7" aria-labelledby="settings-download-heading"><h3 id="settings-download-heading" className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>Download defaults</h3><div className="space-y-2">{QUALITY_OPTIONS.map((option) => { const selected = draft.default_quality === option.value; return <button key={option.value} type="button" onClick={() => updateDraft({ default_quality: option.value })} className="w-full glass glass-hover p-3 flex items-center justify-between text-left" aria-pressed={selected} style={{ borderColor: selected ? 'rgba(141, 231, 213, 0.4)' : undefined }}><span className="text-sm" style={{ color: 'var(--text-primary)' }}>{option.label}</span><span className="mono text-[10px] px-1.5 py-0.5 rounded" style={{ background: selected ? 'var(--accent-dim)' : 'var(--bg-surface)', color: selected ? 'var(--accent-primary)' : 'var(--text-dim)' }}>{option.badge}</span></button>; })}</div><div className="mt-4"><span className="block text-xs mb-2" style={{ color: 'var(--text-muted)' }}>Default format</span><div className="grid grid-cols-3 gap-2">{FORMAT_OPTIONS.map((option) => { const selected = draft.default_format === option.value; return <button key={option.value} type="button" onClick={() => updateDraft({ default_format: option.value })} className="glass glass-hover p-3 text-center" aria-pressed={selected} style={{ borderColor: selected ? 'rgba(141, 231, 213, 0.4)' : undefined }}><span className="mono text-sm font-semibold" style={{ color: selected ? 'var(--accent-primary)' : 'var(--text-primary)' }}>{option.label}</span><span className="block text-[10px] mt-1" style={{ color: 'var(--text-dim)' }}>{option.desc}</span></button>; })}</div></div></section>
+          <div className="settings-sections">
+            <section id="settings-section-account" className="settings-section" aria-labelledby="settings-account-heading">
+              <h3 id="settings-account-heading">Account</h3>
+              <div className="settings-account-card">
+                <div className="settings-avatar" aria-hidden="true">{(state.auth.username || '?')[0].toUpperCase()}</div>
+                <div className="min-w-0"><p className="settings-account-name">{state.auth.username || 'Unknown'}</p><p className="settings-account-status">Connected</p></div>
+              </div>
+            </section>
 
-          <section className="mb-7" aria-labelledby="settings-preview-heading"><h3 id="settings-preview-heading" className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>Preview</h3><div className="grid grid-cols-2 gap-2">{WAVEFORM_OPTIONS.map((option) => { const selected = (draft.waveform_color || '3band') === option.value; return <button key={option.value} type="button" onClick={() => updateDraft({ waveform_color: option.value })} className="glass glass-hover p-3 text-center" aria-pressed={selected} style={{ borderColor: selected ? 'rgba(141, 231, 213, 0.4)' : undefined }}><span className="mono text-sm font-semibold" style={{ color: selected ? 'var(--accent-primary)' : 'var(--text-primary)' }}>{option.label}</span><span className="block text-[10px] mt-1" style={{ color: 'var(--text-dim)' }}>{option.desc}</span></button>; })}</div>{qualityCache ? <div className="glass p-4 mt-3 flex items-center justify-between"><div><p className="text-xs" style={{ color: 'var(--text-muted)' }}>Detected stream</p><p className="mono text-sm mt-1" style={{ color: 'var(--text-bright)' }}>{qualityCache.preset} · {qualityCache.bitrate} kbps</p></div><button type="button" className="btn-ghost text-xs" onClick={() => void handleProbeQuality()} disabled={probing}>{probing ? 'Probing…' : 'Re-probe'}</button></div> : <button type="button" onClick={() => void handleProbeQuality()} disabled={probing} className="btn-ghost w-full text-sm mt-3" style={{ borderColor: 'var(--glass-border)', color: 'var(--accent-primary)' }}>{probing ? 'Probing quality…' : 'Probe stream quality'}</button>}</section>
+            <section id="settings-section-download" className="settings-section" aria-labelledby="settings-download-heading">
+              <h3 id="settings-download-heading">Download</h3>
+              <span className="settings-choice-label">Default quality</span>
+              <div className="settings-quality-list" role="group" aria-label="Default quality">
+                {QUALITY_OPTIONS.map((option) => {
+                  const selected = draft.default_quality === option.value;
+                  return (
+                    <button key={option.value} type="button" onClick={() => updateDraft({ default_quality: option.value })} className="settings-quality-option" aria-pressed={selected}>
+                      <span>{option.label}</span><span className="settings-quality-badge">{option.badge}</span>
+                    </button>
+                  );
+                })}
+              </div>
+              <div className="settings-choice-block">
+                <span className="settings-choice-label">Default format</span>
+                <div className="settings-format-options" role="group" aria-label="Default format">
+                  {FORMAT_OPTIONS.map((option) => {
+                    const selected = draft.default_format === option.value;
+                    return <button key={option.value} type="button" onClick={() => updateDraft({ default_format: option.value })} className="settings-choice-option" aria-pressed={selected}><span>{option.label}</span><small>{option.desc}</small></button>;
+                  })}
+                </div>
+              </div>
+            </section>
 
-          <section className="mb-7" aria-labelledby="settings-output-heading"><h3 id="settings-output-heading" className="text-xs font-medium uppercase tracking-wider mb-3" style={{ color: 'var(--text-dim)' }}>Output</h3><label htmlFor="settings-output-dir" className="text-xs" style={{ color: 'var(--text-muted)' }}>Output directory</label><input id="settings-output-dir" type="text" value={draft.output_dir} onChange={(event) => updateDraft({ output_dir: event.target.value })} className="input-abyss text-sm mono mt-2" /></section>
+            <section id="settings-section-preview" className="settings-section" aria-labelledby="settings-preview-heading">
+              <h3 id="settings-preview-heading">Preview</h3>
+              <div className="settings-waveform-options" role="group" aria-label="Waveform color">
+                {WAVEFORM_OPTIONS.map((option) => {
+                  const selected = (draft.waveform_color || '3band') === option.value;
+                  return <button key={option.value} type="button" onClick={() => updateDraft({ waveform_color: option.value })} className="settings-choice-option" aria-pressed={selected}><span>{option.label}</span><small>{option.desc}</small></button>;
+                })}
+              </div>
+              {qualityCache ? (
+                <div className="settings-stream-info"><div><span>Detected stream</span><strong className="mono">{qualityCache.preset} · {qualityCache.bitrate} kbps</strong></div><button type="button" className="settings-probe-button" onClick={() => void handleProbeQuality()} disabled={probing}>{probing ? 'Probing…' : 'Re-probe'}</button></div>
+              ) : (
+                <button type="button" onClick={() => void handleProbeQuality()} disabled={probing} className="settings-probe-button is-wide">{probing ? 'Probing quality…' : 'Probe stream quality'}</button>
+              )}
+            </section>
 
-          <div className="glow-line mb-5" /><div id="settings-save-status" className="min-h-5 mb-2" aria-live="polite" role={saveState === 'error' ? 'alert' : 'status'}>{saveState === 'error' && <p className="text-xs" style={{ color: 'var(--danger)' }}>Could not save settings. {saveError}</p>}{saveState === 'saved' && <p className="text-xs" style={{ color: 'var(--success)' }}>Settings saved.</p>}</div><div className="flex gap-2 mb-5"><button type="button" onClick={() => void handleSave()} disabled={savingOrClean(saveState, dirty)} className="btn-primary flex-1 text-sm">{saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Retry save' : 'Save changes'}</button>{dirty && saveState !== 'saving' && <button type="button" className="btn-ghost text-xs" onClick={() => { setDraft(state.settings); setSaveState('idle'); setSaveError(null); }}>Discard</button>}</div><button type="button" onClick={() => void handleLogout()} className="btn-danger w-full text-center py-2">Disconnect account</button>
+            <section id="settings-section-output" className="settings-section" aria-labelledby="settings-output-heading">
+              <h3 id="settings-output-heading">Output</h3>
+              <label htmlFor="settings-output-dir" className="settings-choice-label">Output directory</label>
+              <input id="settings-output-dir" type="text" value={draft.output_dir} onChange={(event) => updateDraft({ output_dir: event.target.value })} className="settings-output-input mono" />
+            </section>
+          </div>
         </div>
+
+        <footer className="settings-footer">
+          <div id="settings-save-status" className="settings-save-status" aria-live="polite" role={saveState === 'error' ? 'alert' : 'status'}>
+            {saveState === 'error' && <p>Could not save settings. {saveError}</p>}
+            {saveState === 'saved' && <p>Settings saved.</p>}
+          </div>
+          <div className="settings-save-actions">
+            <button type="button" onClick={() => void handleSave()} disabled={savingOrClean(saveState, dirty)} className="settings-save-button">
+              {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Retry save' : 'Save changes'}
+            </button>
+            {dirty && saveState !== 'saving' && <button type="button" className="settings-discard-button" onClick={() => { setDraft(state.settings); setSaveState('idle'); setSaveError(null); }}>Discard</button>}
+          </div>
+          <div className="settings-disconnect">
+            <div><strong>Account</strong><span>Disconnect this device from Tidal.</span></div>
+            <button type="button" onClick={() => void handleLogout()}>Disconnect account</button>
+          </div>
+        </footer>
       </aside>
     </>
   );
