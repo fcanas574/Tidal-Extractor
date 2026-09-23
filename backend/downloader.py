@@ -182,17 +182,16 @@ class DownloadOrchestrator:
         track = self.session.track(int(tidal_id))
         metadata = extract_track_metadata(track)
 
-        if quality_preset == AUTO_QUALITY:
-            quality_preset = _resolve_auto_quality(track)
-
-        quality_enum = QUALITY_ENUM_MAP.get(quality_preset, Quality.high_lossless)
-        self.session.audio_quality = quality_enum
-        stream = track.get_stream()
-        manifest = stream.get_stream_manifest()
-        urls = manifest.get_urls()
-
-        if not urls:
-            raise RuntimeError(f"No stream URL for track {tidal_id}")
+        is_auto_quality = quality_preset == AUTO_QUALITY
+        if is_auto_quality:
+            resolved_quality = _resolve_auto_quality(track)
+            quality_candidates = {
+                "hi_res_lossless": ["hi_res_lossless", "high_lossless", "low_320k"],
+                "high_lossless": ["high_lossless", "low_320k"],
+                "low_320k": ["low_320k"],
+            }[resolved_quality]
+        else:
+            quality_candidates = [quality_preset]
 
         ext = FORMAT_EXT_MAP.get(target_format, ".flac")
         collection = queue_item.get("album") or None if queue_item.get("from_collection") else None
@@ -205,28 +204,60 @@ class DownloadOrchestrator:
 
         tmp_path = str(output_path) + ".tmp"
         import httpx
-        total_size = 0
+        manifest = None
+        actual_bitrate = 0
+        last_stream_error = None
 
-        try:
-            async with httpx.AsyncClient(follow_redirects=True) as client:
-                async with client.stream("GET", urls[0]) as resp:
-                    total = int(resp.headers.get("content-length", 0))
-                    with open(tmp_path, "wb") as f:
-                        async for chunk in resp.aiter_bytes(chunk_size=65536):
-                            f.write(chunk)
-                            total_size += len(chunk)
-                            if on_progress and total > 0:
-                                pct = (total_size / total) * 100
-                                await on_progress(queue_item["id"], pct, total_size, total)
-        except Exception:
-            if os.path.exists(tmp_path):
-                try:
-                    os.unlink(tmp_path)
-                except OSError:
-                    pass
-            raise
+        for index, candidate in enumerate(quality_candidates):
+            self.session.audio_quality = QUALITY_ENUM_MAP.get(candidate, Quality.high_lossless)
+            total_size = 0
 
-        actual_bitrate = get_bitrate(tmp_path) or 0
+            try:
+                stream = track.get_stream()
+                manifest = stream.get_stream_manifest()
+                urls = manifest.get_urls()
+                if not urls:
+                    raise RuntimeError(f"No stream URL for track {tidal_id} at {candidate}")
+
+                async with httpx.AsyncClient(follow_redirects=True) as client:
+                    async with client.stream("GET", urls[0]) as resp:
+                        resp.raise_for_status()
+                        total = int(resp.headers.get("content-length", 0))
+                        with open(tmp_path, "wb") as f:
+                            async for chunk in resp.aiter_bytes(chunk_size=65536):
+                                f.write(chunk)
+                                total_size += len(chunk)
+                                if on_progress and total > 0:
+                                    pct = (total_size / total) * 100
+                                    await on_progress(queue_item["id"], pct, total_size, total)
+
+                actual_bitrate = get_bitrate(tmp_path) or 0
+                if actual_bitrate <= 0:
+                    raise RuntimeError(
+                        f"Tidal returned no decodable audio for track {tidal_id} "
+                        f"at {candidate} ({total_size} bytes)"
+                    )
+
+                quality_preset = candidate
+                break
+            except Exception as error:
+                if os.path.exists(tmp_path):
+                    try:
+                        os.unlink(tmp_path)
+                    except OSError:
+                        pass
+
+                last_stream_error = error
+                if is_auto_quality and index < len(quality_candidates) - 1:
+                    logger.warning(
+                        "Stream failed validation for track %s at %s; trying %s: %s",
+                        tidal_id, candidate, quality_candidates[index + 1], error,
+                    )
+                    continue
+                raise
+
+        if manifest is None:
+            raise last_stream_error or RuntimeError(f"No stream available for track {tidal_id}")
 
         final_path = str(output_path)
         if ext != manifest.file_extension:

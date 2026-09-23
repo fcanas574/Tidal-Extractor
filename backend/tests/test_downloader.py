@@ -256,3 +256,113 @@ async def test_download_track_removes_tmp_file_after_conversion(tmp_path):
     # own BPM (120.0) should reach tag_dj_metadata unchanged, alongside the Camelot key.
     mock_tag_dj.assert_called_once_with(final_path, "8B", 120.0)
     await db.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(
+    subprocess.run(["ffmpeg", "-version"], capture_output=True).returncode != 0,
+    reason="ffmpeg not installed",
+)
+async def test_auto_max_retries_lossless_when_hires_stream_has_no_audio(tmp_path):
+    """Auto Max must not save an empty HiRes response when lossless audio works."""
+    source_flac = tmp_path / "source.flac"
+    subprocess.run(
+        ["ffmpeg", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=mono",
+         "-t", "1", "-c:a", "flac", "-y", str(source_flac)],
+        capture_output=True, check=True,
+    )
+    lossless_bytes = source_flac.read_bytes()
+
+    output_dir = tmp_path / "downloads"
+    output_dir.mkdir()
+    db = Database(str(tmp_path / "test.db"))
+    await db.init()
+    config = AppConfig(str(tmp_path / "config.yaml"))
+    config.output_dir = str(output_dir)
+
+    orchestrator = DownloadOrchestrator(db=db, config=config)
+    orchestrator.session = MagicMock()
+
+    track = MagicMock()
+    track.title = "Test Song"
+    track.artist.name = "Test Artist"
+    track.artists = []
+    track.album.name = "Test Album"
+    track.album.id = 1
+    track.track_num = 1
+    track.duration = 1
+    track.isrc = None
+    track.bpm = None
+    track.key_scale = None
+    track.key = None
+    track.explicit = False
+    track.audio_quality = "HI_RES_LOSSLESS"
+    track.is_hi_res_lossless = True
+    track.is_lossless = True
+    orchestrator.session.track.return_value = track
+    orchestrator.session.album.side_effect = Exception("no cover")
+
+    hires_manifest = MagicMock()
+    hires_manifest.get_urls.return_value = ["http://fake/hires.flac"]
+    hires_manifest.file_extension = ".flac"
+    hires_stream = MagicMock()
+    hires_stream.get_stream_manifest.return_value = hires_manifest
+
+    lossless_manifest = MagicMock()
+    lossless_manifest.get_urls.return_value = ["http://fake/lossless.flac"]
+    lossless_manifest.file_extension = ".flac"
+    lossless_stream = MagicMock()
+    lossless_stream.get_stream_manifest.return_value = lossless_manifest
+    track.get_stream.side_effect = [hires_stream, lossless_stream]
+
+    def response_with(payload):
+        response = MagicMock()
+        response.headers = {"content-length": str(len(payload))}
+
+        async def aiter_bytes(chunk_size=65536):
+            yield payload
+
+        response.aiter_bytes = aiter_bytes
+        return response
+
+    responses = iter([response_with(b"not audio"), response_with(lossless_bytes)])
+
+    class FakeStreamCtx:
+        def __init__(self, response):
+            self.response = response
+
+        async def __aenter__(self):
+            return self.response
+
+        async def __aexit__(self, *a):
+            return False
+
+    class FakeClient:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        def stream(self, method, url):
+            return FakeStreamCtx(next(responses))
+
+    queue_item = {
+        "id": 1, "tidal_id": "123", "format": "FLAC",
+        "quality": "auto_max", "item_type": "track",
+        "from_collection": False,
+    }
+
+    with patch("httpx.AsyncClient", return_value=FakeClient()), \
+         patch("backend.downloader.tag_file"), \
+         patch("backend.downloader.tag_dj_metadata"), \
+         patch("backend.downloader.lookup_track_metadata", new=AsyncMock(return_value={
+             "key": "C", "camelot": "8B", "bpm": 120.0, "key_confidence": 1.0,
+         })), \
+         patch("backend.downloader.file_hash", return_value="hash"):
+        final_path = await orchestrator.download_track(queue_item)
+
+    history = await db.get_history()
+    assert history[0]["quality"] == "high_lossless"
+    assert os.path.getsize(final_path) == len(lossless_bytes)
+    await db.close()
