@@ -1,13 +1,18 @@
 import { act, fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { AppProvider, useApp } from '../context/AppContext';
-import { quality, settings } from '../api';
+import { auth, quality, settings } from '../api';
 import type { Settings } from '../api';
 import SettingsPanel from './SettingsPanel';
 
 vi.mock('../api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../api')>();
-  return { ...actual, settings: { ...actual.settings, update: vi.fn() }, quality: { ...actual.quality, cache: vi.fn(), probe: vi.fn() } };
+  return {
+    ...actual,
+    auth: { ...actual.auth, logout: vi.fn().mockResolvedValue({ authenticated: false }) },
+    settings: { ...actual.settings, update: vi.fn() },
+    quality: { ...actual.quality, cache: vi.fn(), probe: vi.fn() },
+  };
 });
 
 const currentSettings: Settings = { default_quality: 'high_lossless', default_format: 'FLAC', output_dir: '~/Music/TidalDownloads', waveform_color: '3band' };
@@ -49,7 +54,7 @@ describe('SettingsPanel', () => {
     }
     expect(within(dialog).getByText('Default quality')).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /HiRes Lossless/ })).toBeInTheDocument();
-    expect(within(dialog).getByRole('button', { name: /High \(320kbps AAC\)/ })).toBeInTheDocument();
+    expect(within(dialog).getByRole('button', { name: /High.*320kbps AAC/ })).toBeInTheDocument();
     expect(within(dialog).getByRole('group', { name: 'Default format' })).toBeInTheDocument();
     expect(within(dialog).getByRole('group', { name: 'Waveform color' })).toBeInTheDocument();
     expect(within(dialog).getByRole('button', { name: /3Band \(Rekordbox\)/ })).toHaveAttribute('aria-pressed', 'true');
@@ -57,7 +62,7 @@ describe('SettingsPanel', () => {
     expect(within(dialog).getByLabelText('Output directory')).toHaveValue('~/Music/TidalDownloads');
     expect(within(dialog).getByText('FLAC · 1411 kbps')).toBeInTheDocument();
 
-    const highQuality = within(dialog).getByRole('button', { name: /High \(320kbps AAC\)/ });
+    const highQuality = within(dialog).getByRole('button', { name: /High.*320kbps AAC/ });
     fireEvent.click(highQuality);
     expect(highQuality).toHaveAttribute('aria-pressed', 'true');
     const mp3 = within(within(dialog).getByRole('group', { name: 'Default format' })).getByRole('button', { name: /MP3/ });
@@ -82,7 +87,7 @@ describe('SettingsPanel', () => {
     expect(dialog).toBeInTheDocument();
     expect(closeButton).toHaveFocus();
     fireEvent.keyDown(window, { key: 'Tab', shiftKey: true });
-    expect(screen.getByRole('button', { name: 'Disconnect account' })).toHaveFocus();
+    expect(screen.getByLabelText('Output directory')).toHaveFocus();
     fireEvent.click(closeButton);
     expect(trigger).toHaveFocus();
 
@@ -142,5 +147,16 @@ describe('SettingsPanel', () => {
     await act(async () => pending.resolve({ ...currentSettings, output_dir: '/music/updated' }));
     expect(screen.getByRole('status')).toHaveTextContent('Settings saved.');
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
+  });
+
+  it('disconnects the account immediately and closes the panel', async () => {
+    vi.mocked(quality.cache).mockResolvedValue(null);
+    renderPanel();
+    await act(async () => {});
+    const disconnectButton = screen.getByRole('button', { name: 'Disconnect account' });
+    fireEvent.click(disconnectButton);
+    await act(async () => {});
+    expect(auth.logout).toHaveBeenCalledOnce();
+    expect(screen.queryByRole('dialog', { name: 'Settings' })).not.toBeInTheDocument();
   });
 });

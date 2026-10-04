@@ -56,7 +56,7 @@ function resolveToSearchResult(resolved: { tracks: TrackResult[]; albums: AlbumR
 }
 
 function Cover({ src, alt, kind = 'track' }: { src: string | null; alt: string; kind?: 'track' | 'artist' | 'album' | 'playlist' }) {
-  if (src) return <img src={src} alt={alt} className="w-12 h-12 rounded-md object-cover shrink-0" />;
+  if (src) return <img src={src} alt={alt} className="catalog-result-cover" loading="lazy" />;
   return (
     <span className="catalog-cover-fallback" aria-hidden="true">
       {kind === 'track' ? (

@@ -89,7 +89,7 @@ export default function ArtistView({
 
       <div className="artist-detail-sections">
         <section aria-labelledby="artist-top-tracks" className="artist-detail-section">
-          <div className="artist-detail-section-heading"><h3 id="artist-top-tracks">Top tracks</h3>{visibleTopTracks.length > 0 && <button type="button" onClick={() => void handleDownloadAllTopTracks()} className="btn-ghost text-xs px-3 py-1.5">Download top five</button>}</div>
+          <div className="artist-detail-section-heading"><h3 id="artist-top-tracks">Top tracks</h3>{visibleTopTracks.length > 0 && <button type="button" onClick={() => void handleDownloadAllTopTracks()} className="btn-ghost text-sm px-3 py-1.5">Download top five</button>}</div>
           {errors?.top_tracks && <SectionMessage tone="error">Top tracks could not be loaded: {errors.top_tracks}</SectionMessage>}
           {visibleTopTracks.length > 0 ? <div className="artist-detail-track-list">{visibleTopTracks.map(renderTrack)}</div> : !errors?.top_tracks && <SectionMessage>No top tracks were returned for this artist.</SectionMessage>}
         </section>
@@ -104,7 +104,7 @@ export default function ArtistView({
       <section aria-labelledby="artist-all-tracks" className="artist-detail-section artist-all-tracks">
         <div className="artist-detail-section-heading">
           <h3 id="artist-all-tracks">All tracks</h3>
-          {tracks.length > 0 && <span className="mono text-[10px] px-2 py-1 rounded" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>{tracks.length} tracks</span>}
+          {tracks.length > 0 && <span className="mono text-xs px-2 py-1 rounded" style={{ background: 'var(--bg-surface)', color: 'var(--text-muted)' }}>{tracks.length} tracks</span>}
         </div>
         {errors?.tracks && <SectionMessage tone="error">Some artist tracks could not be loaded: {errors.tracks}</SectionMessage>}
         {tracksLoading ? <SectionMessage>Loading the full artist catalog…</SectionMessage> : tracks.length > 0 ? <div className="artist-detail-track-list">{tracks.map(renderTrack)}</div> : !errors?.tracks && <SectionMessage>No artist tracks were returned.</SectionMessage>}

@@ -23,9 +23,10 @@ Este documento define la dirección visual y la distribución para el frontend a
 
 - La barra lateral compacta de Stitch informa la jerarquía de escritorio; se adapta a navegación superior horizontal por debajo de 1100px. Los mismos cuatro tabs conservan el estado existente sin introducir un router.
 - El reproductor permanece fijo en la parte inferior.
-- Actividad de descargas y preferencias son superficies contextuales: panel lateral en escritorio y sheet inferior en móvil.
+- Actividad de descargas es una superficie contextual lateral en escritorio y un sheet inferior en móvil. Settings es un diálogo modal centrado en escritorio y ocupa el espacio disponible en móvil.
 - La copia visible actual permanece en inglés para respetar el contrato existente de la app. El idioma del producto y el idioma preferido de subtítulos son decisiones independientes.
 - El código HTML exportado por Stitch es material de referencia, no un componente de producción: usa Tailwind CDN, fuentes externas y datos estáticos.
+- Prioridad en entorno web de escritorio (PC): el diseño y validación se concentran en ordenador; las reglas móviles se preservan como contexto incidental sin requerir limpiezas extensivas ni revisiones de tokens. Cualquier cambio debe respetar estrictamente los tokens vigentes (`--mint`, `--porcelain`, `--glass-border`, etc.) y mantener consistencia global en la aplicación. Si se modifica un token o patrón compartido, el cambio debe aplicarse a todos sus usos en la app; no se crean variantes locales que contradigan el sistema de diseño.
 
 ## 3. Tokens visuales
 
@@ -71,7 +72,9 @@ Reglas de color:
   | Título de card o álbum | `16 / 22 px` |
   | Cuerpo principal | `14–16 / 20–24 px` |
   | Metadato | `12–13 / 18 px` |
-  | Etiqueta técnica | `11–12 / 16 px` |
+  | Etiqueta técnica | `12 / 17 px` |
+
+La interfaz usa estos roles como tokens semánticos en `frontend/src/index.css`: `display` (`32 / 38`), `section` (`22 / 28`), `title` (`16 / 22`), `body` (`14 / 21`), `meta` (`13 / 18`) y `technical` (`12 / 17`). Los metadatos técnicos pueden usar JetBrains Mono, pero nunca deben bajar de `12 px`. La escala se conserva en móvil; el layout se reorganiza y permite scroll en lugar de comprimir la lectura.
 
 - Peso alto solo para título, estado o CTA. Los metadatos deben respirar y no competir con el nombre de la obra.
 - Evitar texto en mayúsculas sostenidas salvo labels técnicos cortos.
@@ -83,6 +86,7 @@ Reglas de color:
 - Divisores de `1 px`, con baja opacidad. No encerrar cada elemento en una card.
 - La profundidad proviene de una superficie ligeramente más clara y un borde sutil; evitar sombras difusas grandes.
 - Áreas táctiles mínimas: `44 × 44 px`.
+- Controles compartidos: `--control-height: 44px`; portadas de resultados: `--cover-size: 56px`; gutters de modal: `24px`.
 
 ## 4. Shell y distribución
 
@@ -92,7 +96,7 @@ Reglas de color:
 - El rail concentra marca, Search, Queue, History, Stats, estado realtime, Activity y Settings.
 - Cada vista es dueña de su encabezado/comandos. Search y Queue pueden acotar su lista con scroll interno solo tras establecer la cadena completa de alturas; el shell y el documento no esconden scrollbars.
 - El workspace usa gutters de `24–32 px`; las superficies no se expanden a un dashboard de tarjetas.
-- La actividad y los ajustes se abren como panel lateral sin cambiar la pestaña ni perder filtros.
+- La actividad se abre como panel contextual sin cambiar la pestaña ni perder filtros. Settings se abre como diálogo centrado de hasta `960px`, con categorías a la izquierda, contenido con scroll interno y footer persistente para guardar o descartar.
 - El reproductor fijo reserva espacio inferior para que la última acción no quede tapada.
 - En escritorio, el reproductor ocupa solo el workspace desde el borde del rail; nunca cubre los controles de navegación ni cuenta.
 
@@ -107,7 +111,7 @@ Reglas de color:
 - Una columna, padding de `16 px` y navegación horizontal desplazable con scrollbar visible.
 - Marca y acciones persistentes caben en una sola línea; los iconos compactos conservan nombres accesibles.
 - El reproductor se convierte en una barra compacta; controles secundarios viven en el sheet.
-- El sheet de actividad ocupa la pantalla disponible y respeta `env(safe-area-inset-bottom)`.
+- El sheet de actividad ocupa la pantalla disponible y respeta `env(safe-area-inset-bottom)`. El diálogo de Settings ocupa la pantalla disponible, conserva texto mínimo de `14px` para controles y mantiene sus acciones visibles al desplazarse.
 - Tablas se convierten en filas apiladas; la acción principal permanece visible.
 - No depender de hover. Todo debe funcionar con toque, teclado o lector de pantalla.
 
@@ -184,9 +188,12 @@ La pestaña activa debe tener `aria-current="page"` y una señal visual de alto 
 
 - Agrupar por `Account`, `Download`, `Audio`, `Storage` y `Interface`.
 - Campos con label visible, valor actual y descripción corta.
-- El botón `Save` es único y estable; mostrar dirty state y resultado de guardado.
-- Errores aparecen junto al campo y en un resumen accesible si hay varios.
-- Las preferencias de formato/calidad deben mostrar impacto antes de guardar.
+- La fila superior de identidad de cuenta (`Account`) integra a la derecha la acción `Disconnect account` usando el patrón estándar de peligro (`.btn-danger`), preservando el cierre de sesión inmediato sin diálogos modales redundantes.
+- Selección compartida: `Default quality` reutiliza el mismo estilo y comportamiento de tarjeta delineada (`.settings-choice-option`) que `Default format` y `Waveform`, distribuida en grilla de 2 columnas en escritorio con nombre, especificaciones técnicas legibles en subtítulo y badges de calidad opcionales.
+- En escritorio, Settings usa una ventana flotante centrada (máximo `960px` de ancho y `760px` de alto) sobre un overlay. El cuerpo tiene navegación lateral y una sola región desplazable.
+- Footer persistente y compacto: botón `Save changes` ubicado a la izquierda; botón `Discard` adyacente visible solo cuando hay cambios sucios (`dirty`); estado accesible de guardado (`saved`, `saving`, `error`/retry) alineado a la derecha, preservando el estado asíncrono y reintentos.
+- En móvil, la ventana ocupa el viewport disponible con navegación horizontal de secciones y footer sticky. Escape, cierre por overlay, restauración de foco, dirty state, retry y mensajes de error conservan su comportamiento.
+- En resultados estrechos (≤ `600px`), cada fila usa dos niveles: portada y copia en la primera línea, acciones debajo. Esto reserva espacio real para artista y álbum sin reducir la escala tipográfica.
 
 ### Preview player
 

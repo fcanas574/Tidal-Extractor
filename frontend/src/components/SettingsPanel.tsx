@@ -4,11 +4,11 @@ import type { Settings } from '../api';
 import { useApp } from '../context/AppContext';
 
 const QUALITY_OPTIONS = [
-  { value: 'auto_max', label: 'Auto (max quality per track)', badge: 'AUTO' },
-  { value: 'hi_res_lossless', label: 'HiRes Lossless (24-bit, up to 192kHz)', badge: 'HI-RES' },
-  { value: 'high_lossless', label: 'Lossless (16-bit FLAC, 44.1kHz)', badge: 'LOSSLESS' },
-  { value: 'low_320k', label: 'High (320kbps AAC)', badge: '320K' },
-  { value: 'low_96k', label: 'Normal (96kbps AAC)', badge: '96K' },
+  { value: 'auto_max', label: 'Auto', desc: 'Max quality per track', badge: 'AUTO' },
+  { value: 'hi_res_lossless', label: 'HiRes Lossless', desc: '24-bit, up to 192kHz', badge: 'HI-RES' },
+  { value: 'high_lossless', label: 'Lossless', desc: '16-bit FLAC, 44.1kHz', badge: 'LOSSLESS' },
+  { value: 'low_320k', label: 'High', desc: '320kbps AAC', badge: '320K' },
+  { value: 'low_96k', label: 'Normal', desc: '96kbps AAC', badge: '96K' },
 ];
 
 const FORMAT_OPTIONS = [
@@ -133,7 +133,7 @@ export default function SettingsPanel() {
       <aside
         ref={panelRef}
         id="settings-panel"
-        className="settings-panel animate-slide-in-right"
+        className="settings-panel settings-dialog"
         role="dialog"
         aria-modal="true"
         aria-labelledby="settings-title"
@@ -161,8 +161,11 @@ export default function SettingsPanel() {
             <section id="settings-section-account" className="settings-section" aria-labelledby="settings-account-heading">
               <h3 id="settings-account-heading">Account</h3>
               <div className="settings-account-card">
-                <div className="settings-avatar" aria-hidden="true">{(state.auth.username || '?')[0].toUpperCase()}</div>
-                <div className="min-w-0"><p className="settings-account-name">{state.auth.username || 'Unknown'}</p><p className="settings-account-status">Connected</p></div>
+                <div className="settings-account-info">
+                  <div className="settings-avatar" aria-hidden="true">{(state.auth.username || '?')[0].toUpperCase()}</div>
+                  <div className="min-w-0"><p className="settings-account-name">{state.auth.username || 'Unknown'}</p><p className="settings-account-status">Connected</p></div>
+                </div>
+                <button type="button" onClick={() => void handleLogout()} className="btn-danger">Disconnect account</button>
               </div>
             </section>
 
@@ -173,8 +176,18 @@ export default function SettingsPanel() {
                 {QUALITY_OPTIONS.map((option) => {
                   const selected = draft.default_quality === option.value;
                   return (
-                    <button key={option.value} type="button" onClick={() => updateDraft({ default_quality: option.value })} className="settings-quality-option" aria-pressed={selected}>
-                      <span>{option.label}</span><span className="settings-quality-badge">{option.badge}</span>
+                    <button
+                      key={option.value}
+                      type="button"
+                      onClick={() => updateDraft({ default_quality: option.value })}
+                      className="settings-choice-option"
+                      aria-pressed={selected}
+                    >
+                      <span className="settings-choice-header">
+                        <span>{option.label}</span>
+                        {option.badge && <span className="settings-quality-badge">{option.badge}</span>}
+                      </span>
+                      <small>{option.desc}</small>
                     </button>
                   );
                 })}
@@ -214,19 +227,15 @@ export default function SettingsPanel() {
         </div>
 
         <footer className="settings-footer">
-          <div id="settings-save-status" className="settings-save-status" aria-live="polite" role={saveState === 'error' ? 'alert' : 'status'}>
-            {saveState === 'error' && <p>Could not save settings. {saveError}</p>}
-            {saveState === 'saved' && <p>Settings saved.</p>}
-          </div>
           <div className="settings-save-actions">
             <button type="button" onClick={() => void handleSave()} disabled={savingOrClean(saveState, dirty)} className="settings-save-button">
               {saveState === 'saving' ? 'Saving…' : saveState === 'error' ? 'Retry save' : 'Save changes'}
             </button>
             {dirty && saveState !== 'saving' && <button type="button" className="settings-discard-button" onClick={() => { setDraft(state.settings); setSaveState('idle'); setSaveError(null); }}>Discard</button>}
           </div>
-          <div className="settings-disconnect">
-            <div><strong>Account</strong><span>Disconnect this device from Tidal.</span></div>
-            <button type="button" onClick={() => void handleLogout()}>Disconnect account</button>
+          <div id="settings-save-status" className="settings-save-status" aria-live="polite" role={saveState === 'error' ? 'alert' : 'status'}>
+            {saveState === 'error' && <p>Could not save settings. {saveError}</p>}
+            {saveState === 'saved' && <p>Settings saved.</p>}
           </div>
         </footer>
       </aside>

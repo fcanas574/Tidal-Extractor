@@ -158,7 +158,7 @@ export default function DownloadActivityPanel() {
             <p className="text-xs truncate mt-1" style={{ color: 'var(--text-muted)' }}>{itemDetails(item)}</p>
           </div>
           <span
-            className="shrink-0 text-[11px] px-2 py-1 rounded-md"
+            className="shrink-0 text-xs px-2 py-1 rounded-md"
             style={{ color: config.color, background: config.background }}
           >
             {config.label}
@@ -167,7 +167,7 @@ export default function DownloadActivityPanel() {
 
         {item.status === 'downloading' && (
           <div className="mt-3" aria-label={`${Math.round(item.progress)} percent downloaded`}>
-            <div className="flex justify-between text-[11px] mb-1">
+            <div className="flex justify-between text-xs mb-1">
               <span style={{ color: status === 'stale' ? 'var(--warning)' : 'var(--text-muted)' }}>
                 {status === 'stale' ? 'No progress observed for 20 seconds' : 'Downloading'}
               </span>

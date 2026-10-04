@@ -215,8 +215,8 @@ export default function QueueView() {
           <div className="queue-item-confirmation" role="group" aria-label={`Cancel ${item.title}`}>
             <span>Cancel this download?</span>
             <div>
-              <button type="button" className="btn-danger text-xs" onClick={() => removeItem(item)}>Cancel download</button>
-              <button type="button" className="btn-ghost text-xs" onClick={() => setConfirmingId(null)}>Keep downloading</button>
+              <button type="button" className="btn-danger text-sm" onClick={() => removeItem(item)}>Cancel download</button>
+              <button type="button" className="btn-ghost text-sm" onClick={() => setConfirmingId(null)}>Keep downloading</button>
             </div>
           </div>
         )}

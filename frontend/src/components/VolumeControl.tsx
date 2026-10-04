@@ -120,7 +120,7 @@ export default function VolumeControl({
         {(isHovered || isFocused) && (
           <div
             role="tooltip"
-            className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-[10px] font-mono whitespace-nowrap pointer-events-none shadow-md"
+            className="absolute -top-7 left-1/2 -translate-x-1/2 px-2 py-0.5 rounded text-xs font-mono whitespace-nowrap pointer-events-none shadow-md"
             style={{
               background: 'var(--graphite, #121214)',
               color: 'var(--text-bright, #FAFAFA)',
@@ -157,7 +157,7 @@ export default function VolumeControl({
       {/* Optional persistent dB readout badge for audiophiles */}
       {showReadout && (
         <span
-          className="font-mono text-[11px] shrink-0 min-w-[50px] text-right"
+          className="font-mono text-xs shrink-0 min-w-[50px] text-right"
           style={{ color: 'var(--text-dim)' }}
         >
           {isMuted ? 'Muted' : formattedDb}
