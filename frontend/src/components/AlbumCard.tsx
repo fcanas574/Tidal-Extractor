@@ -1,4 +1,5 @@
 import type { AlbumResult } from '../api';
+import DownloadButton, { type DownloadStatus } from './DownloadButton';
 
 function Cover({ src, alt }: { src: string | null; alt: string }) {
   if (src) return <img src={src} alt={alt} className="album-row-cover" loading="lazy" />;
@@ -18,9 +19,12 @@ export interface AlbumCardProps {
   variant?: 'compact' | 'release';
   onOpen?: (album: AlbumResult) => void;
   onDownload: (album: AlbumResult) => void;
+  downloadStatus?: DownloadStatus;
+  downloadProgress?: number;
+  downloadError?: string | null;
 }
 
-export default function AlbumCard({ album, variant = 'compact', onOpen, onDownload }: AlbumCardProps) {
+export default function AlbumCard({ album, variant = 'compact', onOpen, onDownload, downloadStatus = 'idle', downloadProgress = 0, downloadError = null }: AlbumCardProps) {
   const releaseType = album.release_type?.toUpperCase() || 'RELEASE';
   const identity = (
     <>
@@ -47,9 +51,7 @@ export default function AlbumCard({ album, variant = 'compact', onOpen, onDownlo
       ) : (
         <div className="album-row-identity">{identity}</div>
       )}
-      <button type="button" className="album-row-download" onClick={() => onDownload(album)} aria-label={`Download album ${album.name}`}>
-        Download
-      </button>
+      <DownloadButton title={`album ${album.name}`} status={downloadStatus} progress={downloadProgress} error={downloadError} className="album-row-download" onDownload={() => onDownload(album)} />
     </article>
   );
 }

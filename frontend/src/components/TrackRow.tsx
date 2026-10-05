@@ -1,4 +1,5 @@
 import type { TrackResult } from '../api';
+import DownloadButton, { type DownloadStatus } from './DownloadButton';
 
 function formatDuration(seconds: number) {
   return `${Math.floor(seconds / 60)}:${(seconds % 60).toString().padStart(2, '0')}`;
@@ -15,22 +16,30 @@ function toCamelot(key: string | null, scale: string | null) {
   return number === undefined ? null : `${number}${scale.toUpperCase() === 'MINOR' ? 'A' : 'B'}`;
 }
 
-function Cover({ src, alt }: { src: string | null; alt: string }) {
-  if (src) return <img src={src} alt={alt} className="track-row-cover" loading="lazy" />;
+function Cover({ src, alt, isPreviewing, onClick }: { src: string | null; alt: string; isPreviewing: boolean; onClick: () => void }) {
   return (
-    <span className="track-row-cover track-row-cover-fallback" aria-hidden="true">
+    <button type="button" className="track-row-cover-button" onClick={(event) => { event.stopPropagation(); onClick(); }} aria-label={`${isPreviewing ? 'Pause' : 'Play'} ${alt.replace(/ cover$/, '')}`}>
+      {src ? <img src={src} alt={alt} className="track-row-cover" loading="lazy" /> : <span className="track-row-cover track-row-cover-fallback" aria-hidden="true">
       <svg width="19" height="19" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
         <path d="M12.8 4v9.3a2.7 2.7 0 1 1-1.6-2.5V6l5-1.2v6.8a2.7 2.7 0 1 1-1.6-2.5V3.7L12.8 4Z" />
       </svg>
-    </span>
+      </span>}
+      <span className="track-row-cover-overlay" aria-hidden="true">
+        {isPreviewing ? <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><rect x="3" y="2" width="3" height="12" rx=".7" /><rect x="10" y="2" width="3" height="12" rx=".7" /></svg> : <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="m4 2.5 9 5.5-9 5.5v-11Z" /></svg>}
+      </span>
+    </button>
   );
 }
 
 export interface TrackRowProps {
   track: TrackResult;
   isPreviewing: boolean;
+  isActive?: boolean;
   onPreview: () => void;
   onDownload: () => void;
+  downloadStatus?: DownloadStatus;
+  downloadProgress?: number;
+  downloadError?: string | null;
   onOpenArtist?: (artistId: number) => void;
   onOpenAlbum?: (albumId: number) => void;
 }
@@ -38,8 +47,12 @@ export interface TrackRowProps {
 export default function TrackRow({
   track,
   isPreviewing,
+  isActive = isPreviewing,
   onPreview,
   onDownload,
+  downloadStatus = 'idle',
+  downloadProgress = 0,
+  downloadError = null,
   onOpenArtist,
   onOpenAlbum,
 }: TrackRowProps) {
@@ -59,19 +72,29 @@ export default function TrackRow({
   ].filter((value): value is { value: string; label?: string } => Boolean(value));
 
   return (
-    <article className="track-row">
-      <Cover src={track.cover_url} alt={`${track.title} cover`} />
+    <article
+      className={`track-row${isActive ? ' is-active' : ''}`}
+      role="article"
+      aria-label={`${isPreviewing ? 'Pause' : 'Play'} ${track.title}`}
+      tabIndex={0}
+      onClick={() => { if (window.getSelection()?.toString()) return; onPreview(); }}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return;
+        if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); onPreview(); }
+      }}
+    >
+      <Cover src={track.cover_url} alt={`${track.title} cover`} isPreviewing={isPreviewing} onClick={onPreview} />
       <div className="track-row-copy">
         <p className="track-row-title" title={track.title}>{track.title}</p>
         <div className="track-row-context">
           {canOpenArtist ? (
-            <button type="button" className="track-row-link" onClick={() => onOpenArtist(track.artist_id!)} aria-label={`Open artist ${track.artist}`}>
+            <button type="button" className="track-row-link" onClick={(event) => { event.stopPropagation(); onOpenArtist(track.artist_id!); }} aria-label={`Open artist ${track.artist}`}>
               {track.artist}
             </button>
           ) : <span className="track-row-context-name" title={track.artist}>{track.artist}</span>}
           <span aria-hidden="true">·</span>
           {canOpenAlbum ? (
-            <button type="button" className="track-row-link" onClick={() => onOpenAlbum(track.album_id!)} aria-label={`Open album ${track.album}`}>
+            <button type="button" className="track-row-link" onClick={(event) => { event.stopPropagation(); onOpenAlbum(track.album_id!); }} aria-label={`Open album ${track.album}`}>
               {track.album}
             </button>
           ) : <span className="track-row-context-name" title={track.album}>{track.album}</span>}
@@ -89,12 +112,7 @@ export default function TrackRow({
         )}
       </div>
       <div className="track-row-actions">
-        <button type="button" className="track-row-action track-row-preview" onClick={onPreview} aria-label={`${isPreviewing ? 'Pause' : 'Preview'} ${track.title}`}>
-          {isPreviewing ? 'Pause' : 'Preview'}
-        </button>
-        <button type="button" className="track-row-action track-row-download" onClick={onDownload} aria-label={`Download ${track.title}`}>
-          Download
-        </button>
+        <DownloadButton title={track.title} status={downloadStatus} progress={downloadProgress} error={downloadError} onDownload={onDownload} className="track-row-download" />
       </div>
     </article>
   );

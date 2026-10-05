@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import { AppProvider, type CatalogDetail } from '../context/AppContext';
 import { queue } from '../api';
@@ -78,7 +78,7 @@ function renderAlbum(overrides: Partial<React.ComponentProps<typeof AlbumView>> 
 }
 
 describe('AlbumView', () => {
-  it('renders album metadata and keeps navigation, preview, and downloads distinct', () => {
+  it('renders album metadata and keeps navigation, preview, and downloads distinct', async () => {
     const onOpenArtist = vi.fn();
     const onOpenAlbum = vi.fn();
     vi.mocked(queue.add).mockResolvedValue(queueItem);
@@ -86,7 +86,7 @@ describe('AlbumView', () => {
 
     expect(screen.getByRole('heading', { name: 'After Hours' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download album After Hours' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Preview Night Drive' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Play Night Drive' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download Night Drive' })).toBeInTheDocument();
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Open artist The Pilot' })[1]);
@@ -96,8 +96,8 @@ describe('AlbumView', () => {
 
     expect(onOpenArtist).toHaveBeenCalledWith(3);
     expect(onOpenAlbum).toHaveBeenCalledWith(4);
-    expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({ tidal_id: '4', item_type: 'album' }));
-    expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({ tidal_id: '7', item_type: 'track' }));
+    await waitFor(() => expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({ tidal_id: '4', item_type: 'album' })));
+    await waitFor(() => expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({ tidal_id: '7', item_type: 'track' })));
   });
 
   it('renders stable loading state', () => {

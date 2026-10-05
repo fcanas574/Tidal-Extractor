@@ -79,7 +79,8 @@ describe('SearchView', () => {
     expect(screen.getByRole('status')).toHaveTextContent('Tidal link detected');
   });
 
-  it('opens Refine and renders removable DJ filter chips', () => {
+  it('opens Refine and renders removable DJ filter chips', async () => {
+    vi.mocked(search.query).mockResolvedValue(result());
     renderSearch();
     fireEvent.click(screen.getByRole('button', { name: /^Refine$/ }));
     fireEvent.change(screen.getByLabelText('Minimum BPM'), { target: { value: '120' } });
@@ -88,7 +89,8 @@ describe('SearchView', () => {
     expect(screen.getByRole('button', { name: 'Remove House filter' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Remove Min 120 BPM filter' }));
     expect(screen.queryByRole('button', { name: 'Remove Min 120 BPM filter' })).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Clear filters' }));
+    await waitFor(() => expect(search.query).toHaveBeenCalled());
+    fireEvent.click(screen.getAllByRole('button', { name: 'Clear filters' })[0]);
     expect(screen.queryByRole('button', { name: 'Remove House filter' })).not.toBeInTheDocument();
   });
 
@@ -102,7 +104,7 @@ describe('SearchView', () => {
     fireEvent.change(input, { target: { value: 'Night Drive' } });
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
     await waitFor(() => expect(screen.getByText('Night Drive')).toBeInTheDocument());
-    expect(screen.getByRole('button', { name: 'Preview Night Drive' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Play Night Drive' })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Download Night Drive' }));
     expect(queue.add).toHaveBeenCalledWith(expect.objectContaining({ tidal_id: '7', item_type: 'track' }));
     fireEvent.click(screen.getByRole('button', { name: 'Load more results' }));
@@ -121,10 +123,10 @@ describe('SearchView', () => {
     expect(screen.getByText('8A')).toBeInTheDocument();
     expect(screen.getByText('electronic')).toBeInTheDocument();
     expect(screen.getByLabelText(/FreqBlog metadata/i)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Preview Night Drive' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Play Night Drive' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download Night Drive' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Open artist The Pilot' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument());
   });
 
   it('shows a non-blocking metadata status while a search result is being enriched', async () => {
@@ -152,7 +154,9 @@ describe('SearchView', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Search' }));
 
     await waitFor(() => expect(screen.getByRole('button', { name: 'Open artist The Pilot' })).toBeInTheDocument());
-    fireEvent.click(screen.getByRole('button', { name: 'Open artist The Pilot' }));
+    const opener = screen.getByRole('button', { name: 'Open artist The Pilot' });
+    opener.focus();
+    fireEvent.click(opener);
 
     await waitFor(() => expect(screen.getByText('Artist details')).toBeInTheDocument());
     expect(screen.getByRole('complementary', { name: 'Artist details inspector' })).toBeInTheDocument();
@@ -163,6 +167,9 @@ describe('SearchView', () => {
     expect(input).toHaveValue('Night Drive');
     expect(search.artist).toHaveBeenCalledWith(3, expect.any(AbortSignal));
     expect(search.query).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '← Back to search' }));
+    await waitFor(() => expect(document.activeElement).toBe(opener));
   });
 
   it('returns to Search and opens the existing artist inspector for a preview artist request', async () => {
@@ -241,7 +248,7 @@ describe('SearchView', () => {
     expect(screen.getByText('Top tracks')).toBeInTheDocument();
     expect(screen.getByText('Latest releases')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: '← Back to search' }));
-    expect(screen.getByText('Search the catalog or paste a Tidal link to begin.')).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByText('Search the catalog or paste a Tidal link to begin.')).toBeInTheDocument());
     expect(resolve.url).toHaveBeenCalledTimes(1);
   });
 
@@ -284,6 +291,37 @@ describe('SearchView', () => {
 
     await waitFor(() => expect(screen.getByText('Artist details')).toBeInTheDocument());
     expect(search.artist).toHaveBeenCalledWith(3, expect.any(AbortSignal));
+  });
+
+  it('reruns the active query when switching result type', async () => {
+    vi.mocked(search.query)
+      .mockResolvedValueOnce(result({ tracks: [track] }))
+      .mockResolvedValueOnce(result({ albums: [album] }));
+    renderSearch();
+
+    fireEvent.change(screen.getByRole('textbox', { name: /Search tracks/i }), { target: { value: 'Night Drive' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(screen.getByText('Night Drive')).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+    await waitFor(() => expect(search.query).toHaveBeenLastCalledWith('Night Drive', 'album', expect.objectContaining({ offset: 0, limit: 50 }), expect.any(AbortSignal)));
+    expect(screen.getByText('After Hours')).toBeInTheDocument();
+  });
+
+  it('keeps the last committed query for type changes after an unsubmitted draft edit', async () => {
+    vi.mocked(search.query)
+      .mockResolvedValueOnce(result({ tracks: [track] }))
+      .mockResolvedValueOnce(result({ albums: [album] }));
+    renderSearch();
+
+    const input = screen.getByRole('textbox', { name: /Search tracks/i });
+    fireEvent.change(input, { target: { value: 'Night Drive' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Search' }));
+    await waitFor(() => expect(screen.getByText('Night Drive')).toBeInTheDocument());
+
+    fireEvent.change(input, { target: { value: 'draft only' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Albums' }));
+    await waitFor(() => expect(search.query).toHaveBeenLastCalledWith('Night Drive', 'album', expect.anything(), expect.any(AbortSignal)));
   });
 
   it('opens album results while keeping their download action independent', async () => {
@@ -333,7 +371,7 @@ describe('SearchView', () => {
     await waitFor(() => expect(screen.getByRole('heading', { name: 'After Hours' })).toBeInTheDocument());
     fireEvent.click(screen.getByRole('button', { name: '← Back to search' }));
 
-    expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Open album After Hours' })).toBeInTheDocument());
     expect(input).toHaveValue('After Hours');
     expect(search.query).toHaveBeenCalledTimes(1);
   });

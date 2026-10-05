@@ -146,9 +146,9 @@ La pestaña activa debe tener `aria-current="page"` y una señal visual de alto 
 - Input de búsqueda como foco principal; permitir pegar una URL y detectarla sin un modo separado.
 - Selector segmentado para `Tracks`, `Albums` y `Playlists`.
 - `Refine` agrupa filtros avanzados y no compite con el input.
-- Resultados en filas con portada, título, artista, álbum, duración, calidad y acción.
+- Resultados en filas con portada, título, artista, álbum, duración, calidad y acción. La portada de una pista es el control de reproducción: alterna play/pausa para la pista actual y muestra el estado activo sin un botón `Preview` separado.
 - Los resultados de álbum muestran un contexto editorial: portada grande, título, artista, año y acción primaria.
-- La acción de extracción debe decir qué ocurrirá (`Add to queue`, `Download`, etc.); no usar iconos ambiguos como única etiqueta.
+- La acción de extracción usa un control compacto de descarga con nombre accesible y estados de cola, progreso real, completado y reintento; el icono conserva un área táctil estable y no desplaza la fila.
 - Los badges técnicos usan JetBrains Mono y texto legible: `LOSSLESS`, `HI-RES`, duración, bitrate o formato.
 - Cover fallbacks deben ser iconos SVG o superficies neutras, nunca emojis o caracteres decorativos como estructura.
 
@@ -197,10 +197,11 @@ La pestaña activa debe tener `aria-current="page"` y una señal visual de alto 
 
 ### Preview player
 
-- Barra fija inferior con portada, título/artista, play/pause, seek y duración.
+- Barra fija inferior de ancho completo, también bajo el rail lateral, con identidad a la izquierda, waveform/seek y metadatos en el centro, y volumen, play/pause, duración y cierre a la derecha.
 - El control sobre la portada disponible expande el reproductor en línea: la portada gana protagonismo a la izquierda, mientras waveform y metadatos DJ se agrupan a su lado; transporte permanece anclado al extremo derecho.
 - La expansión muestra una portada de `100 px` en escritorio y `88 px` en móvil, con waveform y key/BPM accesibles sin perder el seek ni los controles de reproducción. No abre un diálogo.
 - Waveform como visualización técnica, no como fondo ornamental.
+- Entrada, salida y cambio de composición usan movimiento breve y respetan `prefers-reduced-motion`; un fallo del stream permanece visible con una recuperación explícita.
 - En móvil se reduce a título, portada y controles esenciales; la acción de detalles expone waveform/seek, volumen y metadatos técnicos.
 - El reproductor no debe tapar contenido ni robar el foco al cambiar de vista.
 

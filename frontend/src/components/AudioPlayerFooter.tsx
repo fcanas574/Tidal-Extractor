@@ -209,6 +209,10 @@ export default function AudioPlayerFooter() {
   } | null>(null);
   const previewTokenRef = useRef(0);
   const { previewTrack, previewPlaying } = state;
+  const previewPlayingRef = useRef(previewPlaying);
+  const [displayTrack, setDisplayTrack] = useState(previewTrack);
+  const [isClosing, setIsClosing] = useState(false);
+  const closeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
   const [waveform, setWaveform] = useState<WaveformData | null>(null);
@@ -217,6 +221,8 @@ export default function AudioPlayerFooter() {
   const [bpm, setBpm] = useState<number | null>(null);
   const DEFAULT_VOLUME = 0.8;
   const [waveformFailed, setWaveformFailed] = useState(false);
+  const [streamFailed, setStreamFailed] = useState(false);
+  const [streamRetryNonce, setStreamRetryNonce] = useState(0);
   const [mobileExpanded, setMobileExpanded] = useState(false);
   const [expandedPreviewTrackId, setExpandedPreviewTrackId] = useState<number | null>(null);
   const [volumeSlider, setVolumeSlider] = useState<number>(() => {
@@ -239,13 +245,46 @@ export default function AudioPlayerFooter() {
   const prevVolumeRef = useRef<number>(volumeSlider > 0 ? volumeSlider : DEFAULT_VOLUME);
 
   useEffect(() => {
+    previewPlayingRef.current = previewPlaying;
+  }, [previewPlaying]);
+
+  useEffect(() => {
+    if (previewTrack) {
+      if (closeTimerRef.current) clearTimeout(closeTimerRef.current);
+      setDisplayTrack((current) => current
+        && current.id === previewTrack.id
+        && current.title === previewTrack.title
+        && current.artist === previewTrack.artist
+        && current.artist_id === previewTrack.artist_id
+        && current.cover_url === previewTrack.cover_url
+          ? current
+          : previewTrack);
+      setIsClosing(false);
+      return;
+    }
+    if (!displayTrack) return;
+    setIsClosing(true);
+    const reducedMotion = typeof window !== 'undefined'
+      ? window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false
+      : true;
+    closeTimerRef.current = setTimeout(() => {
+      setDisplayTrack(null);
+      setIsClosing(false);
+      closeTimerRef.current = null;
+    }, reducedMotion ? 0 : 190);
+    return () => { if (closeTimerRef.current) clearTimeout(closeTimerRef.current); };
+  }, [previewTrack?.id, previewTrack?.title, previewTrack?.artist, previewTrack?.artist_id, previewTrack?.cover_url, displayTrack?.id]);
+
+  useEffect(() => {
     if (!previewTrack) return;
     const trackId = previewTrack.id;
     const token = ++previewTokenRef.current;
     const abort = new AbortController();
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
-    setCurrentTime(0); setDuration(0); setWaveform(null); setWaveformFailed(false);
+    let ownedAudio: HTMLAudioElement | null = null;
+    let disposeAudio: (() => void) | undefined;
+    setCurrentTime(0); setDuration(0); setWaveform(null); setWaveformFailed(false); setStreamFailed(false);
     setKeyCamelot(null); setBpm(null);
 
     const active = () => !cancelled && token === previewTokenRef.current;
@@ -270,27 +309,49 @@ export default function AudioPlayerFooter() {
     preview.getStream(trackId, abort.signal).then((r) => {
       if (!active()) return;
       const audio = new Audio(r.stream_url);
+      ownedAudio = audio;
       audioRef.current = audio;
       const initialGain = isMuted ? 0 : sliderToGain(volumeSlider);
       audio.volume = Math.min(1, Math.max(0, initialGain));
-      audio.addEventListener('timeupdate', () => setCurrentTime(audio.currentTime));
-      audio.addEventListener('loadedmetadata', () => setDuration(audio.duration));
-      audio.addEventListener('ended', () => dispatch({ type: 'CLEAR_PREVIEW' }));
-      audio.addEventListener('error', () => dispatch({ type: 'CLEAR_PREVIEW' }));
-      audio.play().catch(() => dispatch({ type: 'CLEAR_PREVIEW' }));
+      const handleTimeUpdate = () => { if (active()) setCurrentTime(audio.currentTime); };
+      const handleLoadedMetadata = () => { if (active()) setDuration(audio.duration); };
+      const handleEnded = () => { if (active()) dispatch({ type: 'CLEAR_PREVIEW' }); };
+      const handleError = () => {
+        if (!active()) return;
+        setStreamFailed(true);
+        dispatch({ type: 'SET_PREVIEW_PLAYING', payload: false });
+      };
+      audio.addEventListener('timeupdate', handleTimeUpdate);
+      audio.addEventListener('loadedmetadata', handleLoadedMetadata);
+      audio.addEventListener('ended', handleEnded);
+      audio.addEventListener('error', handleError);
+      disposeAudio = () => {
+        audio.removeEventListener('timeupdate', handleTimeUpdate);
+        audio.removeEventListener('loadedmetadata', handleLoadedMetadata);
+        audio.removeEventListener('ended', handleEnded);
+        audio.removeEventListener('error', handleError);
+      };
+      if (previewPlayingRef.current) audio.play().catch(() => { if (active()) dispatch({ type: 'SET_PREVIEW_PLAYING', payload: false }); });
       poll();
     }).catch(() => {
-      if (active()) dispatch({ type: 'CLEAR_PREVIEW' });
+      if (!active()) return;
+      setStreamFailed(true);
+      dispatch({ type: 'SET_PREVIEW_PLAYING', payload: false });
     });
 
     return () => {
       cancelled = true;
       abort.abort(); // cancel any in-flight preview requests on track change/close
       if (pollTimer) clearTimeout(pollTimer);
-      audioRef.current?.pause();
-      audioRef.current = null;
+      if (ownedAudio) {
+        disposeAudio?.();
+        ownedAudio.pause();
+        if (typeof ownedAudio.removeAttribute === 'function') ownedAudio.removeAttribute('src');
+        else if ('src' in ownedAudio) ownedAudio.src = '';
+        if (audioRef.current === ownedAudio) audioRef.current = null;
+      }
     };
-  }, [previewTrack?.id]);
+  }, [previewTrack?.id, streamRetryNonce]);
 
   useEffect(() => {
     if (!previewTrack) {
@@ -324,6 +385,13 @@ export default function AudioPlayerFooter() {
       audioRef.current.volume = Math.min(1, Math.max(0, currentGain));
     }
   }, [volumeSlider, isMuted]);
+
+  useEffect(() => {
+    const audio = audioRef.current;
+    if (!audio || !previewTrack) return;
+    if (previewPlaying && audio.paused) audio.play().catch(() => undefined);
+    if (!previewPlaying && !audio.paused) audio.pause();
+  }, [previewPlaying, previewTrack]);
 
   const handleVolumeChange = useCallback((newVal: number) => {
     const clamped = Math.max(0, Math.min(1, newVal));
@@ -399,7 +467,8 @@ export default function AudioPlayerFooter() {
     const audio = audioRef.current;
     if (!audio) return;
     const wfDuration = waveform?.duration || duration;
-    if (!wfDuration) return;
+    if (!Number.isFinite(wfDuration) || wfDuration <= 0) return;
+    if (!Number.isFinite(fraction)) return;
     audio.currentTime = Math.max(0, Math.min(1, fraction)) * wfDuration;
   }, [duration, waveform]);
 
@@ -407,12 +476,13 @@ export default function AudioPlayerFooter() {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
+    if (!Number.isFinite(rect.width) || rect.width <= 0) return;
     seekToFraction((e.clientX - rect.left) / rect.width);
   }, [seekToFraction]);
 
   const seekWithKeyboard = useCallback((e: React.KeyboardEvent<HTMLCanvasElement>) => {
     const wfDuration = waveform?.duration || duration;
-    if (!wfDuration) return;
+    if (!Number.isFinite(wfDuration) || wfDuration <= 0) return;
 
     let nextTime: number | null = null;
     if (e.key === 'ArrowLeft') nextTime = currentTime - 5;
@@ -425,7 +495,12 @@ export default function AudioPlayerFooter() {
     seekToFraction(nextTime / wfDuration);
   }, [currentTime, duration, seekToFraction, waveform]);
 
-  const playerExpanded = !!previewTrack && expandedPreviewTrackId === previewTrack.id;
+  const playerExpanded = !!displayTrack && expandedPreviewTrackId === displayTrack.id;
+  const retryStream = useCallback(() => {
+    setStreamFailed(false);
+    setStreamRetryNonce((nonce) => nonce + 1);
+    dispatch({ type: 'SET_PREVIEW_PLAYING', payload: true });
+  }, [dispatch]);
 
   useLayoutEffect(() => {
     const previousRects = previousLayoutRectsRef.current;
@@ -465,7 +540,9 @@ export default function AudioPlayerFooter() {
     animateFromPreviousPosition(previewDetailsRef.current, previousRects.details);
   }, [playerExpanded]);
 
-  if (!previewTrack) return null;
+  if (!displayTrack) return null;
+
+  const activeTrack = displayTrack;
 
   const waveformMode = (state.settings?.waveform_color as WaveformMode) || '3band';
   const totalDuration = waveform?.duration || duration;
@@ -487,14 +564,14 @@ export default function AudioPlayerFooter() {
     } : null;
 
     setMobileExpanded(false);
-    setExpandedPreviewTrackId(playerExpanded ? null : previewTrack.id);
+    setExpandedPreviewTrackId(playerExpanded ? null : activeTrack.id);
   };
 
   return (
     <div
       role="region"
-      aria-label={`Preview player: ${previewPlaying ? 'Playing' : 'Paused'} ${previewTrack.title} by ${previewTrack.artist}`}
-      className={`preview-player fixed bottom-0 left-0 right-0 z-50 px-3 py-2 sm:px-4${playerExpanded ? ' is-expanded' : ''}`}
+      aria-label={`Preview player: ${previewPlaying ? 'Playing' : 'Paused'} ${activeTrack.title} by ${activeTrack.artist}`}
+      className={`preview-player fixed bottom-0 left-0 right-0 z-50 px-3 py-2 sm:px-4${playerExpanded ? ' is-expanded' : ''}${isClosing ? ' is-exiting' : ' is-entering'}`}
       style={{
         background: 'var(--glass-bg)',
         borderTop: '1px solid var(--glass-border)',
@@ -504,59 +581,10 @@ export default function AudioPlayerFooter() {
     >
       <span data-testid="waveform-color-mode" className="hidden">{waveformMode}</span>
       <div id="preview-player-main" className="preview-player-main">
-      <div id="preview-player-details" ref={previewDetailsRef} className={`preview-player-details ${detailVisibility}`}>
-        <div className="preview-player-instrument">
-          <div className="preview-player-waveform">
-            {waveform ? (
-              <canvas
-                ref={canvasRef}
-                role="slider"
-                tabIndex={0}
-                aria-label={`Seek preview: ${previewTrack.title}`}
-                aria-valuemin={0}
-                aria-valuemax={totalDuration}
-                aria-valuenow={Math.min(currentTime, totalDuration)}
-                aria-valuetext={`${formatTime(currentTime)} of ${formatTime(totalDuration)}`}
-                onClick={seek}
-                onKeyDown={seekWithKeyboard}
-                onMouseMove={(e) => {
-                  const c = canvasRef.current;
-                  if (!c) return;
-                  const r = c.getBoundingClientRect();
-                  setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
-                }}
-                onMouseLeave={() => setHoverFraction(null)}
-                className="preview-waveform-canvas w-full cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-offset-2"
-                style={{ display: 'block', height: '44px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}
-              />
-            ) : waveformFailed ? (
-              <div className="preview-waveform-placeholder" role="status" aria-live="polite">
-                <span>waveform unavailable</span>
-              </div>
-            ) : (
-              <div className="preview-waveform-placeholder animate-pulse" aria-label="Loading waveform" role="status" />
-            )}
-          </div>
-          <div id="preview-player-secondary" className={`preview-player-meta ${secondaryVisibility} items-center shrink-0`}>
-            <KeyBadge camelot={keyCamelot} />
-            <BPMBadge bpm={bpm} />
-          </div>
-        </div>
-        <div className="preview-player-mobile-volume sm:hidden">
-          <span className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>Volume</span>
-          <VolumeControl
-            sliderValue={volumeSlider}
-            isMuted={isMuted}
-            onSliderChange={handleVolumeChange}
-            onToggleMute={toggleMute}
-            showReadout={true}
-          />
-        </div>
-      </div>
-          {previewTrack.cover_url ? (
+          {activeTrack.cover_url ? (
             <div ref={artworkRef} className="preview-player-artwork-cluster">
               <img
-                src={previewTrack.cover_url}
+                src={activeTrack.cover_url}
                 alt=""
                 className="preview-player-artwork w-9 h-9 rounded object-cover shrink-0"
                 style={{ border: '1px solid var(--glass-border)' }}
@@ -602,23 +630,79 @@ export default function AudioPlayerFooter() {
           )}
           <div ref={trackCopyRef} className="preview-player-track-copy">
             <p className="preview-player-track-title text-sm font-medium truncate" style={{ color: 'var(--text-bright)' }}>
-              {previewTrack.title}
+              {activeTrack.title}
             </p>
-            {typeof previewTrack.artist_id === 'number' ? (
+            {typeof activeTrack.artist_id === 'number' ? (
               <button
                 type="button"
                 className="preview-player-track-artist preview-player-track-artist-link text-xs truncate"
-                aria-label={`Open artist ${previewTrack.artist}`}
-                onClick={() => dispatch({ type: 'REQUEST_ARTIST_DETAIL', payload: previewTrack.artist_id! })}
+                aria-label={`Open artist ${activeTrack.artist}`}
+                onClick={() => dispatch({ type: 'REQUEST_ARTIST_DETAIL', payload: activeTrack.artist_id! })}
               >
-                {previewTrack.artist}
+                {activeTrack.artist}
               </button>
             ) : (
               <p className="preview-player-track-artist text-xs truncate" style={{ color: 'var(--text-muted)' }}>
-                {previewTrack.artist}
+            {activeTrack.artist}
               </p>
             )}
           </div>
+
+      <div id="preview-player-details" ref={previewDetailsRef} className={`preview-player-details ${detailVisibility}`}>
+        <div className="preview-player-instrument">
+          <div className="preview-player-waveform">
+            {streamFailed ? (
+              <div className="preview-waveform-placeholder preview-waveform-error" role="alert">
+                <span>Preview unavailable</span>
+                <button type="button" onClick={retryStream}>Retry preview</button>
+              </div>
+            ) : waveform ? (
+              <canvas
+                ref={canvasRef}
+                role="slider"
+                tabIndex={0}
+                aria-label={`Seek preview: ${activeTrack.title}`}
+                aria-valuemin={0}
+                aria-valuemax={totalDuration}
+                aria-valuenow={Math.min(currentTime, totalDuration)}
+                aria-valuetext={`${formatTime(currentTime)} of ${formatTime(totalDuration)}`}
+                onClick={seek}
+                onKeyDown={seekWithKeyboard}
+                onMouseMove={(e) => {
+                  const c = canvasRef.current;
+                  if (!c) return;
+                  const r = c.getBoundingClientRect();
+                  if (!Number.isFinite(r.width) || r.width <= 0) return;
+                  setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
+                }}
+                onMouseLeave={() => setHoverFraction(null)}
+                className="preview-waveform-canvas w-full cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-offset-2"
+                style={{ display: 'block', height: '44px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}
+              />
+            ) : waveformFailed ? (
+              <div className="preview-waveform-placeholder" role="status" aria-live="polite">
+                <span>waveform unavailable</span>
+              </div>
+            ) : (
+              <div className="preview-waveform-placeholder animate-pulse" aria-label="Loading waveform" role="status" />
+            )}
+          </div>
+          <div id="preview-player-secondary" className={`preview-player-meta ${secondaryVisibility} items-center shrink-0`}>
+            <KeyBadge camelot={keyCamelot} />
+            <BPMBadge bpm={bpm} />
+          </div>
+        </div>
+        <div className="preview-player-mobile-volume sm:hidden">
+          <span className="text-xs font-mono" style={{ color: 'var(--text-dim)' }}>Volume</span>
+          <VolumeControl
+            sliderValue={volumeSlider}
+            isMuted={isMuted}
+            onSliderChange={handleVolumeChange}
+            onToggleMute={toggleMute}
+            showReadout={true}
+          />
+        </div>
+      </div>
 
         <div className="preview-player-controls">
           <VolumeControl

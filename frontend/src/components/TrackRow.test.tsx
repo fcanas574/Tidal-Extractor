@@ -23,6 +23,32 @@ const track: TrackResult = {
 };
 
 describe('TrackRow', () => {
+  it('plays from the row and exposes a cover play control without a Preview label', () => {
+    const onPreview = vi.fn();
+
+    render(<TrackRow track={track} isPreviewing={false} isActive={false} onPreview={onPreview} onDownload={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('article', { name: 'Play Night Drive' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Play Night Drive' }));
+
+    expect(onPreview).toHaveBeenCalledTimes(2);
+    expect(screen.queryByText('Preview')).not.toBeInTheDocument();
+  });
+
+  it('does not turn artist, album, or download controls into playback clicks', () => {
+    const onPreview = vi.fn();
+    const onDownload = vi.fn();
+
+    render(<TrackRow track={track} isPreviewing={false} isActive={false} onPreview={onPreview} onDownload={onDownload} onOpenArtist={vi.fn()} onOpenAlbum={vi.fn()} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Open artist The Pilot' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Open album After Hours' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Download Night Drive' }));
+
+    expect(onPreview).not.toHaveBeenCalled();
+    expect(onDownload).toHaveBeenCalledTimes(1);
+  });
+
   it('opens the related artist and album without owning download actions', () => {
     const onOpenArtist = vi.fn();
     const onOpenAlbum = vi.fn();
@@ -118,7 +144,6 @@ describe('TrackRow', () => {
     expect(technicalDetails).toHaveTextContent('128 BPM');
     expect(technicalDetails).toHaveTextContent('5A');
     expect(technicalDetails).toHaveTextContent('high_lossless');
-    expect(screen.getByRole('button', { name: 'Preview Night Drive' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download Night Drive' })).toBeInTheDocument();
   });
 });

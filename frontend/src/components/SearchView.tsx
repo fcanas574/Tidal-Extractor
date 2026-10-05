@@ -7,6 +7,7 @@ import AlbumView from './AlbumView';
 import ArtistView from './ArtistView';
 import TrackRow from './TrackRow';
 import WorkspaceInspector from './WorkspaceInspector';
+import DownloadButton from './DownloadButton';
 
 const TIDAL_URL_RE = /^(https?:\/\/)?(www\.|listen\.)?tidal\.com(?:\/|$)/i;
 const PAGE_SIZE = 50;
@@ -70,17 +71,24 @@ function Cover({ src, alt, kind = 'track' }: { src: string | null; alt: string; 
   );
 }
 
-function SkeletonResults() {
+function SkeletonResults({ type }: { type: SearchType }) {
+  const rows = type === 'track' ? 7 : type === 'artist' ? 6 : 5;
+  const isTrack = type === 'track';
+  const isArtist = type === 'artist';
   return (
-    <div className="search-skeleton-list" aria-label="Loading results" aria-busy="true">
-      {[1, 2, 3, 4].map((item) => (
+    <div className={`search-skeleton-list search-skeleton-${type}`} aria-label={`Loading ${type} results`} aria-busy="true">
+      {Array.from({ length: rows }, (_, index) => index + 1).map((item) => (
         <div key={item} className="search-skeleton-row animate-pulse">
           <div className="search-skeleton-cover" />
           <div className="search-skeleton-copy">
-            <div className="h-3 w-2/5 rounded" style={{ background: 'var(--bg-surface)' }} />
-            <div className="h-2 w-3/5 rounded" style={{ background: 'var(--bg-surface)' }} />
+            <div className="search-skeleton-title" />
+            <div className={isTrack ? 'search-skeleton-context' : 'search-skeleton-subtitle'}>
+              <span />
+              {isTrack && <span className="search-skeleton-duration" />}
+            </div>
+            {isTrack && <div className="search-skeleton-meta" />}
           </div>
-          <div className="search-skeleton-action" />
+          {isArtist ? <div className="search-skeleton-open" /> : <div className="search-skeleton-action" />}
         </div>
       ))}
     </div>
@@ -94,26 +102,50 @@ function SkeletonDetail({ label }: { label: string }) {
         <div className="search-detail-skeleton-cover" />
         <div className="search-skeleton-copy"><div /><div /><div /></div>
       </div>
-      <div className="search-skeleton-list">
-        {[1, 2, 3].map((item) => <div key={item} className="search-skeleton-row animate-pulse"><div className="search-skeleton-cover" /><div className="search-skeleton-copy"><div /><div /></div></div>)}
+      <div className="search-detail-skeleton-sections">
+        <section className="search-detail-skeleton-section">
+          <div className="search-skeleton-section-heading" />
+          <div className="search-skeleton-list">
+            {[1, 2, 3, 4, 5].map((item) => <SkeletonDetailTrack key={item} />)}
+          </div>
+        </section>
+        <section className="search-detail-skeleton-section">
+          <div className="search-skeleton-section-heading is-short" />
+          <div className="search-skeleton-release-list"><div className="search-skeleton-release-row" /><div className="search-skeleton-release-row" /></div>
+        </section>
+        <section className="search-detail-skeleton-section">
+          <div className="search-skeleton-section-heading is-short" />
+          <div className="search-skeleton-list">
+            {[1, 2, 3].map((item) => <SkeletonDetailTrack key={item} />)}
+          </div>
+        </section>
       </div>
     </div>
   );
 }
 
+function SkeletonDetailTrack() {
+  return <div className="search-skeleton-row animate-pulse"><div className="search-skeleton-cover" /><div className="search-skeleton-copy"><div className="search-skeleton-title" /><div className="search-skeleton-context"><span /><span className="search-skeleton-duration" /></div><div className="search-skeleton-meta" /></div><div className="search-skeleton-action" /></div>;
+}
+
 export default function SearchView() {
   const { state, dispatch } = useApp();
   const session = state.search;
-  const { query, type: searchType, filters, results, detail } = session;
+  const { query, committedQuery, type: searchType, filters, results, detail } = session;
   const [refineOpen, setRefineOpen] = useState(false);
+  const [detailClosing, setDetailClosing] = useState(false);
   const requestController = useRef<AbortController | null>(null);
   const generation = useRef(0);
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const detailActionRef = useRef<HTMLButtonElement | null>(null);
+  const detailOpenerRef = useRef<HTMLElement | null>(null);
+  const detailCloseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pendingDownloadsRef = useRef(new Set<string>());
 
   useEffect(() => () => {
     generation.current += 1;
     requestController.current?.abort();
+    if (detailCloseTimerRef.current) clearTimeout(detailCloseTimerRef.current);
   }, []);
 
   useEffect(() => {
@@ -136,12 +168,31 @@ export default function SearchView() {
     dispatch({ type: 'ADD_TOAST', payload: { id: `search-err-${Date.now()}`, type: 'error', title, detail, dismissAt: Date.now() + 5000 } });
   }, [dispatch]);
 
+  const rememberDetailOpener = useCallback(() => {
+    const active = document.activeElement;
+    detailOpenerRef.current = active instanceof HTMLElement ? active : null;
+  }, []);
+
   const closeDetail = () => {
-    dispatch({ type: 'CLOSE_DETAIL' });
-    window.setTimeout(() => searchInputRef.current?.focus(), 0);
+    if (!detail) return;
+    setDetailClosing(true);
+    if (detailCloseTimerRef.current) clearTimeout(detailCloseTimerRef.current);
+    const reducedMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches ?? false;
+    detailCloseTimerRef.current = window.setTimeout(() => {
+      dispatch({ type: 'CLOSE_DETAIL' });
+      setDetailClosing(false);
+      const opener = detailOpenerRef.current;
+      detailOpenerRef.current = null;
+      const target = opener?.isConnected ? opener : searchInputRef.current;
+      target?.focus({ preventScroll: true });
+      detailCloseTimerRef.current = null;
+    }, reducedMotion ? 0 : 190);
   };
 
   const openArtist = useCallback(async (artistId: number) => {
+    rememberDetailOpener();
+    if (detailCloseTimerRef.current) clearTimeout(detailCloseTimerRef.current);
+    setDetailClosing(false);
     const { controller, requestId } = beginRequest();
     dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'artist', id: artistId } });
     try {
@@ -167,17 +218,21 @@ export default function SearchView() {
       dispatch({ type: 'DETAIL_FAILED', payload: { kind: 'artist', id: artistId, error: message } });
       notifyError('Artist lookup failed', message);
     }
-  }, [beginRequest, dispatch, isCurrentRequest, notifyError]);
+  }, [beginRequest, dispatch, isCurrentRequest, notifyError, rememberDetailOpener]);
 
   useEffect(() => {
     const requestedArtistId = state.requestedArtistId;
     if (requestedArtistId === null) return;
 
+    rememberDetailOpener();
     dispatch({ type: 'CONSUME_ARTIST_DETAIL_REQUEST', payload: requestedArtistId });
     void openArtist(requestedArtistId);
   }, [dispatch, openArtist, state.requestedArtistId]);
 
   const openAlbum = async (albumId: number) => {
+    rememberDetailOpener();
+    if (detailCloseTimerRef.current) clearTimeout(detailCloseTimerRef.current);
+    setDetailClosing(false);
     const { controller, requestId } = beginRequest();
     dispatch({ type: 'DETAIL_STARTED', payload: { kind: 'album', id: albumId } });
     try {
@@ -243,7 +298,8 @@ export default function SearchView() {
 
   const clearFilters = () => {
     dispatch({ type: 'SET_SEARCH_FILTERS', payload: EMPTY_FILTERS });
-    if (query.trim()) void runSearch(query.trim(), searchType, EMPTY_FILTERS);
+    const activeQuery = committedQuery.trim() || (!results ? query.trim() : '');
+    if (activeQuery) void runSearch(activeQuery, searchType, EMPTY_FILTERS);
     else dispatch({ type: 'CLEAR_SEARCH' });
   };
 
@@ -252,24 +308,37 @@ export default function SearchView() {
     delete nextFilters[filter];
     if (filter === 'key') delete nextFilters.keyCompatible;
     dispatch({ type: 'SET_SEARCH_FILTERS', payload: nextFilters });
+    const activeQuery = committedQuery.trim() || (!results ? query.trim() : '');
+    if (activeQuery || nextFilters.genre) void runSearch(activeQuery, searchType, nextFilters);
+    else dispatch({ type: 'CLEAR_SEARCH' });
   };
 
   const handleTypeChange = (nextType: SearchType) => {
+    const activeQuery = committedQuery.trim() || (!results ? query.trim() : '');
+    const nextFilters = nextType === 'track' ? filters : EMPTY_FILTERS;
+    requestController.current?.abort();
+    generation.current += 1;
+    if (detailCloseTimerRef.current) clearTimeout(detailCloseTimerRef.current);
+    detailOpenerRef.current = null;
     dispatch({ type: 'SET_SEARCH_TYPE', payload: nextType });
+    setDetailClosing(false);
     dispatch({ type: 'CLOSE_DETAIL' });
     if (nextType !== 'track') {
       dispatch({ type: 'SET_SEARCH_FILTERS', payload: EMPTY_FILTERS });
       setRefineOpen(false);
     }
+    if (activeQuery || nextFilters.genre) void runSearch(activeQuery, nextType, nextFilters);
+    else dispatch({ type: 'CLEAR_SEARCH' });
   };
 
   const handleLoadMore = async () => {
-    if (!results || (!query.trim() && !filters.genre)) return;
+    const activeQuery = committedQuery.trim();
+    if (!results || (!activeQuery && !filters.genre)) return;
     const offset = resultCount(results, searchType);
     const { controller, requestId } = beginRequest();
     dispatch({ type: 'SEARCH_MORE_STARTED' });
     try {
-      const response = await search.query(query.trim(), searchType, buildApiFilters(filters, offset), controller.signal);
+      const response = await search.query(activeQuery, searchType, buildApiFilters(filters, offset), controller.signal);
       if (isCurrentRequest(requestId, controller)) {
         dispatch({ type: 'SEARCH_MORE_SUCCEEDED', payload: { type: searchType, result: response } });
       }
@@ -282,16 +351,30 @@ export default function SearchView() {
   };
 
   const handleAddToQueue = async (tidalId: string | number, itemType: string, title: string, artist = '', album = '') => {
+    const key = `${itemType}:${String(tidalId)}`;
+    const existingActive = state.queue.some((item) => item.tidal_id === String(tidalId) && item.item_type === itemType && (item.status === 'queued' || item.status === 'downloading'));
+    if (pendingDownloadsRef.current.has(key) || existingActive) return;
+    pendingDownloadsRef.current.add(key);
     try {
       const added = await queue.add({ tidal_id: String(tidalId), item_type: itemType, title, artist, album, quality: state.settings.default_quality, format: state.settings.default_format });
       dispatch({ type: 'UPDATE_QUEUE_ITEM', payload: added });
       dispatch({ type: 'ADD_TOAST', payload: { id: `add-${Date.now()}-${tidalId}`, type: 'info', title: 'Added to queue', detail: title, dismissAt: Date.now() + 3000 } });
     } catch {
       dispatch({ type: 'ADD_TOAST', payload: { id: `add-err-${Date.now()}`, type: 'error', title: 'Failed to add to queue', detail: title, dismissAt: Date.now() + 4000 } });
+    } finally {
+      pendingDownloadsRef.current.delete(key);
     }
   };
 
-  const previewTrack = (track: TrackResult) => dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, artist_id: track.artist_id, cover_url: track.cover_url, key: null, camelot: null } });
+  const previewTrack = (track: TrackResult) => {
+    if (state.previewTrack?.id === track.id) dispatch({ type: 'SET_PREVIEW_PLAYING', payload: !state.previewPlaying });
+    else dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, artist_id: track.artist_id, cover_url: track.cover_url, key: null, camelot: null } });
+  };
+
+  const downloadStatusFor = (tidalId: number | string, itemType: string) => {
+    const item = [...state.queue].reverse().find((candidate) => candidate.tidal_id === String(tidalId) && candidate.item_type === itemType);
+    return { status: item?.status ?? 'idle' as const, progress: item?.progress ?? 0, error: item?.error ?? null };
+  };
 
   const isUrl = TIDAL_URL_RE.test(query.trim());
   const loading = session.status === 'loading';
@@ -312,9 +395,7 @@ export default function SearchView() {
     filters.keyCompatible ? { key: 'keyCompatible' as const, label: 'Compatible keys' } : null,
     filters.genre ? { key: 'genre' as const, label: filters.genre } : null,
   ].filter(Boolean) as { key: keyof SearchFilters; label: string }[];
-  const totalResults = results
-    ? results.tracks.length + results.artists.length + results.albums.length + results.playlists.length
-    : 0;
+  const totalResults = results ? resultCount(results, searchType) : 0;
   const canLoadMore = Boolean(results && resultCount(results, searchType) > 0 && results.has_more);
   const inspectorLabel = detail?.kind === 'album' ? 'Album details' : 'Artist details';
   const inspectorTitle = detail?.kind === 'album'
@@ -410,7 +491,7 @@ export default function SearchView() {
 
       <div className={`search-workspace-body${detail ? ' has-inspector' : ''}${results ? ' has-results' : ''}`}>
         <section className="search-results-column" aria-label="Catalog results">
-          {!detail && loading && <SkeletonResults />}
+          {!detail && loading && <SkeletonResults type={searchType} />}
 
           {!detail && !loading && error && (
             <div className="search-message" role="alert">
@@ -423,7 +504,7 @@ export default function SearchView() {
           {!loading && !error && results && (
             <div className="search-results-list" aria-live="polite">
               {totalResults > 0 && <div className="search-results-summary">
-                <span>{totalResults} result{totalResults === 1 ? '' : 's'}</span>
+                <span>{resultCount(results, searchType)} result{resultCount(results, searchType) === 1 ? '' : 's'}</span>
                 {results.metadata_pending && searchType === 'track' && <span className="search-metadata-status" role="status">Completing DJ metadata…</span>}
               </div>}
               {results.artists.map((artist) => (
@@ -436,8 +517,8 @@ export default function SearchView() {
                   <span className="catalog-result-open">Open</span>
                 </button>
               ))}
-              {results.tracks.map((track) => <TrackRow key={track.id} track={track} isPreviewing={state.previewTrack?.id === track.id && state.previewPlaying} onPreview={() => previewTrack(track)} onDownload={() => void handleAddToQueue(track.id, 'track', track.title, track.artist, track.album)} onOpenArtist={track.artist_id !== null ? openArtist : undefined} onOpenAlbum={track.album_id !== null ? openAlbum : undefined} />)}
-              {results.albums.map((album) => <AlbumCard key={album.id} album={album} variant="compact" onOpen={(item) => void openAlbum(item.id)} onDownload={(item) => void handleAddToQueue(item.id, 'album', item.name, item.artist)} />)}
+              {results.tracks.map((track) => { const download = downloadStatusFor(track.id, 'track'); return <TrackRow key={track.id} track={track} isActive={state.previewTrack?.id === track.id} isPreviewing={state.previewTrack?.id === track.id && state.previewPlaying} onPreview={() => previewTrack(track)} downloadStatus={download.status} downloadProgress={download.progress} downloadError={download.error} onDownload={() => void handleAddToQueue(track.id, 'track', track.title, track.artist, track.album)} onOpenArtist={track.artist_id !== null ? openArtist : undefined} onOpenAlbum={track.album_id !== null ? openAlbum : undefined} />; })}
+              {results.albums.map((album) => { const download = downloadStatusFor(album.id, 'album'); return <AlbumCard key={album.id} album={album} variant="compact" downloadStatus={download.status} downloadProgress={download.progress} downloadError={download.error} onOpen={(item) => void openAlbum(item.id)} onDownload={(item) => void handleAddToQueue(item.id, 'album', item.name, item.artist)} />; })}
               {results.playlists.map((playlist) => (
                 <article key={playlist.id} className="catalog-result-row">
                   <Cover src={playlist.cover_url} alt={`${playlist.name} cover`} kind="playlist" />
@@ -445,7 +526,7 @@ export default function SearchView() {
                     <p className="catalog-result-title" title={playlist.name}>{playlist.name}</p>
                     <p className="catalog-result-context">{playlist.creator || 'Unknown creator'} · {playlist.num_tracks} tracks</p>
                   </div>
-                  <button type="button" className="catalog-result-download" onClick={() => void handleAddToQueue(playlist.id, 'playlist', playlist.name)} aria-label={`Download playlist ${playlist.name}`}>Download</button>
+                  {(() => { const download = downloadStatusFor(playlist.id, 'playlist'); return <DownloadButton title={playlist.name} status={download.status} progress={download.progress} error={download.error} className="catalog-result-download" onDownload={() => void handleAddToQueue(playlist.id, 'playlist', playlist.name)} />; })()}
                 </article>
               ))}
               {totalResults === 0 && (
@@ -475,7 +556,7 @@ export default function SearchView() {
         </section>
 
         {detail && inspectorContent && (
-          <WorkspaceInspector label={inspectorLabel} title={inspectorTitle} onClose={closeDetail}>
+          <WorkspaceInspector label={inspectorLabel} title={inspectorTitle} onClose={closeDetail} isClosing={detailClosing}>
             {inspectorContent}
           </WorkspaceInspector>
         )}

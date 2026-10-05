@@ -1516,6 +1516,12 @@ button.catalog-result-row { cursor: pointer; }
 .search-detail-skeleton-header .search-skeleton-copy > div:nth-child(1) { width: 24%; }
 .search-detail-skeleton-header .search-skeleton-copy > div:nth-child(2) { width: 62%; height: 12px; }
 .search-detail-skeleton-header .search-skeleton-copy > div:nth-child(3) { width: 38%; }
+.search-detail-skeleton-header { min-height: 119px; gap: 18px; padding: 22px 0 24px; }
+.search-detail-skeleton-cover { width: 72px; height: 72px; border-radius: 50%; }
+.search-detail-skeleton-header .search-skeleton-copy { gap: 5px; }
+.search-detail-skeleton-header .search-skeleton-copy > div:nth-child(1) { width: 20%; height: 11px; }
+.search-detail-skeleton-header .search-skeleton-copy > div:nth-child(2) { width: 55%; height: 28px; }
+.search-detail-skeleton-header .search-skeleton-copy > div:nth-child(3) { width: 72%; height: 16px; }
 
 .workspace-inspector { min-width: 0; }
 .workspace-inspector-header { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-width: 0; }
@@ -1998,6 +2004,9 @@ button.album-detail-artist:hover { color: var(--porcelain); text-decoration: und
 .preview-player-artwork-cluster:hover .preview-player-artwork { border-color: rgba(255, 255, 255, 0.28) !important; }
 .preview-waveform-canvas { height: 42px !important; border: 0 !important; border-radius: inherit !important; }
 .preview-waveform-placeholder { display: grid; min-height: 42px; place-items: center; background: #000; color: var(--text-dim); font-size: var(--font-size-technical); }
+.preview-waveform-error { grid-template-columns: auto auto; gap: 10px; padding-inline: 12px; }
+.preview-waveform-error button { min-height: 28px; padding: 0 10px; color: var(--porcelain); background: rgba(255,255,255,.06); border: 1px solid var(--glass-border); border-radius: 5px; cursor: pointer; font-size: var(--font-size-technical); }
+.preview-waveform-error button:hover { background: rgba(255,255,255,.11); }
 .preview-player-meta { justify-content: flex-end; gap: 7px; }
 .preview-key-badge,
 .preview-bpm-badge { display: inline-flex; align-items: center; min-height: 27px; padding: 0 9px; color: var(--silver); background: rgba(255, 255, 255, 0.045); border: 1px solid var(--glass-border); border-radius: 5px; font: 10px var(--font-mono, monospace); white-space: nowrap; }
@@ -2075,4 +2084,108 @@ button.album-detail-artist:hover { color: var(--porcelain); text-decoration: und
   .preview-player-play,
   .preview-player-close,
   .preview-player-mute { width: 40px; height: 42px; }
+}
+
+/* Search/player QoL pass: stable music-row geometry and stateful actions. */
+.activity-panel { z-index: 60; }
+.track-row { position: relative; min-height: 84px; padding-block: 14px; cursor: pointer; }
+.track-row:focus-visible { outline: 2px solid var(--accent-primary); outline-offset: -2px; }
+.track-row.is-active { background: rgba(255, 255, 255, 0.035); }
+.track-row-cover-button { position: relative; display: grid; width: var(--cover-size); height: var(--cover-size); flex: none; place-items: center; padding: 0; color: var(--porcelain); background: transparent; border: 0; border-radius: 6px; cursor: pointer; overflow: hidden; }
+.track-row-cover-button .track-row-cover { width: 100%; height: 100%; }
+.track-row-cover-overlay { position: absolute; inset: 0; display: grid; place-items: center; color: var(--porcelain); background: rgba(0, 0, 0, 0.6); opacity: 0; transition: opacity 140ms ease; }
+.track-row:hover .track-row-cover-overlay, .track-row:focus-within .track-row-cover-overlay, .track-row.is-active .track-row-cover-overlay { opacity: 1; }
+.track-row-actions { margin-left: 10px; min-width: 42px; justify-content: center; }
+.download-control { display: inline-grid; width: 42px; height: 42px; min-width: 42px; flex: none; place-items: center; position: relative; padding: 0; color: var(--text-dim); background: transparent; border: 1px solid transparent; border-radius: 50%; cursor: pointer; transition: color 140ms ease, background-color 140ms ease, border-color 140ms ease; }
+.download-control:hover:not(:disabled), .download-control:focus-visible:not(:disabled) { color: var(--porcelain); background: rgba(255,255,255,.06); border-color: var(--glass-border); }
+.download-control:disabled { cursor: default; }
+.download-control-queued { color: var(--text-muted); }
+.download-control-downloading { color: var(--porcelain); }
+.download-control-complete { color: var(--success); }
+.download-control-failed { width: 42px; min-width: 42px; padding-inline: 0; gap: 0; color: var(--danger); border-color: rgba(225,29,72,.24); border-radius: 50%; }
+.download-failed-label { font-size: var(--font-size-technical); font-weight: 600; }
+.download-retry-glyph { font-size: 18px; line-height: 1; }
+.download-progress-icon { position: relative; display: grid; place-items: center; width: 32px; height: 32px; }
+.download-progress-icon > span { position: absolute; inset: 0; display: grid; place-items: center; font-family: var(--mono-font); font-size: 11px; font-weight: 600; font-variant-numeric: tabular-nums; }
+.album-row-download, .catalog-result-download { min-width: 42px; width: 42px; min-height: 42px; padding: 0; background: transparent; color: var(--text-dim); }
+.album-detail-download { width: 42px; min-width: 42px; height: 42px; min-height: 42px; padding: 0; color: var(--text-dim); background: transparent; border: 1px solid transparent; border-radius: 50%; font-size: 0; }
+.album-detail-download:hover:not(:disabled) { color: var(--porcelain); background: rgba(255,255,255,.06); border-color: var(--glass-border); }
+.album-row-download:hover:not(:disabled), .catalog-result-download:hover:not(:disabled) { background: rgba(255,255,255,.06); color: var(--porcelain); }
+.search-skeleton-row { min-height: 84px; padding-block: 14px; }
+.search-skeleton-track .search-skeleton-row,
+.search-detail-skeleton .search-skeleton-row { min-height: 97px; }
+.search-skeleton-artist .search-skeleton-row,
+.search-skeleton-album .search-skeleton-row,
+.search-skeleton-playlist .search-skeleton-row { min-height: 80px; padding-block: 12px; }
+.search-skeleton-copy { gap: 3px; }
+.search-skeleton-copy > div { height: 9px; }
+.search-skeleton-title { width: 42%; height: 19px !important; background: var(--slate) !important; border-radius: 4px; }
+.search-skeleton-subtitle { display: flex; align-items: center; gap: 8px; width: 68%; height: 18px !important; background: transparent !important; }
+.search-skeleton-subtitle > span:first-child { width: 100%; height: 10px; background: var(--slate); border-radius: 4px; }
+.search-skeleton-context { display: flex; align-items: center; gap: 8px; width: 100%; height: 18px !important; background: transparent !important; }
+.search-skeleton-context > span:first-child { width: min(78%, 520px); height: 10px; background: var(--slate); border-radius: 4px; }
+.search-skeleton-meta { width: 55%; height: 17px !important; background: var(--slate) !important; border-radius: 4px; }
+.search-skeleton-duration { width: 27px; height: 18px; flex: none; background: var(--slate); border-radius: 4px; }
+.search-skeleton-action { width: 42px; height: 42px; flex: none; border-radius: 50%; background: var(--slate); }
+.search-skeleton-open { width: 34px; height: 10px; flex: none; background: var(--slate); border-radius: 4px; }
+.search-detail-skeleton-sections { display: grid; gap: 12px; }
+.search-detail-skeleton-section { min-width: 0; padding-block: 20px; border-bottom: 1px solid var(--glass-border); }
+.search-detail-skeleton-section:first-child { padding-top: 0; }
+.search-skeleton-section-heading { width: 42%; height: 24px; background: var(--slate); border-radius: 5px; }
+.search-skeleton-section-heading.is-short { width: 35%; margin-top: 10px; }
+.search-skeleton-release-list { display: grid; gap: 0; }
+.search-skeleton-release-row { height: 80px; background: var(--slate); border-radius: 6px; }
+.workspace-inspector { animation: inspector-enter 240ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.workspace-inspector.is-closing { animation: inspector-exit 180ms cubic-bezier(0.4, 0, 1, 1) both; pointer-events: none; }
+@keyframes inspector-enter { from { opacity: 0; transform: translateX(18px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes inspector-exit { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(18px); } }
+.workspace-inspector-header { min-height: 58px; padding-block: 5px 12px; }
+.workspace-inspector-close { width: 42px; height: 42px; justify-content: center; padding: 0; }
+.workspace-inspector-close span { display: none; }
+.artist-detail-header { gap: 18px; padding-block: 22px 24px; }
+.artist-detail-cover { width: 72px; height: 72px; }
+.artist-detail-section { padding-block: 20px; }
+.artist-detail-sections { gap: 4px; }
+.artist-detail-section-heading { margin-bottom: 12px; }
+.artist-detail-section-heading h3 { font-size: 1.1rem; }
+.track-row-title { font-weight: 620; }
+.preview-player.is-entering { animation: player-rise-in 240ms cubic-bezier(0.22, 1, 0.36, 1) both; }
+.preview-player.is-exiting { animation: player-rise-out 180ms cubic-bezier(0.4, 0, 1, 1) both; pointer-events: none; }
+@keyframes player-rise-in { from { opacity: 0; transform: translateY(18px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes player-rise-out { from { opacity: 1; transform: translateY(0); } to { opacity: 0; transform: translateY(18px); } }
+
+@media (min-width: 1100px) {
+  .preview-player { left: 0; }
+  .app-shell:has(.preview-player) .workspace-main { padding-bottom: var(--player-reserved-desktop); }
+  .app-shell:has(.preview-player.is-expanded) .workspace-main { padding-bottom: calc(var(--player-reserved-desktop) + var(--player-expanded-reserve)); }
+  .app-shell:has(.preview-player) .studio-rail-inner { padding-bottom: calc(18px + var(--player-reserved-desktop)); }
+  .search-workspace-body.has-inspector.has-results { grid-template-columns: minmax(0, 1fr) minmax(380px, .5fr); gap: 28px; }
+  .workspace-inspector { padding-left: 28px; }
+}
+@media (min-width: 768px) and (max-width: 1099px) {
+  .app-shell:has(.preview-player) .workspace-main { padding-bottom: calc(var(--player-reserved-desktop) + env(safe-area-inset-bottom)); }
+  .app-shell:has(.preview-player.is-expanded) .workspace-main { padding-bottom: calc(var(--player-reserved-desktop) + var(--player-expanded-reserve) + env(safe-area-inset-bottom)); }
+}
+@media (max-width: 767px) {
+  .app-shell:has(.preview-player) .workspace-main { padding-bottom: calc(var(--player-reserved-mobile) + env(safe-area-inset-bottom)); }
+  .app-shell:has(.preview-player.is-expanded) .workspace-main { padding-bottom: calc(var(--player-reserved-mobile) + var(--player-expanded-reserve) + env(safe-area-inset-bottom)); }
+  .app-shell:has(.preview-player) .studio-rail-inner { padding-bottom: calc(18px + var(--player-reserved-mobile)); }
+  .track-row { min-height: 82px; }
+  .track-row-actions { min-width: 42px; }
+  .search-skeleton-row { min-height: 82px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .preview-player.is-entering, .preview-player.is-exiting, .workspace-inspector, .workspace-inspector.is-closing { animation: none; }
+}
+
+/* Keep the footer's information hierarchy useful at the window edge: identity,
+   waveform/details, then transport controls. The rail remains visible above it. */
+@media (min-width: 1100px) {
+  .preview-player-main { width: 100%; max-width: none; grid-template-columns: 44px minmax(185px, .78fr) minmax(320px, 1.8fr) auto; grid-template-rows: auto; grid-template-areas: "artwork track details controls"; column-gap: 18px; row-gap: 0; }
+  .preview-player.is-expanded .preview-player-main { grid-template-columns: 108px minmax(185px, .78fr) minmax(320px, 1.8fr) auto; grid-template-rows: auto; grid-template-areas: "artwork track details controls"; column-gap: 18px; row-gap: 0; }
+  .preview-player.is-expanded .preview-player-details { align-self: center; }
+}
+@media (min-width: 768px) and (max-width: 1099px) {
+  .preview-player-main { width: 100%; max-width: none; grid-template-columns: 44px minmax(0, 1fr) auto; grid-template-rows: auto auto; grid-template-areas: "artwork track controls" "details details details"; column-gap: 12px; row-gap: 9px; }
+  .preview-player.is-expanded .preview-player-main { grid-template-columns: 96px minmax(0, 1fr) auto; grid-template-areas: "artwork track controls" "artwork details details"; column-gap: 14px; row-gap: 8px; }
 }

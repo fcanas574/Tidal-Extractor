@@ -72,7 +72,7 @@ describe('ArtistView', () => {
     expect(screen.getByText(/2025-02-01/)).toBeInTheDocument();
     expect(screen.getByText('SINGLE')).toBeInTheDocument();
     expect(screen.getByText(/2025-04-01/)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Preview Night Drive' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Play Night Drive' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download Night Drive' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Download album After Hours' })).toBeInTheDocument();
 

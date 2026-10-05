@@ -3,8 +3,9 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import { fireEvent, render, waitFor, cleanup, screen } from '@testing-library/react';
 import * as api from '../api';
 
-const { mockDispatch, mockPreviewTrack } = vi.hoisted(() => ({
+const { mockDispatch, mockPreviewTrack, previewEnabled } = vi.hoisted(() => ({
   mockDispatch: vi.fn(),
+  previewEnabled: { value: true },
   mockPreviewTrack: {
     id: 7,
     title: 'T',
@@ -26,7 +27,7 @@ let currentSettings: api.Settings = {
 vi.mock('../context/AppContext', () => ({
   useApp: () => ({
     state: {
-      previewTrack: mockPreviewTrack,
+      previewTrack: previewEnabled.value ? mockPreviewTrack : null,
       previewPlaying: true,
       settings: currentSettings,
     },
@@ -61,6 +62,7 @@ describe('AudioPlayerFooter fast lifecycle', () => {
     };
     mockPreviewTrack.artist_id = 3;
     mockPreviewTrack.cover_url = null;
+    previewEnabled.value = true;
     mockDispatch.mockClear();
     cleanup();
     vi.restoreAllMocks();
@@ -68,6 +70,25 @@ describe('AudioPlayerFooter fast lifecycle', () => {
 
   it('uses the 3Band palette by default', () => {
     expect(WAVEFORM_PALETTES['3band']).toEqual({ low: '#0054e2', mid: '#b3680a', high: '#f6ebd8' });
+  });
+
+  it('keeps hook order stable when the player enters, exits, and reopens', async () => {
+    (api.preview.getStream as any).mockImplementation(() => new Promise(() => {}));
+    previewEnabled.value = false;
+    const view = render(<AudioPlayerFooter />);
+    expect(screen.queryByRole('region', { name: /Preview player/ })).not.toBeInTheDocument();
+
+    previewEnabled.value = true;
+    view.rerender(<AudioPlayerFooter />);
+    expect(screen.getByRole('region', { name: 'Preview player: Playing T by A' })).toBeInTheDocument();
+
+    previewEnabled.value = false;
+    view.rerender(<AudioPlayerFooter />);
+    await waitFor(() => expect(screen.queryByRole('region', { name: /Preview player/ })).not.toBeInTheDocument(), { timeout: 400 });
+
+    previewEnabled.value = true;
+    view.rerender(<AudioPlayerFooter />);
+    expect(screen.getByRole('region', { name: 'Preview player: Playing T by A' })).toBeInTheDocument();
   });
 
   it('exposes an understandable compact player to assistive technology', () => {
@@ -136,6 +157,18 @@ describe('AudioPlayerFooter fast lifecycle', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Open artist A' }));
 
     expect(mockDispatch).toHaveBeenCalledWith({ type: 'REQUEST_ARTIST_DETAIL', payload: 3 });
+  });
+
+  it('keeps a failed stream recoverable instead of silently dismissing the player', async () => {
+    (api.preview.getStream as any)
+      .mockRejectedValueOnce(new Error('stream unavailable'))
+      .mockImplementationOnce(() => new Promise(() => {}));
+    render(<AudioPlayerFooter />);
+
+    expect(await screen.findByRole('alert')).toHaveTextContent('Preview unavailable');
+    fireEvent.click(screen.getByRole('button', { name: 'Retry preview' }));
+    await waitFor(() => expect(api.preview.getStream).toHaveBeenCalledTimes(2));
+    expect(screen.getByRole('region', { name: /Preview player/ })).toBeInTheDocument();
   });
 
   it('keeps BPM and Camelot visible as static metadata while playing and retains keyboard seeking', async () => {

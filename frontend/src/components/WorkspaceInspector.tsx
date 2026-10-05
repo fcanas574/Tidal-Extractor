@@ -6,6 +6,7 @@ interface WorkspaceInspectorProps {
   onClose: () => void;
   eyebrow?: string;
   returnLabel?: string;
+  isClosing?: boolean;
   children: ReactNode;
 }
 
@@ -15,10 +16,11 @@ export default function WorkspaceInspector({
   onClose,
   eyebrow = 'Catalog details',
   returnLabel = '← Back to search',
+  isClosing = false,
   children,
 }: WorkspaceInspectorProps) {
   return (
-    <aside className="workspace-inspector" aria-label={`${label} inspector`}>
+    <aside className={`workspace-inspector${isClosing ? ' is-closing' : ''}`} aria-label={`${label} inspector`}>
       <header className="workspace-inspector-header">
         <div className="min-w-0">
           <p className="workspace-eyebrow">{eyebrow}</p>
@@ -26,7 +28,7 @@ export default function WorkspaceInspector({
         </div>
         <button type="button" className="workspace-inspector-close" onClick={onClose} aria-label={returnLabel} title={`Return from ${title}`}>
           <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-            <path d="M16 10H4m0 0 5-5m-5 5 5 5" />
+            <path d="M4 10h12m0 0-5-5m5 5-5 5" />
           </svg>
           <span>{returnLabel.replace(/^←\s*/, '')}</span>
         </button>

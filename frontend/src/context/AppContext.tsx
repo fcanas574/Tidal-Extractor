@@ -53,6 +53,7 @@ export type CatalogDetail =
 
 export interface SearchSession {
   query: string;
+  committedQuery: string;
   type: SearchType;
   filters: SearchFilters;
   results: SearchResult | null;
@@ -141,6 +142,7 @@ const initialState: AppState = {
   stats: {},
   search: {
     query: '',
+    committedQuery: '',
     type: 'track',
     filters: {},
     results: null,
@@ -501,6 +503,7 @@ function reducer(state: AppState, action: Action): AppState {
         search: {
           ...state.search,
           query: action.payload.query,
+          committedQuery: action.payload.query,
           type: action.payload.type,
           filters: action.payload.filters,
           detail: null,
@@ -641,6 +644,7 @@ function reducer(state: AppState, action: Action): AppState {
         search: {
           ...state.search,
           query: '',
+          committedQuery: '',
           results: null,
           detail: null,
           status: 'idle',

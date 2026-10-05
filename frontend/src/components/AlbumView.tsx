@@ -1,8 +1,10 @@
 import { queue } from '../api';
+import { useRef } from 'react';
 import type { CatalogDetail } from '../context/AppContext';
 import type { TrackResult } from '../api';
 import { useApp } from '../context/AppContext';
 import TrackRow from './TrackRow';
+import DownloadButton from './DownloadButton';
 
 type AlbumDetailState = Extract<CatalogDetail, { kind: 'album' }>;
 
@@ -25,6 +27,7 @@ function BackButton({ onBack }: { onBack: () => void }) {
 
 export default function AlbumView({ detail, onBack, onRetry, onOpenArtist, onOpenAlbum }: AlbumViewProps) {
   const { state, dispatch } = useApp();
+  const pendingDownloadsRef = useRef(new Set<string>());
 
   const notify = (type: 'info' | 'error', title: string, detailText: string) => {
     dispatch({
@@ -34,16 +37,30 @@ export default function AlbumView({ detail, onBack, onRetry, onOpenArtist, onOpe
   };
 
   const addToQueue = async (tidalId: number, itemType: string, title: string, artist = '', album = '') => {
+    const key = `${itemType}:${tidalId}`;
+    const existingActive = state.queue.some((item) => item.tidal_id === String(tidalId) && item.item_type === itemType && (item.status === 'queued' || item.status === 'downloading'));
+    if (pendingDownloadsRef.current.has(key) || existingActive) return;
+    pendingDownloadsRef.current.add(key);
     try {
       const added = await queue.add({ tidal_id: String(tidalId), item_type: itemType, title, artist, album, quality: state.settings.default_quality, format: state.settings.default_format });
       dispatch({ type: 'UPDATE_QUEUE_ITEM', payload: added });
       notify('info', 'Added to queue', title);
     } catch {
       notify('error', 'Failed to add to queue', title);
+    } finally {
+      pendingDownloadsRef.current.delete(key);
     }
   };
 
-  const previewTrack = (track: TrackResult) => dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, artist_id: track.artist_id, cover_url: track.cover_url, key: null, camelot: null } });
+  const previewTrack = (track: TrackResult) => {
+    if (state.previewTrack?.id === track.id) dispatch({ type: 'SET_PREVIEW_PLAYING', payload: !state.previewPlaying });
+    else dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, artist_id: track.artist_id, cover_url: track.cover_url, key: null, camelot: null } });
+  };
+
+  const downloadStatusFor = (tidalId: number, itemType: string) => {
+    const item = [...state.queue].reverse().find((candidate) => candidate.tidal_id === String(tidalId) && candidate.item_type === itemType);
+    return { status: item?.status ?? 'idle' as const, progress: item?.progress ?? 0, error: item?.error ?? null };
+  };
 
   if (detail.status === 'loading') {
     return (
@@ -74,8 +91,12 @@ export default function AlbumView({ detail, onBack, onRetry, onOpenArtist, onOpe
     <TrackRow
       key={track.id}
       track={track}
+      isActive={state.previewTrack?.id === track.id}
       isPreviewing={state.previewTrack?.id === track.id && state.previewPlaying}
       onPreview={() => previewTrack(track)}
+      downloadStatus={downloadStatusFor(track.id, 'track').status}
+      downloadProgress={downloadStatusFor(track.id, 'track').progress}
+      downloadError={downloadStatusFor(track.id, 'track').error}
       onDownload={() => void addToQueue(track.id, 'track', track.title, track.artist, track.album)}
       onOpenArtist={onOpenArtist}
       onOpenAlbum={onOpenAlbum}
@@ -94,7 +115,7 @@ export default function AlbumView({ detail, onBack, onRetry, onOpenArtist, onOpe
           {album.artist_id !== null ? <button type="button" className="album-detail-artist" onClick={() => onOpenArtist(album.artist_id!)} aria-label={`Open artist ${album.artist}`}>{album.artist}</button> : <p className="album-detail-artist">{album.artist}</p>}
           <div className="album-detail-metadata mono"><span>{album.num_tracks} tracks</span>{album.release_date && <span>{album.release_date}</span>}<span>{album.quality}</span></div>
         </div>
-        <button type="button" className="album-detail-download" onClick={() => void addToQueue(album.id, 'album', album.name, album.artist)} aria-label={`Download album ${album.name}`}>Download album</button>
+        {(() => { const download = downloadStatusFor(album.id, 'album'); return <DownloadButton title={`album ${album.name}`} status={download.status} progress={download.progress} error={download.error} className="album-detail-download" onDownload={() => void addToQueue(album.id, 'album', album.name, album.artist)} />; })()}
       </header>
 
       <section aria-labelledby="album-tracks">

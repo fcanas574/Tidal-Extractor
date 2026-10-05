@@ -1,4 +1,5 @@
 import { queue } from '../api';
+import { useRef } from 'react';
 import type { AlbumResult, ArtistResult, ResolveResult, TrackResult } from '../api';
 import { useApp } from '../context/AppContext';
 import AlbumCard from './AlbumCard';
@@ -38,25 +39,38 @@ export default function ArtistView({
   onOpenAlbum?: (albumId: number) => void;
 }) {
   const { state, dispatch } = useApp();
+  const pendingDownloadsRef = useRef(new Set<string>());
   const visibleTopTracks = topTracks.slice(0, 5);
 
   const handleAddToQueue = async (track: TrackResult) => {
+    const key = `track:${track.id}`;
+    const existingActive = state.queue.some((item) => item.tidal_id === String(track.id) && item.item_type === 'track' && (item.status === 'queued' || item.status === 'downloading'));
+    if (pendingDownloadsRef.current.has(key) || existingActive) return;
+    pendingDownloadsRef.current.add(key);
     try {
       const added = await queue.add({ tidal_id: String(track.id), item_type: 'track', title: track.title, artist: track.artist, album: track.album, quality: state.settings.default_quality, format: state.settings.default_format });
       dispatch({ type: 'UPDATE_QUEUE_ITEM', payload: added });
       dispatch({ type: 'ADD_TOAST', payload: { id: `add-${Date.now()}-${track.id}`, type: 'info', title: 'Added to queue', detail: track.title, dismissAt: Date.now() + 3000 } });
     } catch {
       dispatch({ type: 'ADD_TOAST', payload: { id: `add-err-${Date.now()}`, type: 'error', title: 'Failed to add to queue', detail: track.title, dismissAt: Date.now() + 4000 } });
+    } finally {
+      pendingDownloadsRef.current.delete(key);
     }
   };
 
   const handleAddAlbum = async (album: AlbumResult) => {
+    const key = `album:${album.id}`;
+    const existingActive = state.queue.some((item) => item.tidal_id === String(album.id) && item.item_type === 'album' && (item.status === 'queued' || item.status === 'downloading'));
+    if (pendingDownloadsRef.current.has(key) || existingActive) return;
+    pendingDownloadsRef.current.add(key);
     try {
       const added = await queue.add({ tidal_id: String(album.id), item_type: 'album', title: album.name, artist: album.artist, quality: state.settings.default_quality, format: state.settings.default_format });
       dispatch({ type: 'UPDATE_QUEUE_ITEM', payload: added });
       dispatch({ type: 'ADD_TOAST', payload: { id: `add-${Date.now()}-${album.id}`, type: 'info', title: 'Added to queue', detail: album.name, dismissAt: Date.now() + 3000 } });
     } catch {
       dispatch({ type: 'ADD_TOAST', payload: { id: `add-err-${Date.now()}`, type: 'error', title: 'Failed to add to queue', detail: album.name, dismissAt: Date.now() + 4000 } });
+    } finally {
+      pendingDownloadsRef.current.delete(key);
     }
   };
 
@@ -64,14 +78,26 @@ export default function ArtistView({
     for (const track of visibleTopTracks) await handleAddToQueue(track);
   };
 
-  const previewTrack = (track: TrackResult) => dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, artist_id: track.artist_id, cover_url: track.cover_url, key: null, camelot: null } });
+  const previewTrack = (track: TrackResult) => {
+    if (state.previewTrack?.id === track.id) dispatch({ type: 'SET_PREVIEW_PLAYING', payload: !state.previewPlaying });
+    else dispatch({ type: 'SET_PREVIEW', payload: { id: track.id, title: track.title, artist: track.artist, artist_id: track.artist_id, cover_url: track.cover_url, key: null, camelot: null } });
+  };
+
+  const downloadStatusFor = (tidalId: number, itemType: string) => {
+    const item = [...state.queue].reverse().find((candidate) => candidate.tidal_id === String(tidalId) && candidate.item_type === itemType);
+    return { status: item?.status ?? 'idle' as const, progress: item?.progress ?? 0, error: item?.error ?? null };
+  };
 
   const renderTrack = (track: TrackResult) => (
     <TrackRow
       key={track.id}
       track={track}
+      isActive={state.previewTrack?.id === track.id}
       isPreviewing={state.previewTrack?.id === track.id && state.previewPlaying}
       onPreview={() => previewTrack(track)}
+      downloadStatus={downloadStatusFor(track.id, 'track').status}
+      downloadProgress={downloadStatusFor(track.id, 'track').progress}
+      downloadError={downloadStatusFor(track.id, 'track').error}
       onDownload={() => void handleAddToQueue(track)}
       onOpenArtist={onOpenArtist}
       onOpenAlbum={onOpenAlbum}
@@ -97,7 +123,7 @@ export default function ArtistView({
         <section aria-labelledby="artist-releases" className="artist-detail-section">
           <div className="artist-detail-section-heading"><h3 id="artist-releases">Latest releases</h3></div>
           {errors?.albums && <SectionMessage tone="error">Latest releases could not be loaded: {errors.albums}</SectionMessage>}
-          {albums.length > 0 ? <div className="artist-detail-release-list">{albums.map((album) => <AlbumCard key={album.id} album={album} variant="release" onOpen={onOpenAlbum ? (item) => onOpenAlbum(item.id) : undefined} onDownload={(item) => void handleAddAlbum(item)} />)}</div> : !errors?.albums && <SectionMessage>No latest releases were returned for this artist.</SectionMessage>}
+          {albums.length > 0 ? <div className="artist-detail-release-list">{albums.map((album) => { const download = downloadStatusFor(album.id, 'album'); return <AlbumCard key={album.id} album={album} variant="release" downloadStatus={download.status} downloadProgress={download.progress} downloadError={download.error} onOpen={onOpenAlbum ? (item) => onOpenAlbum(item.id) : undefined} onDownload={(item) => void handleAddAlbum(item)} />; })}</div> : !errors?.albums && <SectionMessage>No latest releases were returned for this artist.</SectionMessage>}
         </section>
       </div>
 
