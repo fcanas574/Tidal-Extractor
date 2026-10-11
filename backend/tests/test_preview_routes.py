@@ -8,6 +8,7 @@ it off to the module-level `PreviewJobManager`, returning the initial snapshot
 without waiting for the background analyzer.
 """
 import asyncio
+from pathlib import Path
 import threading
 from unittest.mock import AsyncMock, MagicMock
 
@@ -353,6 +354,41 @@ async def test_preview_analyzer_cleans_up_temp_wav(monkeypatch, tmp_path):
     )
 
     assert not wav.exists(), "temp WAV should be cleaned up after worker analysis"
+
+
+@pytest.mark.asyncio
+async def test_explicit_retry_redecodes_once_and_uses_retry_service(monkeypatch, tmp_path):
+    wav = tmp_path / "retry-preview.wav"
+    wav.write_bytes(b"RIFF....WAVE....")
+    decode_calls = []
+
+    async def fake_analyze_stream(stream_url, duration, **kwargs):
+        decode_calls.append((stream_url, duration, kwargs))
+        return {
+            "bands": {"low": [0.1], "mid": [0.1], "high": [0.1]},
+            "duration": 10.0,
+            "temp_wav_path": str(wav),
+            "pcm_sha256": "d" * 64,
+        }
+
+    monkeypatch.setattr(main, "analyze_stream", fake_analyze_stream)
+    service = MagicMock()
+    service.retry_preview = AsyncMock(return_value=_analysis_result(duration=10.0))
+    service.analyze_preview = AsyncMock(side_effect=AssertionError("normal cache path used"))
+    monkeypatch.setattr(main, "_get_analysis_service", lambda: service)
+
+    result = await main.preview_analysis_retry(TEST_STREAM_URL, TEST_DURATION, TEST_TRACK_ID)
+
+    assert len(decode_calls) == 1
+    assert decode_calls[0][0:2] == (TEST_STREAM_URL, TEST_DURATION)
+    assert service.retry_preview.await_count == 1
+    kwargs = service.retry_preview.await_args.kwargs
+    assert kwargs["track_id"] == TEST_TRACK_ID
+    assert kwargs["wav_path"] == Path(str(wav))
+    assert kwargs["pcm_sha256"] == "d" * 64
+    assert kwargs["duration_seconds"] == 10.0
+    assert result["analysis_status"] == "complete"
+    assert not wav.exists()
 
 
 def test_retry_requires_auth_and_never_accepts_path(stub_auth, monkeypatch):

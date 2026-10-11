@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import OrderedDict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import math
 import multiprocessing
@@ -30,6 +30,7 @@ _DEFAULT_MAX_WAITING = 4
 _DEFAULT_TIMEOUT_SECONDS = 180.0
 _STARTUP_TIMEOUT_SECONDS = 30.0
 _STOP_GRACE_SECONDS = 1.0
+_ANALYSIS_COMPONENTS = frozenset({"key", "rhythm"})
 
 
 class QueueWaiterReplaced(RuntimeError):
@@ -45,7 +46,40 @@ class _PendingJob:
     job_id: str
     wav_path: Path
     settings: AnalysisSettings
+    components: frozenset[str]
+    prior_result: HybridAnalysisResult | None
     waiters: list[asyncio.Future[HybridAnalysisResult]]
+
+
+def _normalize_components(components) -> frozenset[str]:
+    if isinstance(components, str):
+        raise ValueError("components must contain key and/or rhythm")
+    try:
+        selected = frozenset(components)
+    except TypeError as exc:
+        raise ValueError("components must contain key and/or rhythm") from exc
+    if not selected or not selected <= _ANALYSIS_COMPONENTS:
+        raise ValueError("components must contain key and/or rhythm")
+    return selected
+
+
+def _preserve_skipped_components(
+    result: HybridAnalysisResult,
+    prior_result: HybridAnalysisResult | None,
+    components: frozenset[str],
+) -> HybridAnalysisResult:
+    if prior_result is None:
+        return result
+    return replace(
+        result,
+        key=result.key if "key" in components else prior_result.key,
+        rhythm=result.rhythm if "rhythm" in components else prior_result.rhythm,
+        model_sha256=(
+            result.model_sha256
+            if "rhythm" in components
+            else prior_result.model_sha256
+        ),
+    )
 
 
 def _failure_result(
@@ -206,8 +240,17 @@ def _analyze_in_child(
     wav_path: str,
     settings: AnalysisSettings,
     model_cache: dict[str, dict[str, Any]],
+    *,
+    components: frozenset[str] = _ANALYSIS_COMPONENTS,
+    prior_result: HybridAnalysisResult | None = None,
 ) -> HybridAnalysisResult:
-    """Run both components independently and keep either successful result."""
+    """Run selected components and preserve any successful cached component."""
+    components = _normalize_components(components)
+    if prior_result is not None and not isinstance(prior_result, HybridAnalysisResult):
+        raise TypeError("prior_result must be HybridAnalysisResult")
+    if prior_result is None and components != _ANALYSIS_COMPONENTS:
+        raise ValueError("selective analysis requires a prior result")
+
     import numpy as np
     import soundfile as sf
 
@@ -224,53 +267,61 @@ def _analyze_in_child(
         duration_seconds = float(pcm.size / sample_rate) if sample_rate else 0.0
     except Exception as exc:
         reason = f"could not read decoded WAV: {exc}"
-        return _failure_result(job_id, settings, reason)
+        failed = _failure_result(job_id, settings, reason)
+        return _preserve_skipped_components(failed, prior_result, components)
 
-    model = _load_model_once(rhythm_engine, settings.model_id, model_cache)
-    model_path = model["path"] or audio_path
-    model_sha256 = model["sha256"]
+    if "rhythm" in components:
+        model = _load_model_once(rhythm_engine, settings.model_id, model_cache)
+        model_path = model["path"] or audio_path
+        model_sha256 = model["sha256"]
 
-    if model["error"]:
-        if model["error_status"] == "unavailable":
-            rhythm = _unavailable_rhythm(model["error"])
+        if model["error"]:
+            if model["error_status"] == "unavailable":
+                rhythm = _unavailable_rhythm(model["error"])
+            else:
+                rhythm = _failed_rhythm(model["error"])
         else:
-            rhythm = _failed_rhythm(model["error"])
-    else:
-        loaded_instance = model["model"]
-        # Task 3 verifies the checkpoint for each analysis. Its lazy class loader
-        # is wrapped so the verified model object itself is reused by this child.
-        rhythm_engine._load_file2beats = lambda: (
-            lambda **_kwargs: loaded_instance
-        )
-
-        try:
-            rhythm = rhythm_engine.estimate_rhythm(
-                str(audio_path),
-                duration_seconds,
-                Path(model_path),
-                settings.model_id,
-                model_sha256,
-                settings,
+            loaded_instance = model["model"]
+            # Task 3 verifies the checkpoint for each analysis. Its lazy class loader
+            # is wrapped so the verified model object itself is reused by this child.
+            rhythm_engine._load_file2beats = lambda: (
+                lambda **_kwargs: loaded_instance
             )
-        except Exception as exc:
-            rhythm = _failed_rhythm(f"rhythm analysis failed: {exc}")
 
-    try:
-        key = key_engine.estimate_key(pcm, int(sample_rate), rhythm, duration_seconds)
-    except Exception as exc:
-        key = KeyResult(
-            key=None,
-            camelot=None,
-            status="failed",
-            candidates=(),
-            agreement=None,
-            reason=f"key analysis failed: {exc}",
-        )
+            try:
+                rhythm = rhythm_engine.estimate_rhythm(
+                    str(audio_path),
+                    duration_seconds,
+                    Path(model_path),
+                    settings.model_id,
+                    model_sha256,
+                    settings,
+                )
+            except Exception as exc:
+                rhythm = _failed_rhythm(f"rhythm analysis failed: {exc}")
+    else:
+        rhythm = prior_result.rhythm
+        model_sha256 = prior_result.model_sha256
+
+    if "key" in components:
+        try:
+            key = key_engine.estimate_key(pcm, int(sample_rate), rhythm, duration_seconds)
+        except Exception as exc:
+            key = KeyResult(
+                key=None,
+                camelot=None,
+                status="failed",
+                candidates=(),
+                agreement=None,
+                reason=f"key analysis failed: {exc}",
+            )
+    else:
+        key = prior_result.key
 
     fingerprint = job_id.lower() if _SHA256_RE.fullmatch(job_id) else hashlib.sha256(
         job_id.encode("utf-8")
     ).hexdigest()
-    return HybridAnalysisResult(
+    result = HybridAnalysisResult(
         schema_version=settings.schema_version,
         audio_fingerprint=fingerprint,
         decoder_version="",
@@ -282,6 +333,7 @@ def _analyze_in_child(
         key=key,
         rhythm=rhythm,
     )
+    return _preserve_skipped_components(result, prior_result, components)
 
 
 def _analysis_process_main(command_receiver, result_sender) -> None:
@@ -311,14 +363,21 @@ def _analysis_process_main(command_receiver, result_sender) -> None:
             return
         job_id = str(command.get("job_id", ""))
         settings = command.get("settings")
+        components = None
+        prior_result = command.get("prior_result")
         try:
             if not isinstance(settings, AnalysisSettings):
                 raise ValueError("worker received invalid analysis settings")
+            components = _normalize_components(
+                command.get("components", _ANALYSIS_COMPONENTS)
+            )
             result = _analyze_in_child(
                 job_id,
                 str(command["wav_path"]),
                 settings,
                 model_cache,
+                components=components,
+                prior_result=prior_result,
             )
             result_sender.send(
                 {"kind": "result", "job_id": job_id, "result": result}
@@ -326,6 +385,10 @@ def _analysis_process_main(command_receiver, result_sender) -> None:
         except BaseException as exc:
             if isinstance(settings, AnalysisSettings):
                 result = _failure_result(job_id, settings, f"analysis worker failed: {exc}")
+                if components is not None:
+                    result = _preserve_skipped_components(
+                        result, prior_result, components
+                    )
                 try:
                     result_sender.send(
                         {"kind": "result", "job_id": job_id, "result": result}
@@ -491,6 +554,46 @@ class AnalysisWorker:
     async def submit(
         self, job_id: str, wav_path: Path, settings: AnalysisSettings
     ) -> HybridAnalysisResult:
+        return await self._submit(
+            job_id,
+            wav_path,
+            settings,
+            components=_ANALYSIS_COMPONENTS,
+            prior_result=None,
+        )
+
+    async def submit_retry(
+        self,
+        job_id: str,
+        wav_path: Path,
+        settings: AnalysisSettings,
+        *,
+        components,
+        prior_result: HybridAnalysisResult | None,
+    ) -> HybridAnalysisResult:
+        """Submit an explicit retry for selected components using a prior result."""
+        selected = _normalize_components(components)
+        if prior_result is not None and not isinstance(prior_result, HybridAnalysisResult):
+            raise TypeError("prior_result must be HybridAnalysisResult")
+        if prior_result is None and selected != _ANALYSIS_COMPONENTS:
+            raise ValueError("selective analysis requires a prior result")
+        return await self._submit(
+            job_id,
+            wav_path,
+            settings,
+            components=selected,
+            prior_result=prior_result,
+        )
+
+    async def _submit(
+        self,
+        job_id: str,
+        wav_path: Path,
+        settings: AnalysisSettings,
+        *,
+        components: frozenset[str],
+        prior_result: HybridAnalysisResult | None,
+    ) -> HybridAnalysisResult:
         if not isinstance(job_id, str) or not job_id:
             raise ValueError("job_id must be a non-empty string")
         if not isinstance(settings, AnalysisSettings):
@@ -549,7 +652,14 @@ class AnalysisWorker:
                             await asyncio.shield(remove_task)
                         finally:
                             raise cancelled
-                pending = _PendingJob(job_id, managed_path, settings, [waiter])
+                pending = _PendingJob(
+                    job_id,
+                    managed_path,
+                    settings,
+                    components,
+                    prior_result,
+                    [waiter],
+                )
                 self._queue[job_id] = pending
                 self._jobs[job_id] = pending
                 if self._dispatcher is None or self._dispatcher.done():
@@ -623,6 +733,8 @@ class AnalysisWorker:
                         "job_id": pending.job_id,
                         "wav_path": str(pending.wav_path),
                         "settings": pending.settings,
+                        "components": pending.components,
+                        "prior_result": pending.prior_result,
                     },
                 )
                 self._processed_job_count += 1

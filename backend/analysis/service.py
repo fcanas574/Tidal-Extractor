@@ -216,6 +216,7 @@ class AnalysisService:
         decoder_version: str,
         engine_key: str | None,
         settings: AnalysisSettings,
+        components: frozenset[str] = frozenset({"key", "rhythm"}),
     ) -> str:
         identity = {
             "audio_fingerprint": fingerprint,
@@ -224,8 +225,18 @@ class AnalysisService:
             "decoder_version": decoder_version,
             "engine_key": engine_key or "unverified-model",
             "settings_sha256": settings.sha256,
+            "components": sorted(components),
         }
         return hashlib.sha256(_canonical_json(identity)).hexdigest()
+
+    @staticmethod
+    def _failed_components(result: HybridAnalysisResult) -> frozenset[str]:
+        components = set()
+        if result.key.status == "failed":
+            components.add("key")
+        if result.rhythm.status in {"failed", "unavailable"}:
+            components.add("rhythm")
+        return frozenset(components)
 
     async def _write_preview_alias(
         self,
@@ -344,6 +355,129 @@ class AnalysisService:
         )
         # Validate caller identity and event times before storing or returning a
         # result that claims to correspond to this decoded preview.
+        serialize_result(result)
+
+        if (
+            engine_key is not None
+            and model_path is not None
+            and model_sha256 is not None
+            and worker_model_sha == model_sha256
+        ):
+            await self.db.set_analysis_result(result, engine_key)
+            await self._write_preview_alias(
+                track_id=track_id,
+                preview_profile=preview_profile,
+                duration_seconds=duration,
+                decoder_version=decoder_version,
+                engine_key=engine_key,
+                fingerprint=fingerprint,
+            )
+        return result
+
+    async def retry_preview(
+        self,
+        track_id: int,
+        wav_path: Path,
+        pcm_sha256: str,
+        preview_profile: str,
+        duration_seconds: float,
+        decoder_version: str,
+        settings: AnalysisSettings,
+    ) -> HybridAnalysisResult:
+        """Explicitly retry failed components from a matching cached result."""
+        fingerprint, duration = self._validate_request(
+            track_id,
+            pcm_sha256,
+            preview_profile,
+            duration_seconds,
+            decoder_version,
+            settings,
+        )
+        model_identity = await self._resolve_model_identity(settings.model_id)
+        model_path = model_identity[0] if model_identity is not None else None
+        model_sha256 = model_identity[1] if model_identity is not None else None
+        engine_key = (
+            build_engine_key(settings, decoder_version, model_sha256)
+            if model_sha256 is not None
+            else None
+        )
+
+        prior_result = None
+        if engine_key is not None and model_sha256 is not None:
+            cached_result = await self.db.get_analysis_result(fingerprint, engine_key)
+            if cached_result is not None and self._result_matches(
+                cached_result,
+                fingerprint=fingerprint,
+                decoder_version=decoder_version,
+                duration_seconds=duration,
+                settings=settings,
+                model_sha256=model_sha256,
+            ):
+                prior_result = cached_result
+
+        components = (
+            self._failed_components(prior_result)
+            if prior_result is not None
+            else frozenset({"key", "rhythm"})
+        )
+        if not components:
+            await self._write_preview_alias(
+                track_id=track_id,
+                preview_profile=preview_profile,
+                duration_seconds=duration,
+                decoder_version=decoder_version,
+                engine_key=engine_key,
+                fingerprint=fingerprint,
+            )
+            return prior_result
+
+        job_id = self._worker_job_id(
+            fingerprint=fingerprint,
+            preview_profile=preview_profile,
+            duration_seconds=duration,
+            decoder_version=decoder_version,
+            engine_key=engine_key,
+            settings=settings,
+            components=components,
+        )
+        raw_result = await self.worker.submit_retry(
+            job_id,
+            Path(wav_path),
+            settings,
+            components=components,
+            prior_result=prior_result,
+        )
+        if not isinstance(raw_result, HybridAnalysisResult):
+            raise TypeError("analysis worker must return HybridAnalysisResult")
+
+        if prior_result is not None:
+            raw_result = replace(
+                raw_result,
+                key=(
+                    raw_result.key if "key" in components else prior_result.key
+                ),
+                rhythm=(
+                    raw_result.rhythm if "rhythm" in components else prior_result.rhythm
+                ),
+                model_sha256=(
+                    raw_result.model_sha256
+                    if "rhythm" in components
+                    else prior_result.model_sha256
+                ),
+            )
+
+        worker_model_sha = _normalize_sha256(raw_result.model_sha256, "model_sha256")
+        result = replace(
+            raw_result,
+            schema_version=settings.schema_version,
+            audio_fingerprint=fingerprint,
+            decoder_version=decoder_version,
+            duration_seconds=duration,
+            model_id=settings.model_id,
+            model_sha256=worker_model_sha,
+            key_profile_id=settings.key_profile_id,
+            settings_sha256=settings.sha256,
+        )
         serialize_result(result)
 
         if (

@@ -716,10 +716,10 @@ async def preview_analysis_retry(stream_url: str, duration: float | None, track_
         pcm_sha256 = decoded.get("pcm_sha256")
         if not tmp_path or not pcm_sha256:
             raise RuntimeError("Preview decoder did not produce analysis audio")
-        await _get_analysis_service()
+        service = _get_analysis_service()
         from backend.analysis.types import AnalysisSettings
 
-        result = await _analysis_service.analyze_preview(
+        result = await service.retry_preview(
             track_id=track_id,
             wav_path=Path(tmp_path),
             pcm_sha256=pcm_sha256,

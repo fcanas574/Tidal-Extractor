@@ -67,15 +67,67 @@ def _result(settings=None, fingerprint=PCM_SHA, model_sha256=MODEL_SHA):
 
 
 class WorkerStub:
-    def __init__(self, result=None):
+    def __init__(self, result=None, retry_result=None):
         self.result = result or _result()
+        self.retry_result = retry_result if retry_result is not None else self.result
         self.calls = []
+        self.retry_calls = []
 
     async def submit(self, job_id, wav_path, settings):
         self.calls.append((job_id, Path(wav_path), settings))
         if callable(self.result):
             return self.result(job_id, settings)
         return self.result
+
+    async def submit_retry(
+        self, job_id, wav_path, settings, *, components, prior_result
+    ):
+        self.retry_calls.append(
+            (job_id, Path(wav_path), settings, frozenset(components), prior_result)
+        )
+        if callable(self.retry_result):
+            return self.retry_result(job_id, settings)
+        return self.retry_result
+
+
+def _partial_result(settings=None, *, failed_component="rhythm"):
+    result = _result(settings)
+    if failed_component == "rhythm":
+        failed_rhythm = replace(
+            result.rhythm,
+            bpm=None,
+            beats=(),
+            downbeats=(),
+            grid=replace(
+                result.rhythm.grid,
+                bpm=None,
+                period_seconds=None,
+                origin_seconds=None,
+                meter=None,
+                first_downbeat_beat=None,
+                status="failed",
+                residual_p95_seconds=None,
+                split_drift_seconds=None,
+                reason="model unavailable",
+            ),
+            status="failed",
+            reason="model unavailable",
+        )
+        return replace(result, rhythm=failed_rhythm)
+    if failed_component == "key":
+        return replace(
+            result,
+            key=replace(
+                result.key,
+                key=None,
+                camelot=None,
+                status="failed",
+                candidates=(),
+                agreement=None,
+                reason="key analysis failed",
+            ),
+        )
+    raise ValueError("failed_component must be key or rhythm")
 
 
 @pytest.mark.asyncio
@@ -147,6 +199,181 @@ async def test_current_pcm_cache_hit_works_without_preview_alias(tmp_path):
         )
         assert result == cached
         assert worker.calls == []
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_retry_reruns_failed_component_and_preserves_cached_success(tmp_path):
+    db = Database(":memory:")
+    await db.init()
+    now = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
+    settings = AnalysisSettings()
+    engine_key = build_engine_key(settings, "decoder-v1", MODEL_SHA)
+    partial = _partial_result(settings, failed_component="rhythm")
+    recomputed = replace(
+        _result(settings),
+        key=replace(
+            _result(settings).key,
+            key="D minor",
+            camelot="7A",
+        ),
+    )
+    await db.set_analysis_result(partial, engine_key)
+    worker = WorkerStub(retry_result=recomputed)
+    service = AnalysisService(
+        db,
+        worker=worker,
+        model_identity_resolver=lambda _model_id: (tmp_path / "final0.ckpt", MODEL_SHA),
+        clock=lambda: now,
+    )
+    wav_path = tmp_path / "preview.wav"
+    wav_path.write_bytes(b"decoded audio")
+    try:
+        result = await service.retry_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+        )
+
+        assert worker.calls == []
+        assert len(worker.retry_calls) == 1
+        _, submitted_path, submitted_settings, components, prior_result = worker.retry_calls[0]
+        assert submitted_path == wav_path
+        assert submitted_settings == settings
+        assert components == frozenset({"rhythm"})
+        assert prior_result == partial
+        assert result.key == partial.key
+        assert result.rhythm == recomputed.rhythm
+        assert await db.get_analysis_result(PCM_SHA, engine_key) == result
+        assert await db.get_preview_analysis_alias(
+            track_id=42,
+            profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            engine_key=engine_key,
+            now_utc=now,
+        ) == PCM_SHA
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_retry_runs_both_components_without_matching_cached_pcm(tmp_path):
+    db = Database(":memory:")
+    await db.init()
+    now = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
+    settings = AnalysisSettings()
+    engine_key = build_engine_key(settings, "decoder-v1", MODEL_SHA)
+    other_fingerprint = "c" * 64
+    await db.set_analysis_result(_result(settings, fingerprint=other_fingerprint), engine_key)
+    await db.set_preview_analysis_alias(
+        track_id=42,
+        profile="high_lossless",
+        duration_seconds=12.5,
+        decoder_version="decoder-v1",
+        engine_key=engine_key,
+        fingerprint=other_fingerprint,
+        expires_at_utc=now + timedelta(hours=24),
+    )
+    worker = WorkerStub()
+    service = AnalysisService(
+        db,
+        worker=worker,
+        model_identity_resolver=lambda _model_id: (tmp_path / "final0.ckpt", MODEL_SHA),
+        clock=lambda: now,
+    )
+    wav_path = tmp_path / "preview.wav"
+    wav_path.write_bytes(b"decoded audio")
+    try:
+        result = await service.retry_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+        )
+
+        assert len(worker.retry_calls) == 1
+        _, _, _, components, prior_result = worker.retry_calls[0]
+        assert components == frozenset({"key", "rhythm"})
+        assert prior_result is None
+        assert result.audio_fingerprint == PCM_SHA
+        assert await db.get_analysis_result(PCM_SHA, engine_key) == result
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_retry_returns_full_success_cache_without_worker_work(tmp_path):
+    db = Database(":memory:")
+    await db.init()
+    settings = AnalysisSettings()
+    engine_key = build_engine_key(settings, "decoder-v1", MODEL_SHA)
+    cached = _result(settings)
+    await db.set_analysis_result(cached, engine_key)
+    worker = WorkerStub()
+    service = AnalysisService(
+        db,
+        worker=worker,
+        model_identity_resolver=lambda _model_id: (tmp_path / "final0.ckpt", MODEL_SHA),
+    )
+    wav_path = tmp_path / "preview.wav"
+    wav_path.write_bytes(b"decoded audio")
+    try:
+        result = await service.retry_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+        )
+
+        assert result == cached
+        assert worker.calls == []
+        assert worker.retry_calls == []
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_ordinary_analysis_cache_lookup_does_not_retry_partial_result(tmp_path):
+    db = Database(":memory:")
+    await db.init()
+    settings = AnalysisSettings()
+    engine_key = build_engine_key(settings, "decoder-v1", MODEL_SHA)
+    partial = _partial_result(settings, failed_component="key")
+    await db.set_analysis_result(partial, engine_key)
+    worker = WorkerStub()
+    service = AnalysisService(
+        db,
+        worker=worker,
+        model_identity_resolver=lambda _model_id: (tmp_path / "final0.ckpt", MODEL_SHA),
+    )
+    wav_path = tmp_path / "preview.wav"
+    wav_path.write_bytes(b"decoded audio")
+    try:
+        result = await service.analyze_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+        )
+
+        assert result == partial
+        assert worker.calls == []
+        assert worker.retry_calls == []
     finally:
         await db.close()
 

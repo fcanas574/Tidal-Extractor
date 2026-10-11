@@ -9,6 +9,7 @@ import sys
 import threading
 import time
 from types import ModuleType
+from dataclasses import replace
 
 import pytest
 
@@ -20,7 +21,12 @@ from backend.analysis.types import (
     KeyResult,
     RhythmResult,
 )
-from backend.analysis.worker import AnalysisWorker, QueueWaiterReplaced, _load_model_once
+from backend.analysis.worker import (
+    AnalysisWorker,
+    QueueWaiterReplaced,
+    _analyze_in_child,
+    _load_model_once,
+)
 
 
 def _result(job_id, settings, *, rhythm_status="reliable"):
@@ -159,6 +165,69 @@ def test_failed_model_load_can_be_retried_after_setup_is_repaired(monkeypatch):
     assert recovered["error"] is None
     assert recovered["model"] is rhythm_engine.loaded_model
     assert rhythm_engine.attempts == 2
+
+
+def test_worker_retry_skips_cached_successful_key_component(monkeypatch, tmp_path):
+    import numpy as np
+
+    from backend.analysis import key_engine, rhythm_engine
+
+    settings = AnalysisSettings()
+    job_id = "d" * 64
+    previous = _result(job_id, settings)
+    recomputed_rhythm = replace(
+        previous.rhythm,
+        status="needs_review",
+        reason="recomputed rhythm needs review",
+        grid=replace(
+            previous.rhythm.grid,
+            status="needs_review",
+            reason="recomputed rhythm needs review",
+        ),
+    )
+    soundfile = ModuleType("soundfile")
+    soundfile.read = lambda *_args, **_kwargs: (
+        np.zeros(44_100, dtype=np.float32),
+        44_100,
+    )
+    monkeypatch.setitem(sys.modules, "soundfile", soundfile)
+    monkeypatch.setattr(
+        "backend.analysis.worker._load_model_once",
+        lambda *_args: {
+            "path": tmp_path / "model.ckpt",
+            "sha256": "b" * 64,
+            "model": object(),
+            "error": None,
+            "error_status": "failed",
+        },
+    )
+    rhythm_calls = []
+    monkeypatch.setattr(
+        rhythm_engine,
+        "estimate_rhythm",
+        lambda *args: rhythm_calls.append(args) or recomputed_rhythm,
+    )
+    key_calls = []
+
+    def estimate_key(*_args):
+        key_calls.append(True)
+        raise AssertionError("cached successful key must not be recomputed")
+
+    monkeypatch.setattr(key_engine, "estimate_key", estimate_key)
+
+    result = _analyze_in_child(
+        job_id,
+        str(tmp_path / "preview.wav"),
+        settings,
+        {},
+        components=frozenset({"rhythm"}),
+        prior_result=previous,
+    )
+
+    assert result.key == previous.key
+    assert result.rhythm == recomputed_rhythm
+    assert rhythm_calls
+    assert key_calls == []
 
 
 async def _wait_until(predicate, timeout=3.0):
