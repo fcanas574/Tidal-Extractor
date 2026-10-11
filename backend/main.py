@@ -1,15 +1,20 @@
 import asyncio
 import dataclasses
+import inspect
+import json
 import logging
 import os
+import threading
 import time
+import weakref
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Optional, List
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from tidalapi.exceptions import ObjectNotFound
 
 from backend.auth import AuthManager
 from backend.config import AppConfig
@@ -43,6 +48,13 @@ auth_manager = AuthManager()
 ws_manager = WebSocketManager()
 orchestrator: DownloadOrchestrator = None
 search_metadata_jobs: SearchMetadataJobManager | None = None
+_analysis_service = None
+_preview_model_sha_cache: dict[str, tuple[tuple[object, ...], str]] = {}
+_preview_model_sha_lock = threading.Lock()
+_preview_decode_gates: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, weakref.ReferenceType[asyncio.Semaphore]
+] = weakref.WeakKeyDictionary()
+_preview_decode_gates_lock = threading.Lock()
 
 # FreqBlog stats counters (in-memory, reset on restart)
 freqblog_stats = {
@@ -86,7 +98,7 @@ def _cleanup_tmp_files(output_dir: str) -> int:
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global orchestrator, search_metadata_jobs
+    global orchestrator, search_metadata_jobs, _analysis_service
     await db.init()
     search_metadata_jobs = SearchMetadataJobManager(
         enrich=_enrich_search_metadata_in_background,
@@ -97,10 +109,23 @@ async def lifespan(app: FastAPI):
         orchestrator = DownloadOrchestrator(db=db, config=config, ws_manager=ws_manager)
         orchestrator.set_session(auth_manager.session)
     yield
-    if search_metadata_jobs is not None:
-        await search_metadata_jobs.close()
-        search_metadata_jobs = None
-    await db.close()
+    try:
+        if search_metadata_jobs is not None:
+            await search_metadata_jobs.close()
+            search_metadata_jobs = None
+    finally:
+        try:
+            manager = globals().get("preview_job_manager")
+            if manager is not None:
+                await manager.close()
+        finally:
+            try:
+                service = _analysis_service
+                if service is not None:
+                    await service.worker.close()
+            finally:
+                _analysis_service = None
+                await db.close()
 
 
 app = FastAPI(title="TidalExtractor", version="0.1.0", lifespan=lifespan)
@@ -505,57 +530,16 @@ async def resolve_tidal_url(url: str):
 
 # --- Preview Endpoint ---
 
-from backend.waveform import get_waveform_cached
-from backend.preview_jobs import PreviewJobManager
-from backend.waveform_stream import analyze_stream
+from backend.preview_jobs import PreviewJobManager, metadata_display_fields
+from backend.waveform_stream import DECODER_VERSION, analyze_stream
 
 
 async def _preview_analyzer(
     stream_url: str, duration: float | None, track_id: int,
     on_snapshot=None,
 ) -> dict:
-    """Background analyzer for preview metadata jobs (streaming pipeline).
-
-    Uses ``analyze_stream`` to produce progressive waveform snapshots via
-    ``on_snapshot``, then performs key detection via FreqBlog or local analysis
-    on the single temp WAV that was already streamed (no second full-track
-    network request).  Exceptions propagate to the ``PreviewJobManager``, which
-    converts them into a ``failed`` snapshot.
-    """
-    result = await analyze_stream(
-        stream_url, duration, width=600,
-        on_snapshot=on_snapshot,
-    )
-    bands = result["bands"]
-    stream_duration = result["duration"]
-    temp_wav_path = result["temp_wav_path"]
-
-    try:
-        track = await asyncio.to_thread(auth_manager.session.track, track_id)
-        key_data = await _detect_preview_key(
-            stream_url, track_id, track,
-            audio_path=temp_wav_path,
-        )
-    except Exception:
-        logger.debug("Key detection failed for track %d", track_id, exc_info=True)
-        key_data = {"key": None, "camelot": None, "bpm": None}
-    finally:
-        if temp_wav_path:
-            try:
-                os.unlink(temp_wav_path)
-            except OSError:
-                logger.debug("could not remove temp wav %s", temp_wav_path, exc_info=True)
-
-    return {
-        # Match the frontend WaveformData contract: { bands: {low,mid,high}, duration }.
-        "waveform": {"bands": bands, "duration": stream_duration},
-        "key": key_data.get("key"),
-        "camelot": key_data.get("camelot"),
-        "bpm": key_data.get("bpm"),
-    }
-
-
-preview_job_manager = PreviewJobManager(analyzer=_preview_analyzer)
+    """Compatibility alias for the current preview analysis adapter."""
+    return await preview_analyzer(stream_url, duration, track_id, on_snapshot)
 
 
 def _resolve_preview_track(track_id: int):
@@ -575,20 +559,24 @@ async def preview_track(track_id: int):
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
-        logger.info(f"Preview track {track_id}: '{track.title}' by {track.artist.name if track.artist else 'Unknown'}")
-        waveform = await asyncio.to_thread(get_waveform_cached, url)
-
-        # Pass track object for FreqBlog metadata lookup
-        key_data = await _detect_preview_key(url, track_id, track)
-
-        return {"stream_url": url, "waveform": waveform, **key_data}
-    except Exception as e:
+    except ObjectNotFound as e:
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview source unavailable: {e}")
 
+    try:
+        logger.info(f"Preview track {track_id}: '{track.title}' by {track.artist.name if track.artist else 'Unknown'}")
+        result = await preview_analyzer(url, getattr(track, "duration", None), track_id)
+        display = metadata_display_fields(
+            result.get("analysis"),
+            provider_key=result.get("provider_key"),
+            provider_camelot=result.get("provider_camelot"),
+            provider_bpm=result.get("provider_bpm"),
+        )
+        return {"stream_url": url, **result, **display}
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview analysis unavailable: {e}")
 
-import dataclasses
-from backend.preview_jobs import PreviewJobManager
-from backend.waveform_stream import analyze_stream
 
 preview_job_manager = PreviewJobManager()
 
@@ -600,21 +588,141 @@ async def _freqblog_lookup(title: str, artist: str):
     return await lookup_track_metadata(title, artist)
 
 
+def _get_analysis_service():
+    global _analysis_service
+    if _analysis_service is None:
+        from backend.analysis.service import AnalysisService
+
+        _analysis_service = AnalysisService(db)
+    return _analysis_service
+
+
+def _preview_file_stat_identity(path: Path) -> tuple[object, ...]:
+    stat = path.stat()
+    return (
+        str(path.resolve()),
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_size,
+        stat.st_mtime_ns,
+        stat.st_ctime_ns,
+    )
+
+
+def _preview_model_sha256(model_id: str) -> str | None:
+    """Return a verified checkpoint digest, rehashing only after a stat change."""
+    try:
+        from scripts import setup_analysis_model
+
+        checkpoint = setup_analysis_model._checkpoint_path(model_id)
+        manifest_path = setup_analysis_model._manifest_path(model_id)
+        stat_identity = (
+            *_preview_file_stat_identity(checkpoint),
+            *_preview_file_stat_identity(manifest_path),
+        )
+        with _preview_model_sha_lock:
+            cached = _preview_model_sha_cache.get(model_id)
+            if cached is not None and cached[0] == stat_identity:
+                return cached[1]
+
+            # This verifies the manifest and hashes the checkpoint. Stable file
+            # stats make later polling use the cached digest without rehashing.
+            setup_analysis_model._verified_local_model(model_id)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            digest = manifest.get("sha256")
+            if not isinstance(digest, str) or len(digest) != 64:
+                _preview_model_sha_cache.pop(model_id, None)
+                return None
+            if stat_identity != (
+                *_preview_file_stat_identity(checkpoint),
+                *_preview_file_stat_identity(manifest_path),
+            ):
+                _preview_model_sha_cache.pop(model_id, None)
+                return None
+            _preview_model_sha_cache[model_id] = (stat_identity, digest)
+            return digest
+    except (ImportError, OSError, RuntimeError, ValueError, TypeError, KeyError):
+        with _preview_model_sha_lock:
+            _preview_model_sha_cache.pop(model_id, None)
+        return None
+
+
+async def _preview_analysis_settings_identity() -> str:
+    """Build the analysis identity shared by metadata polling and retry."""
+    from backend.analysis.service import ENGINE_VERSION
+    from backend.analysis.types import AnalysisSettings
+
+    settings = AnalysisSettings()
+    model_sha256 = await asyncio.to_thread(_preview_model_sha256, settings.model_id)
+    return (
+        f"{ENGINE_VERSION}:{settings.model_id}:{settings.sha256}:"
+        f"{model_sha256 or 'unverified'}"
+    )
+
+
+async def _preview_provider_metadata(track_id: int) -> dict:
+    empty = {
+        "provider_key": None,
+        "provider_camelot": None,
+        "provider_bpm": None,
+    }
+    try:
+        track = await asyncio.to_thread(auth_manager.session.track, track_id)
+        title = getattr(track, "title", "") or ""
+        artist = getattr(getattr(track, "artist", None), "name", "") or ""
+        if not title or not artist:
+            return empty
+        metadata = await _freqblog_lookup(title, artist)
+        if not isinstance(metadata, dict):
+            return empty
+        return {
+            "provider_key": metadata.get("key"),
+            "provider_camelot": metadata.get("camelot"),
+            "provider_bpm": metadata.get("bpm"),
+        }
+    except Exception as exc:
+        logger.debug("Provider metadata lookup failed for preview %d: %s", track_id, exc)
+        return empty
+
+
+async def _notify_preview(on_snapshot, updates: dict) -> None:
+    if on_snapshot is None:
+        return
+    result = on_snapshot(updates)
+    if inspect.isawaitable(result):
+        await result
+
+
+def _analysis_lifecycle(result) -> tuple[str, str | None, dict]:
+    from backend.analysis.types import serialize_result
+
+    analysis = serialize_result(result)
+    key = result.key
+    rhythm = result.rhythm
+    usable = bool(
+        key.key is not None
+        or rhythm.grid.bpm is not None
+        or rhythm.beats
+        or rhythm.downbeats
+    )
+    failed_components = []
+    if key.status == "failed":
+        failed_components.append(key.reason or "local key analysis failed")
+    if rhythm.status in {"failed", "unavailable"}:
+        failed_components.append(rhythm.reason or "local rhythm analysis unavailable")
+    if failed_components:
+        return "failed", "; ".join(failed_components), analysis
+    if not usable:
+        # A result with no estimate and no failed component is inconclusive.
+        # In particular, unknown key + needs-review rhythm must not be presented
+        # as an operational failure that an explicit retry can fix.
+        return "unknown", None, analysis
+    return "complete", None, analysis
+
+
 async def _detect_key_local(path: str):
     from backend.key_detection import detect_key
     return await asyncio.to_thread(detect_key, path)
-
-
-async def _detect_preview_key_cached(track_id: int) -> dict:
-    try:
-        cached = await db.get_key_cache(f"preview_key_{track_id}")
-    except Exception as e:
-        logger.warning("key cache read failed for %s: %s", track_id, e)
-        return {}
-    if not cached:
-        return {}
-    return {"key": cached.get("key"), "camelot": cached.get("camelot"),
-            "bpm": cached.get("bpm")}
 
 
 async def _remove_temp_file(path: str | None) -> None:
@@ -622,67 +730,151 @@ async def _remove_temp_file(path: str | None) -> None:
         os.unlink(path)
 
 
+def _preview_decode_gate_for_running_loop() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    with _preview_decode_gates_lock:
+        gate_ref = _preview_decode_gates.get(loop)
+        gate = gate_ref() if gate_ref is not None else None
+        if gate is None:
+            gate = asyncio.Semaphore(1)
+            _preview_decode_gates[loop] = weakref.ref(gate)
+        return gate
+
+
 async def preview_analyzer(stream_url: str, duration: float | None, track_id: int,
                            on_snapshot=None) -> dict:
-    cached = await db.get_waveform_cache(str(track_id))
-    bands = cached.get("bands") if isinstance(cached, dict) else None
-    if (isinstance(bands, dict)
-            and all(isinstance(bands.get(band), list) and bands[band]
-                    for band in ("low", "mid", "high"))):
-        key_data = await _detect_preview_key_cached(track_id)
-        return {"waveform": {"bands": bands, "colors": _WAVEFORM_COLORS,
-                             "duration": cached["duration"]}, **key_data}
+    gate = _preview_decode_gate_for_running_loop()
+    async with gate:
+        return await _preview_analyzer_with_gate(
+            stream_url, duration, track_id, on_snapshot
+        )
 
-    track = await asyncio.to_thread(auth_manager.session.track, track_id)
-    title = getattr(track, "title", "") or ""
-    artist = getattr(getattr(track, "artist", None), "name", "") or ""
 
-    async def on_snap(snap):
-        if on_snapshot:
-            await on_snapshot(snap)
-        preview_job_manager.publish_progress(track_id, {"waveform": snap})
-
-    result = await analyze_stream(stream_url, duration, on_snapshot=on_snap)
-    waveform = {"bands": result["bands"], "colors": _WAVEFORM_COLORS,
-                "duration": result["duration"]}
-    if not (isinstance(result["bands"], dict)
-            and all(isinstance(result["bands"].get(band), list) and result["bands"][band]
-                    for band in ("low", "mid", "high"))):
-        raise RuntimeError("Waveform analysis produced no samples")
-    preview_job_manager.publish_progress(track_id, {"waveform": waveform})
-
-    key_payload = {}
-    tmp_path = result.get("temp_wav_path")
+async def _preview_analyzer_with_gate(
+    stream_url: str,
+    duration: float | None,
+    track_id: int,
+    on_snapshot=None,
+) -> dict:
+    provider_task = asyncio.create_task(_preview_provider_metadata(track_id))
+    tmp_path = None
     try:
-        metadata = await _freqblog_lookup(title, artist)
-        if metadata:
-            key_payload = {"key": metadata["key"], "camelot": metadata["camelot"],
-                           "bpm": metadata.get("bpm")}
-        elif tmp_path:
-            local = await _detect_key_local(tmp_path)
-            key_payload = {"key": local.get("key"), "camelot": local.get("camelot"),
-                           "bpm": local.get("bpm")}
-        if key_payload.get("key"):
-            await db.set_key_cache(f"preview_key_{track_id}", key_payload["key"],
-                                   key_payload.get("camelot"), 1.0,
-                                   bpm=key_payload.get("bpm"))
-    except Exception as e:
-        logger.warning("key detection failed for %s: %s", track_id, e)
+        decoded = await analyze_stream(
+            stream_url,
+            duration,
+            width=600,
+            on_snapshot=on_snapshot,
+        )
+        tmp_path = decoded.get("temp_wav_path")
+        bands = decoded.get("bands")
+        if not (
+            isinstance(bands, dict)
+            and all(isinstance(bands.get(band), list) and bands[band] for band in ("low", "mid", "high"))
+        ):
+            raise RuntimeError("Waveform analysis produced no samples")
+        pcm_sha256 = decoded.get("pcm_sha256")
+        if not tmp_path or not pcm_sha256:
+            raise RuntimeError("Preview decoder did not produce analysis audio")
+
+        waveform = {
+            "bands": bands,
+            "colors": _WAVEFORM_COLORS,
+            "duration": decoded["duration"],
+        }
+        provider_data = await provider_task
+        await _notify_preview(on_snapshot, provider_data)
+        await _notify_preview(on_snapshot, {"analysis_status": "processing"})
+        from backend.analysis.types import AnalysisSettings
+
+        async def publish_analysis_progress(snapshot: dict) -> None:
+            await _notify_preview(on_snapshot, snapshot)
+
+        analysis_result = await _get_analysis_service().analyze_preview(
+            track_id=track_id,
+            wav_path=Path(tmp_path),
+            pcm_sha256=pcm_sha256,
+            preview_profile="LOW",
+            duration_seconds=float(decoded["duration"]),
+            decoder_version=DECODER_VERSION,
+            settings=AnalysisSettings(),
+            on_progress=publish_analysis_progress,
+        )
+        analysis_status, analysis_error, analysis = _analysis_lifecycle(analysis_result)
+        return {
+            "waveform": waveform,
+            "waveform_status": "complete",
+            "analysis_status": analysis_status,
+            "analysis": analysis,
+            "analysis_error": analysis_error,
+            **provider_data,
+        }
     finally:
-        # Each cleanup step is isolated so one failure can't leak the temp WAV
-        # or mask another error (including any exception from the body above).
-        result_bands = result.get("bands") if isinstance(result, dict) else None
-        if (isinstance(result_bands, dict)
-                and all(isinstance(result_bands.get(band), list) and result_bands[band]
-                        for band in ("low", "mid", "high"))):
-            with suppress(Exception):
-                await db.set_waveform_cache(str(track_id), result_bands, result["duration"])
-        with suppress(Exception):
+        if not provider_task.done():
+            provider_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await provider_task
+        try:
             await _remove_temp_file(tmp_path)
-    return {"waveform": waveform, **key_payload}
+        except OSError:
+            logger.debug("could not remove preview WAV %s", tmp_path, exc_info=True)
+
+
+async def preview_analysis_retry(
+    stream_url: str,
+    duration: float | None,
+    track_id: int,
+    on_snapshot=None,
+) -> dict:
+    gate = _preview_decode_gate_for_running_loop()
+    async with gate:
+        return await _preview_analysis_retry_with_gate(
+            stream_url, duration, track_id, on_snapshot
+        )
+
+
+async def _preview_analysis_retry_with_gate(
+    stream_url: str,
+    duration: float | None,
+    track_id: int,
+    on_snapshot=None,
+) -> dict:
+    decoded = await analyze_stream(stream_url, duration, width=600, on_snapshot=on_snapshot)
+    tmp_path = decoded.get("temp_wav_path")
+    try:
+        pcm_sha256 = decoded.get("pcm_sha256")
+        if not tmp_path or not pcm_sha256:
+            raise RuntimeError("Preview decoder did not produce analysis audio")
+        service = _get_analysis_service()
+        from backend.analysis.types import AnalysisSettings
+
+        async def publish_analysis_progress(snapshot: dict) -> None:
+            await _notify_preview(on_snapshot, snapshot)
+
+        result = await service.retry_preview(
+            track_id=track_id,
+            wav_path=Path(tmp_path),
+            pcm_sha256=pcm_sha256,
+            preview_profile="LOW",
+            duration_seconds=float(decoded["duration"]),
+            decoder_version=DECODER_VERSION,
+            settings=AnalysisSettings(),
+            on_progress=publish_analysis_progress,
+        )
+        status, error, analysis = _analysis_lifecycle(result)
+        return {
+            "analysis_status": status,
+            "analysis_error": error,
+            "analysis": analysis,
+        }
+    finally:
+        try:
+            await _remove_temp_file(tmp_path)
+        except OSError:
+            logger.debug("could not remove preview WAV %s", tmp_path, exc_info=True)
 
 
 preview_job_manager.analyzer = preview_analyzer
+preview_job_manager.analysis_retry = preview_analysis_retry
 
 @app.get("/preview/{track_id}/stream")
 async def preview_stream(track_id: int):
@@ -702,32 +894,82 @@ async def preview_stream(track_id: int):
             "stream_url": url,
             "duration": duration,
         }
-    except Exception as e:
+    except ObjectNotFound as e:
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview unavailable: {e}")
 
 
 @app.get("/preview/{track_id}/metadata")
 async def preview_metadata(track_id: int):
-    """Resolve the same LOW-quality url, kick off (or fetch) the preview
-    metadata job, and return the current snapshot without waiting for the
-    background analyzer.
+    """Resolve the current LOW-quality source and return its metadata snapshot.
 
-    Track/url resolution failures are reported as 404 (mirroring the legacy
-    route); a failure from `start_or_get` (e.g. scheduling error) propagates as
-    a 500 rather than masquerading as "not found."
+    Missing tracks are reported as 404; source/session and manager failures are
+    reported as 503. Repeated polls attach to an in-progress job or a still-valid
+    snapshot for the same preview identity.
     """
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        snap = preview_job_manager.snapshot(track_id)
-        if snap is None:
-            # No job yet: resolve the stream URL once to kick one off. Subsequent
-            # polls hit the snapshot above and never touch the session.
-            track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
-            snap = preview_job_manager.start_or_get(track_id, url, getattr(track, "duration", None))
-        return dataclasses.asdict(snap)
+        preview_job_manager.snapshot(track_id)
     except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview metadata unavailable: {e}")
+    try:
+        track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
+    except Exception as e:
+        if isinstance(e, ObjectNotFound):
+            raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+        raise HTTPException(status_code=503, detail=f"Preview source unavailable: {e}")
+    try:
+        settings_identity = await _preview_analysis_settings_identity()
+        snap = preview_job_manager.start_or_get(
+            track_id,
+            url,
+            getattr(track, "duration", None),
+            preview_profile="LOW",
+            decoder_version=DECODER_VERSION,
+            settings_identity=settings_identity,
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview scheduling failed: {e}")
+    return dataclasses.asdict(snap)
+
+
+@app.post("/preview/{track_id}/analysis/retry")
+async def retry_preview_analysis(track_id: int, request: Request):
+    """Explicitly retry analysis after resolving the current LOW-quality source."""
+    if not auth_manager.is_authenticated:
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    if await request.body():
+        raise HTTPException(status_code=422, detail="Retry request does not accept a body")
+    try:
+        snapshot = preview_job_manager.snapshot(track_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview retry unavailable: {e}")
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Preview metadata not found")
+    try:
+        track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
+    except ObjectNotFound as e:
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview source unavailable: {e}")
+    try:
+        settings_identity = await _preview_analysis_settings_identity()
+        preview_job_manager.start_or_get(
+            track_id,
+            url,
+            getattr(track, "duration", None),
+            preview_profile="LOW",
+            decoder_version=DECODER_VERSION,
+            settings_identity=settings_identity,
+        )
+        snapshot = preview_job_manager.retry_analysis(track_id)
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview analysis retry failed: {e}")
+    if snapshot is None:
+        raise HTTPException(status_code=404, detail="Preview metadata not found")
+    return dataclasses.asdict(snapshot)
 
 
 async def _detect_preview_key(stream_url: str, track_id: int, track=None, audio_path: str | None = None) -> dict:

@@ -1,0 +1,683 @@
+"""Cache-backed orchestration for preview audio analysis."""
+
+from __future__ import annotations
+
+import asyncio
+from dataclasses import asdict, replace
+from datetime import datetime, timedelta, timezone
+import hashlib
+import inspect
+import json
+import math
+from pathlib import Path
+import re
+from typing import Callable
+
+from backend.analysis.types import (
+    AnalysisSettings,
+    HybridAnalysisResult,
+    RhythmResult,
+    serialize_result,
+)
+from backend.analysis.worker import AnalysisWorker
+
+
+ENGINE_VERSION = "preview-hybrid-v1"
+PREVIEW_ALIAS_TTL = timedelta(hours=24)
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+_ZERO_SHA256 = "0" * 64
+
+
+def _normalize_sha256(value: str, name: str) -> str:
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        raise ValueError(f"{name} must be a 64-character SHA-256 hex digest")
+    return value.lower()
+
+
+def _canonical_json(payload: dict[str, object]) -> bytes:
+    return json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+        allow_nan=False,
+    ).encode("utf-8")
+
+
+def build_engine_key(
+    settings: AnalysisSettings,
+    decoder_version: str,
+    model_sha256: str,
+    *,
+    engine_version: str = ENGINE_VERSION,
+) -> str:
+    """Hash every result-affecting engine, decoder, model and settings identity."""
+    if not isinstance(settings, AnalysisSettings):
+        raise TypeError("settings must be AnalysisSettings")
+    if not isinstance(engine_version, str) or not engine_version:
+        raise ValueError("engine_version must be a non-empty string")
+    if not isinstance(decoder_version, str) or not decoder_version:
+        raise ValueError("decoder_version must be a non-empty string")
+    digest = _normalize_sha256(model_sha256, "model_sha256")
+    payload = {
+        "engine_version": engine_version,
+        "schema_version": settings.schema_version,
+        "decoder_version": decoder_version,
+        "model_id": settings.model_id,
+        "model_sha256": digest,
+        "key_profile_id": settings.key_profile_id,
+        "settings_sha256": settings.sha256,
+    }
+    return hashlib.sha256(_canonical_json(payload)).hexdigest()
+
+
+def build_key_cache_key(
+    settings: AnalysisSettings,
+    decoder_version: str,
+    *,
+    engine_version: str = ENGINE_VERSION,
+) -> str:
+    """Hash key-result inputs without asserting a verified rhythm model."""
+    if not isinstance(settings, AnalysisSettings):
+        raise TypeError("settings must be AnalysisSettings")
+    if not isinstance(engine_version, str) or not engine_version:
+        raise ValueError("engine_version must be a non-empty string")
+    if not isinstance(decoder_version, str) or not decoder_version:
+        raise ValueError("decoder_version must be a non-empty string")
+    payload = {
+        "engine_version": engine_version,
+        "component": "key",
+        "schema_version": settings.schema_version,
+        "decoder_version": decoder_version,
+        "key_profile_id": settings.key_profile_id,
+        "settings_sha256": settings.sha256,
+    }
+    return hashlib.sha256(_canonical_json(payload)).hexdigest()
+
+
+def _verified_model_identity(model_id: str) -> tuple[Path, str]:
+    """Resolve Task 4's verified local file without loading inference packages.
+
+    The public ``get_model_path`` also validates installed runtime packages and
+    therefore imports Beat This!/PyTorch. This lightweight check reuses Task 4's
+    manifest/archive/file digest verifier in the parent; actual model loading and
+    the full runtime check stay in the spawned child through Task 3.
+    """
+    from scripts.setup_analysis_model import _sha256_file, _verified_local_model
+
+    path = _verified_local_model(model_id)
+    digest = _normalize_sha256(_sha256_file(path), "model_sha256")
+    return Path(path), digest
+
+
+class AnalysisService:
+    """Resolve preview cache identities and submit only actual cache misses."""
+
+    def __init__(
+        self,
+        db,
+        *,
+        worker: AnalysisWorker | None = None,
+        model_identity_resolver: Callable[[str], tuple[Path, str]] | None = None,
+        clock: Callable[[], datetime] | None = None,
+    ) -> None:
+        self.db = db
+        self.worker = worker or AnalysisWorker()
+        self._model_identity_resolver = model_identity_resolver or _verified_model_identity
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+
+    def _now_utc(self) -> datetime:
+        current = self._clock()
+        if not isinstance(current, datetime) or current.tzinfo is None or current.utcoffset() is None:
+            raise ValueError("clock must return a timezone-aware UTC datetime")
+        if current.utcoffset().total_seconds() != 0:
+            raise ValueError("clock must return a timezone-aware UTC datetime")
+        return current.astimezone(timezone.utc)
+
+    @staticmethod
+    def _validate_request(
+        track_id: int,
+        pcm_sha256: str,
+        preview_profile: str,
+        duration_seconds: float,
+        decoder_version: str,
+        settings: AnalysisSettings,
+    ) -> tuple[str, float]:
+        if isinstance(track_id, bool) or not isinstance(track_id, int) or track_id <= 0:
+            raise ValueError("track_id must be a positive integer")
+        fingerprint = _normalize_sha256(pcm_sha256, "pcm_sha256")
+        if not isinstance(preview_profile, str) or not preview_profile:
+            raise ValueError("preview_profile must be a non-empty string")
+        if not isinstance(decoder_version, str) or not decoder_version:
+            raise ValueError("decoder_version must be a non-empty string")
+        if not isinstance(settings, AnalysisSettings):
+            raise TypeError("settings must be AnalysisSettings")
+        if not isinstance(settings.model_id, str) or not settings.model_id:
+            raise ValueError("settings.model_id must be a non-empty string")
+        if not isinstance(settings.key_profile_id, str) or not settings.key_profile_id:
+            raise ValueError("settings.key_profile_id must be a non-empty string")
+        for name in (
+            "key_sample_rate",
+            "key_hop_length",
+            "tempo_minimum_beats",
+            "downbeat_minimum_events",
+            "schema_version",
+        ):
+            value = getattr(settings, name)
+            if isinstance(value, bool) or not isinstance(value, int) or value < 1:
+                raise ValueError(f"settings.{name} must be a positive integer")
+        for name in (
+            "tempo_minimum_coverage",
+            "downbeat_phase_agreement",
+        ):
+            value = getattr(settings, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or not 0.0 <= value <= 1.0
+            ):
+                raise ValueError(f"settings.{name} must be finite and between 0 and 1")
+        for name in (
+            "grid_p95_tolerance_seconds",
+            "grid_split_drift_tolerance_seconds",
+            "downbeat_tolerance_seconds",
+        ):
+            value = getattr(settings, name)
+            if (
+                isinstance(value, bool)
+                or not isinstance(value, (int, float))
+                or not math.isfinite(value)
+                or value < 0
+            ):
+                raise ValueError(f"settings.{name} must be finite and non-negative")
+        try:
+            if isinstance(duration_seconds, bool):
+                raise ValueError
+            duration = float(duration_seconds)
+        except (TypeError, ValueError, OverflowError) as exc:
+            raise ValueError("duration_seconds must be finite and positive") from exc
+        if not math.isfinite(duration) or duration <= 0:
+            raise ValueError("duration_seconds must be finite and positive")
+        # Accessing the canonical settings digest rejects non-JSON values early.
+        _ = settings.sha256
+        return fingerprint, duration
+
+    @staticmethod
+    def _result_matches(
+        result: HybridAnalysisResult,
+        *,
+        fingerprint: str,
+        decoder_version: str,
+        duration_seconds: float,
+        settings: AnalysisSettings,
+        model_sha256: str,
+    ) -> bool:
+        return (
+            result.audio_fingerprint.lower() == fingerprint
+            and result.schema_version == settings.schema_version
+            and result.decoder_version == decoder_version
+            and result.duration_seconds == duration_seconds
+            and result.model_id == settings.model_id
+            and result.model_sha256.lower() == model_sha256
+            and result.key_profile_id == settings.key_profile_id
+            and result.settings_sha256 == settings.sha256
+        )
+
+    @staticmethod
+    def _key_cache_result_matches(
+        result: HybridAnalysisResult,
+        *,
+        fingerprint: str,
+        decoder_version: str,
+        duration_seconds: float,
+        settings: AnalysisSettings,
+    ) -> bool:
+        rhythm = result.rhythm
+        return (
+            result.audio_fingerprint.lower() == fingerprint
+            and result.schema_version == settings.schema_version
+            and result.decoder_version == decoder_version
+            and result.duration_seconds == duration_seconds
+            and result.model_id == settings.model_id
+            and result.model_sha256.lower() == _ZERO_SHA256
+            and result.key_profile_id == settings.key_profile_id
+            and result.settings_sha256 == settings.sha256
+            and result.key.status != "failed"
+            and rhythm.status == "unavailable"
+            and rhythm.bpm is None
+            and not rhythm.beats
+            and not rhythm.downbeats
+            and rhythm.grid.status == "unavailable"
+            and rhythm.grid.bpm is None
+            and rhythm.grid.period_seconds is None
+            and rhythm.grid.origin_seconds is None
+            and rhythm.grid.meter is None
+            and rhythm.grid.first_downbeat_beat is None
+            and rhythm.grid.residual_p95_seconds is None
+            and rhythm.grid.split_drift_seconds is None
+        )
+
+    @staticmethod
+    def _as_key_cache_result(result: HybridAnalysisResult) -> HybridAnalysisResult:
+        reason = "rhythm omitted because its model identity was not verified"
+        grid = replace(
+            result.rhythm.grid,
+            bpm=None,
+            period_seconds=None,
+            origin_seconds=None,
+            meter=None,
+            first_downbeat_beat=None,
+            status="unavailable",
+            residual_p95_seconds=None,
+            split_drift_seconds=None,
+            reason=reason,
+        )
+        rhythm = replace(
+            result.rhythm,
+            bpm=None,
+            beats=(),
+            downbeats=(),
+            grid=grid,
+            status="unavailable",
+            reason=reason,
+        )
+        return replace(result, model_sha256=_ZERO_SHA256, rhythm=rhythm)
+
+    async def _get_key_cache_result(
+        self,
+        *,
+        fingerprint: str,
+        decoder_version: str,
+        duration_seconds: float,
+        settings: AnalysisSettings,
+    ) -> HybridAnalysisResult | None:
+        key = build_key_cache_key(settings, decoder_version)
+        result = await self.db.get_analysis_result(fingerprint, key)
+        if result is not None and self._key_cache_result_matches(
+            result,
+            fingerprint=fingerprint,
+            decoder_version=decoder_version,
+            duration_seconds=duration_seconds,
+            settings=settings,
+        ):
+            return result
+        return None
+
+    async def _store_key_cache_result(
+        self,
+        result: HybridAnalysisResult,
+        *,
+        decoder_version: str,
+        settings: AnalysisSettings,
+    ) -> HybridAnalysisResult:
+        key_result = self._as_key_cache_result(result)
+        if key_result.key.status != "failed":
+            await self.db.set_analysis_result(
+                key_result,
+                build_key_cache_key(settings, decoder_version),
+            )
+        return key_result
+
+    async def _resolve_model_identity(self, model_id: str) -> tuple[Path, str] | None:
+        try:
+            path, model_sha256 = await asyncio.to_thread(
+                self._model_identity_resolver, model_id
+            )
+            digest = _normalize_sha256(model_sha256, "model_sha256")
+            return Path(path), digest
+        except (FileNotFoundError, OSError, RuntimeError, ValueError):
+            # A missing or invalid optional model disables result/alias caching.
+            # The key component still runs in the child and rhythm reports its
+            # own verified-model error without provisioning anything implicitly.
+            return None
+
+    def _worker_job_id(
+        self,
+        *,
+        fingerprint: str,
+        preview_profile: str,
+        duration_seconds: float,
+        decoder_version: str,
+        engine_key: str | None,
+        settings: AnalysisSettings,
+        components: frozenset[str] = frozenset({"key", "rhythm"}),
+    ) -> str:
+        identity = {
+            "audio_fingerprint": fingerprint,
+            "preview_profile": preview_profile,
+            "duration_seconds": duration_seconds,
+            "decoder_version": decoder_version,
+            "engine_key": engine_key or "unverified-model",
+            "settings_sha256": settings.sha256,
+            "components": sorted(components),
+        }
+        return hashlib.sha256(_canonical_json(identity)).hexdigest()
+
+    @staticmethod
+    def _failed_components(result: HybridAnalysisResult) -> frozenset[str]:
+        components = set()
+        if result.key.status == "failed":
+            components.add("key")
+        if result.rhythm.status in {"failed", "unavailable"}:
+            components.add("rhythm")
+        return frozenset(components)
+
+    async def _write_preview_alias(
+        self,
+        *,
+        track_id: int,
+        preview_profile: str,
+        duration_seconds: float,
+        decoder_version: str,
+        engine_key: str,
+        fingerprint: str,
+    ) -> None:
+        # This UTC instant is the caller-owned write time passed to persistence;
+        # expiry is exactly 24 hours after it, with no rounding or extension.
+        written_at = self._now_utc()
+        await self.db.set_preview_analysis_alias(
+            track_id=track_id,
+            profile=preview_profile,
+            duration_seconds=duration_seconds,
+            decoder_version=decoder_version,
+            engine_key=engine_key,
+            fingerprint=fingerprint,
+            expires_at_utc=written_at + PREVIEW_ALIAS_TTL,
+        )
+
+    @staticmethod
+    async def _publish_rhythm_progress(on_progress, progress: dict) -> None:
+        if on_progress is None or not isinstance(progress, dict):
+            return
+        rhythm = progress.get("rhythm")
+        if not isinstance(rhythm, RhythmResult):
+            return
+        # Keep the partial snapshot JSON-shaped and let the final worker result
+        # fill in key analysis when it completes.
+        analysis = json.loads(json.dumps({"key": None, "rhythm": asdict(rhythm)}, allow_nan=False))
+        result = on_progress({"analysis_status": "processing", "analysis": analysis})
+        if inspect.isawaitable(result):
+            await result
+
+    async def analyze_preview(
+        self,
+        track_id: int,
+        wav_path: Path,
+        pcm_sha256: str,
+        preview_profile: str,
+        duration_seconds: float,
+        decoder_version: str,
+        settings: AnalysisSettings,
+        on_progress=None,
+    ) -> HybridAnalysisResult:
+        """Return a cached result or enqueue a single hybrid analysis job."""
+        fingerprint, duration = self._validate_request(
+            track_id,
+            pcm_sha256,
+            preview_profile,
+            duration_seconds,
+            decoder_version,
+            settings,
+        )
+        model_identity = await self._resolve_model_identity(settings.model_id)
+        model_path = model_identity[0] if model_identity is not None else None
+        model_sha256 = model_identity[1] if model_identity is not None else None
+        engine_key = (
+            build_engine_key(settings, decoder_version, model_sha256)
+            if model_sha256 is not None
+            else None
+        )
+
+        if engine_key is not None:
+            alias_fingerprint = await self.db.get_preview_analysis_alias(
+                track_id=track_id,
+                profile=preview_profile,
+                duration_seconds=duration,
+                decoder_version=decoder_version,
+                engine_key=engine_key,
+                now_utc=self._now_utc(),
+            )
+            if alias_fingerprint == fingerprint:
+                alias_result = await self.db.get_analysis_result(alias_fingerprint, engine_key)
+                if alias_result is not None and self._result_matches(
+                    alias_result,
+                    fingerprint=alias_fingerprint,
+                    decoder_version=decoder_version,
+                    duration_seconds=duration,
+                    settings=settings,
+                    model_sha256=model_sha256,
+                ):
+                    return alias_result
+
+            cached_result = await self.db.get_analysis_result(fingerprint, engine_key)
+            if cached_result is not None and self._result_matches(
+                cached_result,
+                fingerprint=fingerprint,
+                decoder_version=decoder_version,
+                duration_seconds=duration,
+                settings=settings,
+                model_sha256=model_sha256,
+            ):
+                await self._write_preview_alias(
+                    track_id=track_id,
+                    preview_profile=preview_profile,
+                    duration_seconds=duration,
+                    decoder_version=decoder_version,
+                    engine_key=engine_key,
+                    fingerprint=fingerprint,
+                )
+                return cached_result
+
+        key_cached_result = await self._get_key_cache_result(
+            fingerprint=fingerprint,
+            decoder_version=decoder_version,
+            duration_seconds=duration,
+            settings=settings,
+        )
+        if key_cached_result is not None:
+            return key_cached_result
+
+        job_id = self._worker_job_id(
+            fingerprint=fingerprint,
+            preview_profile=preview_profile,
+            duration_seconds=duration,
+            decoder_version=decoder_version,
+            engine_key=engine_key,
+            settings=settings,
+        )
+        worker_progress = (
+            lambda progress: self._publish_rhythm_progress(on_progress, progress)
+            if on_progress is not None
+            else None
+        )
+        raw_result = await self.worker.submit(
+            job_id,
+            Path(wav_path),
+            settings,
+            on_progress=worker_progress if on_progress is not None else None,
+        )
+        if not isinstance(raw_result, HybridAnalysisResult):
+            raise TypeError("analysis worker must return HybridAnalysisResult")
+
+        worker_model_sha = _normalize_sha256(raw_result.model_sha256, "model_sha256")
+        result = replace(
+            raw_result,
+            schema_version=settings.schema_version,
+            audio_fingerprint=fingerprint,
+            decoder_version=decoder_version,
+            duration_seconds=duration,
+            model_id=settings.model_id,
+            model_sha256=worker_model_sha,
+            key_profile_id=settings.key_profile_id,
+            settings_sha256=settings.sha256,
+        )
+        # Validate caller identity and event times before storing or returning a
+        # result that claims to correspond to this decoded preview.
+        serialize_result(result)
+
+        if (
+            engine_key is not None
+            and model_path is not None
+            and model_sha256 is not None
+            and worker_model_sha == model_sha256
+        ):
+            await self.db.set_analysis_result(result, engine_key)
+            await self._write_preview_alias(
+                track_id=track_id,
+                preview_profile=preview_profile,
+                duration_seconds=duration,
+                decoder_version=decoder_version,
+                engine_key=engine_key,
+                fingerprint=fingerprint,
+            )
+        else:
+            result = await self._store_key_cache_result(
+                result,
+                decoder_version=decoder_version,
+                settings=settings,
+            )
+        return result
+
+    async def retry_preview(
+        self,
+        track_id: int,
+        wav_path: Path,
+        pcm_sha256: str,
+        preview_profile: str,
+        duration_seconds: float,
+        decoder_version: str,
+        settings: AnalysisSettings,
+        on_progress=None,
+    ) -> HybridAnalysisResult:
+        """Explicitly retry failed components from a matching cached result."""
+        fingerprint, duration = self._validate_request(
+            track_id,
+            pcm_sha256,
+            preview_profile,
+            duration_seconds,
+            decoder_version,
+            settings,
+        )
+        model_identity = await self._resolve_model_identity(settings.model_id)
+        model_path = model_identity[0] if model_identity is not None else None
+        model_sha256 = model_identity[1] if model_identity is not None else None
+        engine_key = (
+            build_engine_key(settings, decoder_version, model_sha256)
+            if model_sha256 is not None
+            else None
+        )
+
+        prior_result = None
+        if engine_key is not None and model_sha256 is not None:
+            cached_result = await self.db.get_analysis_result(fingerprint, engine_key)
+            if cached_result is not None and self._result_matches(
+                cached_result,
+                fingerprint=fingerprint,
+                decoder_version=decoder_version,
+                duration_seconds=duration,
+                settings=settings,
+                model_sha256=model_sha256,
+            ):
+                prior_result = cached_result
+
+        if prior_result is None:
+            prior_result = await self._get_key_cache_result(
+                fingerprint=fingerprint,
+                decoder_version=decoder_version,
+                duration_seconds=duration,
+                settings=settings,
+            )
+
+        components = (
+            self._failed_components(prior_result)
+            if prior_result is not None
+            else frozenset({"key", "rhythm"})
+        )
+        if not components:
+            await self._write_preview_alias(
+                track_id=track_id,
+                preview_profile=preview_profile,
+                duration_seconds=duration,
+                decoder_version=decoder_version,
+                engine_key=engine_key,
+                fingerprint=fingerprint,
+            )
+            return prior_result
+
+        job_id = self._worker_job_id(
+            fingerprint=fingerprint,
+            preview_profile=preview_profile,
+            duration_seconds=duration,
+            decoder_version=decoder_version,
+            engine_key=engine_key,
+            settings=settings,
+            components=components,
+        )
+        raw_result = await self.worker.submit_retry(
+            job_id,
+            Path(wav_path),
+            settings,
+            components=components,
+            prior_result=prior_result,
+            on_progress=(
+                lambda progress: self._publish_rhythm_progress(on_progress, progress)
+                if on_progress is not None
+                else None
+            ),
+        )
+        if not isinstance(raw_result, HybridAnalysisResult):
+            raise TypeError("analysis worker must return HybridAnalysisResult")
+
+        if prior_result is not None:
+            raw_result = replace(
+                raw_result,
+                key=(
+                    raw_result.key if "key" in components else prior_result.key
+                ),
+                rhythm=(
+                    raw_result.rhythm if "rhythm" in components else prior_result.rhythm
+                ),
+                model_sha256=(
+                    raw_result.model_sha256
+                    if "rhythm" in components
+                    else prior_result.model_sha256
+                ),
+            )
+
+        worker_model_sha = _normalize_sha256(raw_result.model_sha256, "model_sha256")
+        result = replace(
+            raw_result,
+            schema_version=settings.schema_version,
+            audio_fingerprint=fingerprint,
+            decoder_version=decoder_version,
+            duration_seconds=duration,
+            model_id=settings.model_id,
+            model_sha256=worker_model_sha,
+            key_profile_id=settings.key_profile_id,
+            settings_sha256=settings.sha256,
+        )
+        serialize_result(result)
+
+        if (
+            engine_key is not None
+            and model_path is not None
+            and model_sha256 is not None
+            and worker_model_sha == model_sha256
+        ):
+            await self.db.set_analysis_result(result, engine_key)
+            await self._write_preview_alias(
+                track_id=track_id,
+                preview_profile=preview_profile,
+                duration_seconds=duration,
+                decoder_version=decoder_version,
+                engine_key=engine_key,
+                fingerprint=fingerprint,
+            )
+        else:
+            result = await self._store_key_cache_result(
+                result,
+                decoder_version=decoder_version,
+                settings=settings,
+            )
+        return result

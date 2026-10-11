@@ -40,6 +40,7 @@ vi.mock('../api', async (orig) => ({
     getUrl: vi.fn(),
     getStream: vi.fn(),
     getMetadata: vi.fn(),
+    retryAnalysis: vi.fn(),
   },
 }));
 
@@ -60,11 +61,16 @@ describe('AudioPlayerFooter fast lifecycle', () => {
       output_dir: '~/Music/TidalDownloads',
       waveform_color: '3band',
     };
+    mockPreviewTrack.id = 7;
+    mockPreviewTrack.title = 'T';
+    mockPreviewTrack.artist = 'A';
     mockPreviewTrack.artist_id = 3;
     mockPreviewTrack.cover_url = null;
     previewEnabled.value = true;
+    vi.mocked((api.preview as any).retryAnalysis).mockReset();
     mockDispatch.mockClear();
     cleanup();
+    vi.unstubAllGlobals();
     vi.restoreAllMocks();
   });
 
@@ -296,5 +302,403 @@ describe('AudioPlayerFooter fast lifecycle', () => {
     await waitFor(() => expect(signals.length).toBeGreaterThan(0));
     unmount();
     expect(signals[0].aborted).toBe(true);
+  });
+
+  it('renders_analysis_states_and_provider_source', async () => {
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(window, 'Audio').mockImplementation((url?: string) => {
+      const audio = document.createElement('audio');
+      if (url) audio.src = url;
+      return audio as any;
+    });
+    const waveform = {
+      bands: { low: [0.5], mid: [0.4], high: [0.3] },
+      colors: {},
+      duration: 20,
+    };
+    const base = {
+      track_id: 7,
+      revision: 1,
+      waveform_status: 'complete',
+      waveform,
+      key: null,
+      camelot: null,
+      bpm: null,
+      error: null,
+      analysis_error: null,
+      key_source: null,
+      bpm_source: null,
+      provider_key: null,
+      provider_camelot: null,
+      provider_bpm: null,
+      analysis: {
+        key: { key: 'C', camelot: '8B', status: 'reliable' },
+        rhythm: {
+          bpm: 120,
+          beats: [],
+          downbeats: [],
+          status: 'reliable',
+          grid: {
+            bpm: 120,
+            period_seconds: 0.5,
+            origin_seconds: 0,
+            meter: '4/4',
+            first_downbeat_beat: 0,
+            status: 'reliable',
+          },
+        },
+      },
+    };
+    const scenarios = [
+      [{ ...base, status: 'processing', analysis_status: 'processing' }, 'Analyzing'],
+      [{ ...base, status: 'complete', analysis_status: 'complete' }, 'Ready'],
+      [{
+        ...base,
+        status: 'complete',
+        analysis_status: 'complete',
+        camelot: '8A',
+        key_source: 'provider',
+        bpm: 111,
+        bpm_source: 'provider',
+        provider_camelot: '8A',
+        provider_bpm: 111,
+        analysis: {
+          key: { key: null, camelot: null, status: 'unknown' },
+          rhythm: {
+            bpm: null,
+            beats: [],
+            downbeats: [],
+            status: 'needs_review',
+            grid: {
+              bpm: 127.5,
+              period_seconds: 60 / 127.5,
+              origin_seconds: 0,
+              meter: '4/4',
+              first_downbeat_beat: 0,
+              status: 'needs_review',
+            },
+          },
+        },
+      }, 'Needs review'],
+      [{ ...base, status: 'partial', analysis_status: 'failed' }, 'Analysis unavailable'],
+      [{ ...base, status: 'partial', analysis_status: 'unknown' }, 'Unknown'],
+    ] as const;
+
+    for (const [snapshot, expectedState] of scenarios) {
+      (api.preview.getStream as any).mockResolvedValueOnce({ track_id: 7, stream_url: '/audio/7', duration: 20 });
+      (api.preview.getMetadata as any).mockResolvedValueOnce(snapshot);
+      const view = render(<AudioPlayerFooter />);
+
+      expect(await screen.findByText(expectedState, {}, { timeout: 2500 })).toBeInTheDocument();
+      expect(screen.getByTestId('preview-analysis-status')).toHaveAttribute('role', 'status');
+      expect(screen.getByTestId('preview-analysis-status')).toHaveAttribute('aria-live', 'polite');
+      expect(play).toHaveBeenCalled();
+
+      if (expectedState === 'Needs review') {
+        expect(screen.getByTestId('camelot-key')).toHaveTextContent('8A');
+        expect(screen.getByTestId('bpm-badge')).toHaveTextContent('111 BPM');
+        expect(screen.getByText('Key from provider')).toBeInTheDocument();
+        expect(screen.getByText('BPM from provider')).toBeInTheDocument();
+        expect(screen.queryByText('127.5')).not.toBeInTheDocument();
+      }
+
+      view.unmount();
+    }
+  });
+
+  it('draws_beats_and_downbeats_without_blocking_seek', async () => {
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const capturedAudio: { current: HTMLAudioElement | null } = { current: null };
+    vi.spyOn(window, 'Audio').mockImplementation((url?: string) => {
+      const audio = document.createElement('audio');
+      if (url) audio.src = url;
+      capturedAudio.current = audio;
+      return audio as any;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 200, bottom: 44, width: 200, height: 44, x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 20 });
+    (api.preview.getMetadata as any).mockResolvedValue({
+      track_id: 7,
+      status: 'complete',
+      revision: 1,
+      waveform_status: 'complete',
+      analysis_status: 'complete',
+      waveform: { bands: { low: [0.5], mid: [0.4], high: [0.3] }, colors: {}, duration: 20 },
+      key: null,
+      camelot: null,
+      bpm: null,
+      error: null,
+      analysis: {
+        key: { key: null, camelot: null, status: 'unknown' },
+        rhythm: {
+          bpm: 120,
+          beats: [1, 2, 3],
+          downbeats: [1, 3],
+          status: 'needs_review',
+          grid: { bpm: null, period_seconds: null, origin_seconds: null, meter: null, first_downbeat_beat: null, status: 'needs_review' },
+        },
+      },
+    });
+    const { container } = render(<AudioPlayerFooter />);
+
+    const markers = await screen.findAllByTestId(/^(beat|downbeat)-marker$/);
+    expect(markers).toHaveLength(3);
+    expect(markers.map((marker) => marker.getAttribute('data-time'))).toEqual(['1', '2', '3']);
+    expect(markers.map((marker) => marker.getAttribute('data-marker-kind'))).toEqual(['downbeat', 'beat', 'downbeat']);
+    expect(markers[0].getAttribute('aria-hidden')).toBe('true');
+    expect(markers[0].parentElement).toHaveStyle({ pointerEvents: 'none' });
+
+    const canvas = screen.getByRole('slider', { name: 'Seek preview: T' });
+    fireEvent.click(canvas, { clientX: 100 });
+    expect(capturedAudio.current?.currentTime).toBe(10);
+    expect(play).toHaveBeenCalled();
+    expect(container.querySelector('[data-testid="preview-analysis-status"]')).toHaveTextContent('Needs review');
+  });
+
+  it('coalesces_markers_with_downbeat_priority', async () => {
+    vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(window, 'Audio').mockImplementation((url?: string) => {
+      const audio = document.createElement('audio');
+      if (url) audio.src = url;
+      return audio as any;
+    });
+    vi.spyOn(HTMLCanvasElement.prototype, 'getBoundingClientRect').mockReturnValue({
+      left: 0, top: 0, right: 100, bottom: 44, width: 100, height: 44, x: 0, y: 0, toJSON: () => ({}),
+    } as DOMRect);
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 10 });
+    (api.preview.getMetadata as any).mockResolvedValue({
+      track_id: 7,
+      status: 'complete',
+      revision: 1,
+      waveform_status: 'complete',
+      analysis_status: 'complete',
+      waveform: { bands: { low: [0.5], mid: [0.4], high: [0.3] }, colors: {}, duration: 10 },
+      key: null,
+      camelot: null,
+      bpm: null,
+      error: null,
+      analysis: {
+        key: { key: null, camelot: null, status: 'unknown' },
+        rhythm: {
+          bpm: 120,
+          beats: [0.5, 0.52, 1],
+          downbeats: [0.52],
+          status: 'needs_review',
+          grid: { bpm: null, period_seconds: null, origin_seconds: null, meter: null, first_downbeat_beat: null, status: 'needs_review' },
+        },
+      },
+    });
+
+    const { container } = render(<AudioPlayerFooter />);
+    await screen.findAllByTestId(/^(beat|downbeat)-marker$/);
+    const markers = Array.from(container.querySelectorAll('[data-marker-kind]'));
+    expect(markers).toHaveLength(2);
+    expect(markers[0]).toHaveAttribute('data-marker-kind', 'downbeat');
+    expect(markers[0]).toHaveAttribute('data-time', '0.52');
+    expect(markers[1]).toHaveAttribute('data-time', '1');
+  });
+
+  it('retries_analysis_unavailable', async () => {
+    const play = vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    const pause = vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    const capturedAudio: { current: HTMLAudioElement | null } = { current: null };
+    vi.spyOn(window, 'Audio').mockImplementation((url?: string) => {
+      const audio = document.createElement('audio');
+      if (url) audio.src = url;
+      capturedAudio.current = audio;
+      return audio as any;
+    });
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 20 });
+    (api.preview.getMetadata as any)
+      .mockResolvedValueOnce({
+        track_id: 7,
+        status: 'partial',
+        revision: 1,
+        waveform_status: 'complete',
+        analysis_status: 'failed',
+        waveform: { bands: { low: [0.5], mid: [0.4], high: [0.3] }, colors: {}, duration: 20 },
+        key: null,
+        camelot: null,
+        bpm: null,
+        error: null,
+        analysis_error: 'model unavailable',
+        analysis: null,
+      })
+      .mockResolvedValueOnce({
+        track_id: 7,
+        status: 'complete',
+        revision: 3,
+        waveform_status: 'complete',
+        analysis_status: 'complete',
+        waveform: { bands: { low: [0.5], mid: [0.4], high: [0.3] }, colors: {}, duration: 20 },
+        key: null,
+        camelot: null,
+        bpm: null,
+        error: null,
+        analysis: {
+          key: { key: 'C', camelot: '8B', status: 'reliable' },
+          rhythm: { bpm: 120, beats: [], downbeats: [], status: 'reliable', grid: { bpm: 120, period_seconds: 0.5, origin_seconds: 0, meter: '4/4', first_downbeat_beat: 0, status: 'reliable' } },
+        },
+      });
+    (api.preview as any).retryAnalysis.mockResolvedValue({
+      track_id: 7,
+      status: 'processing',
+      revision: 2,
+      waveform_status: 'complete',
+      analysis_status: 'queued',
+      waveform: { bands: { low: [0.5], mid: [0.4], high: [0.3] }, colors: {}, duration: 20 },
+      key: null,
+      camelot: null,
+      bpm: null,
+      error: null,
+      analysis: null,
+    });
+
+    render(<AudioPlayerFooter />);
+    expect(await screen.findByText('Analysis unavailable', {}, { timeout: 2500 })).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    expect(api.preview.getMetadata).toHaveBeenCalledTimes(1);
+    const retry = screen.getByRole('button', { name: 'Retry analysis' });
+    const seekSlider = screen.getByRole('slider', { name: 'Seek preview: T' });
+    expect(seekSlider).toBeInTheDocument();
+    fireEvent.keyDown(seekSlider, { key: 'ArrowRight' });
+    expect(capturedAudio.current?.currentTime).toBe(5);
+    fireEvent.click(retry);
+
+    expect((api.preview as any).retryAnalysis).toHaveBeenCalledWith(7, expect.anything());
+    expect(await screen.findByText('Ready', {}, { timeout: 3000 })).toBeInTheDocument();
+    expect(api.preview.getMetadata).toHaveBeenCalledTimes(2);
+    expect(play).toHaveBeenCalled();
+    expect(pause).not.toHaveBeenCalled();
+  });
+
+  it('does_not_offer_retry_for_unusable_analysis_without_failed_components', async () => {
+    vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(window, 'Audio').mockImplementation((url?: string) => {
+      const audio = document.createElement('audio');
+      if (url) audio.src = url;
+      return audio as any;
+    });
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 20 });
+    (api.preview.getMetadata as any).mockResolvedValue({
+      track_id: 7,
+      status: 'partial',
+      revision: 2,
+      waveform_status: 'complete',
+      analysis_status: 'failed',
+      waveform: { bands: { low: [0.5], mid: [0.4], high: [0.3] }, colors: {}, duration: 20 },
+      key: null,
+      camelot: null,
+      bpm: null,
+      error: null,
+      analysis_error: 'local analysis returned no usable key or rhythm',
+      analysis: {
+        key: { key: null, camelot: null, status: 'unknown' },
+        rhythm: {
+          bpm: null,
+          beats: [],
+          downbeats: [],
+          status: 'needs_review',
+          grid: { bpm: null, period_seconds: null, origin_seconds: null, status: 'needs_review' },
+        },
+      },
+    });
+
+    render(<AudioPlayerFooter />);
+
+    expect(await screen.findByText('Analysis unavailable', {}, { timeout: 2500 })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry analysis' })).not.toBeInTheDocument();
+    expect(api.preview.retryAnalysis).not.toHaveBeenCalled();
+  });
+
+  it('ignores_snapshot_for_previous_preview', async () => {
+    vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(window, 'Audio').mockImplementation((url?: string) => {
+      const audio = document.createElement('audio');
+      if (url) audio.src = url;
+      return audio as any;
+    });
+    (api.preview.getStream as any).mockImplementation(async (trackId: number) => ({
+      track_id: trackId,
+      stream_url: `/audio/${trackId}`,
+      duration: 20,
+    }));
+    const resolveSnapshot: Record<number, (snapshot: any) => void> = {};
+    (api.preview.getMetadata as any).mockImplementation((trackId: number) => new Promise((resolve) => {
+      resolveSnapshot[trackId] = resolve;
+    }));
+
+    const view = render(<AudioPlayerFooter />);
+    await waitFor(() => expect(resolveSnapshot[7]).toBeDefined(), { timeout: 2500 });
+    mockPreviewTrack.id = 8;
+    mockPreviewTrack.title = 'Next';
+    view.rerender(<AudioPlayerFooter />);
+    await waitFor(() => expect(resolveSnapshot[8]).toBeDefined(), { timeout: 2500 });
+
+    resolveSnapshot[7]({
+      track_id: 7,
+      status: 'partial',
+      revision: 2,
+      waveform_status: 'complete',
+      analysis_status: 'failed',
+      waveform: { bands: { low: [0.9], mid: [0.9], high: [0.9] }, colors: {}, duration: 99 },
+      key: 'old',
+      camelot: '8A',
+      bpm: 99,
+      error: null,
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(screen.queryByText('Analysis unavailable')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('camelot-key')).not.toBeInTheDocument();
+
+    resolveSnapshot[8]({
+      track_id: 8,
+      status: 'complete',
+      revision: 1,
+      waveform_status: 'complete',
+      analysis_status: 'complete',
+      waveform: { bands: { low: [0.5], mid: [0.4], high: [0.3] }, colors: {}, duration: 20 },
+      key: null,
+      camelot: null,
+      bpm: null,
+      error: null,
+      analysis: {
+        key: { key: 'C', camelot: '8B', status: 'reliable' },
+        rhythm: { bpm: 120, beats: [], downbeats: [], status: 'reliable', grid: { bpm: 120, period_seconds: 0.5, origin_seconds: 0, meter: '4/4', first_downbeat_beat: 0, status: 'reliable' } },
+      },
+    });
+    expect(await screen.findByText('Ready', {}, { timeout: 1000 })).toBeInTheDocument();
+    expect(screen.getByRole('region', { name: 'Preview player: Playing Next by A' })).toBeInTheDocument();
+  });
+
+  it('retry_analysis_uses_authenticated_preview_route', async () => {
+    const snapshot = {
+      track_id: 7,
+      status: 'processing',
+      revision: 2,
+      waveform: null,
+      key: null,
+      camelot: null,
+      bpm: null,
+      error: null,
+    };
+    const fetchMock = vi.fn().mockResolvedValue({ ok: true, json: async () => snapshot });
+    vi.stubGlobal('fetch', fetchMock);
+    const actualApi = await vi.importActual<typeof import('../api')>('../api');
+    const retry = (actualApi.preview as any).retryAnalysis;
+
+    expect(retry).toBeTypeOf('function');
+    await expect(retry(7)).resolves.toEqual(snapshot);
+    expect(fetchMock).toHaveBeenCalledWith('/api/preview/7/analysis/retry', expect.objectContaining({
+      method: 'POST',
+      credentials: 'same-origin',
+    }));
   });
 });

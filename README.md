@@ -54,6 +54,47 @@ pip3 install -r requirements.txt
 cd frontend && npm install && cd ..
 ```
 
+### Optional local beat analysis
+
+The optional local preview analyzer adds a key estimate plus detected beats,
+downbeats, and a fitted steady grid. Beat and downbeat inference uses the upstream
+Beat This! `final0` checkpoint. If the optional analysis runtime or verified model is
+missing, affected analysis is unavailable while preview playback remains usable. The
+checkpoint is only downloaded when you explicitly run the setup command; importing,
+starting the app, or previewing a track does not fetch model files.
+
+The checked-in hash lock targets CPython 3.13 on Apple Silicon macOS. Install it and
+download the model with:
+
+```bash
+python3.13 -m pip install --require-hashes -r requirements-analysis.txt
+python3.13 scripts/setup_analysis_model.py --model final0
+```
+
+The analysis pins Beat This! 1.1.0, librosa 0.11.0, and matching torch/torchaudio
+2.9.1; its NumPy and SciPy pins match the main requirements file.
+
+For another Python version, operating system, or architecture, regenerate
+`requirements-analysis.txt` with the same direct pins and hashes for that target.
+The checkpoint and its SHA-256 manifest are stored in the operating system's user
+data directory. Set `TIDALEXTRACTOR_MODEL_DIR` to choose a different local directory.
+
+Beat This! 1.1.0 is MIT-licensed. The checkpoint is a separate upstream model asset;
+the upstream README warns that some files used to train its models are copyrighted
+or carry limited Creative Commons licenses. Review upstream terms before redistributing
+the checkpoint or derived materials.
+
+### Preview analysis readiness
+
+Automated backend and frontend checks pass on the validated Apple Silicon host, and
+the local model loaded and ran on generated synthetic audio. The authorized 20-track
+evaluation and manual preview-path check are still incomplete. Real-track accuracy,
+output calibration, and Rekordbox parity have not been established. Treat `Ready` as
+the analyzer's per-result heuristic status, not a measured accuracy claim; keep
+`Needs review` visible for uncertain results. See the [validation and evaluation
+report](docs/research/preview-analysis-evaluation.md) for setup evidence, checks, and
+the remaining acceptance work.
+
 ### 2. Run the backend
 
 From the **project root**:

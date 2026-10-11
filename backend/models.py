@@ -1,7 +1,43 @@
 import aiosqlite
 import json
+import math
+import re
 import time
+from datetime import datetime, timezone
 from typing import Optional
+
+from backend.analysis.types import (
+    HybridAnalysisResult,
+    deserialize_result,
+    serialize_result,
+)
+
+
+_SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
+
+
+def _require_sha256(value: str, field_name: str) -> str:
+    if not isinstance(value, str) or not _SHA256_RE.fullmatch(value):
+        raise ValueError(f"{field_name} must be a 64-character SHA-256 hex digest")
+    return value.lower()
+
+
+def _utc_timestamp(value: datetime, field_name: str) -> str:
+    if not isinstance(value, datetime) or value.tzinfo is None:
+        raise ValueError(f"{field_name} must be a timezone-aware UTC datetime")
+    if value.utcoffset() is None or value.utcoffset().total_seconds() != 0:
+        raise ValueError(f"{field_name} must be a timezone-aware UTC datetime")
+    return value.astimezone(timezone.utc).isoformat(timespec="microseconds")
+
+
+def _require_duration(value: float) -> float:
+    try:
+        duration = float(value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("duration_seconds must be finite and non-negative") from exc
+    if not math.isfinite(duration) or duration < 0:
+        raise ValueError("duration_seconds must be finite and non-negative")
+    return duration
 
 
 class Database:
@@ -77,6 +113,26 @@ class Database:
                 checked_at REAL NOT NULL,
                 expires_at REAL NOT NULL
             );
+            CREATE TABLE IF NOT EXISTS analysis_result_cache (
+                audio_fingerprint TEXT NOT NULL,
+                engine_key TEXT NOT NULL,
+                schema_version INTEGER NOT NULL,
+                result_json TEXT NOT NULL,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (audio_fingerprint, engine_key)
+            );
+            CREATE TABLE IF NOT EXISTS preview_analysis_aliases (
+                track_id INTEGER NOT NULL,
+                profile TEXT NOT NULL,
+                duration_seconds REAL NOT NULL,
+                decoder_version TEXT NOT NULL,
+                engine_key TEXT NOT NULL,
+                fingerprint TEXT NOT NULL,
+                expires_at_utc TEXT NOT NULL,
+                PRIMARY KEY (
+                    track_id, profile, duration_seconds, decoder_version, engine_key
+                )
+            );
         """)
         await self._conn.commit()
         queue_columns = await self._conn.execute_fetchall("PRAGMA table_info(queue)")
@@ -98,6 +154,111 @@ class Database:
     async def close(self):
         if self._conn:
             await self._conn.close()
+
+    async def get_analysis_result(
+        self, fingerprint: str, engine_key: str
+    ) -> HybridAnalysisResult | None:
+        fingerprint = _require_sha256(fingerprint, "fingerprint")
+        engine_key = _require_sha256(engine_key, "engine_key")
+        rows = await self._conn.execute_fetchall(
+            """SELECT result_json FROM analysis_result_cache
+               WHERE audio_fingerprint = ? AND engine_key = ?""",
+            (fingerprint, engine_key),
+        )
+        if not rows:
+            return None
+        try:
+            result = deserialize_result(json.loads(rows[0]["result_json"]))
+        except (TypeError, ValueError, json.JSONDecodeError):
+            return None
+        if result.audio_fingerprint.lower() != fingerprint:
+            return None
+        return result
+
+    async def set_analysis_result(
+        self, result: HybridAnalysisResult, engine_key: str
+    ) -> None:
+        fingerprint = _require_sha256(result.audio_fingerprint, "audio_fingerprint")
+        engine_key = _require_sha256(engine_key, "engine_key")
+        _require_sha256(result.model_sha256, "model_sha256")
+        _require_sha256(result.settings_sha256, "settings_sha256")
+        result_json = json.dumps(
+            serialize_result(result),
+            sort_keys=True,
+            separators=(",", ":"),
+            ensure_ascii=True,
+            allow_nan=False,
+        )
+        await self._conn.execute(
+            """INSERT INTO analysis_result_cache
+                   (audio_fingerprint, engine_key, schema_version, result_json)
+               VALUES (?, ?, ?, ?)
+               ON CONFLICT(audio_fingerprint, engine_key) DO UPDATE SET
+                   schema_version = excluded.schema_version,
+                   result_json = excluded.result_json,
+                   created_at = CURRENT_TIMESTAMP""",
+            (fingerprint, engine_key, result.schema_version, result_json),
+        )
+        await self._conn.commit()
+
+    async def get_preview_analysis_alias(
+        self,
+        track_id: int,
+        profile: str,
+        duration_seconds: float,
+        decoder_version: str,
+        engine_key: str,
+        now_utc: datetime,
+    ) -> str | None:
+        duration_seconds = _require_duration(duration_seconds)
+        engine_key = _require_sha256(engine_key, "engine_key")
+        now = _utc_timestamp(now_utc, "now_utc")
+        rows = await self._conn.execute_fetchall(
+            """SELECT fingerprint FROM preview_analysis_aliases
+               WHERE track_id = ? AND profile = ? AND duration_seconds = ?
+                 AND decoder_version = ? AND engine_key = ? AND expires_at_utc > ?""",
+            (track_id, profile, duration_seconds, decoder_version, engine_key, now),
+        )
+        if not rows:
+            return None
+        try:
+            return _require_sha256(rows[0]["fingerprint"], "fingerprint")
+        except ValueError:
+            return None
+
+    async def set_preview_analysis_alias(
+        self,
+        track_id: int,
+        profile: str,
+        duration_seconds: float,
+        decoder_version: str,
+        engine_key: str,
+        fingerprint: str,
+        expires_at_utc: datetime,
+    ) -> None:
+        duration_seconds = _require_duration(duration_seconds)
+        engine_key = _require_sha256(engine_key, "engine_key")
+        fingerprint = _require_sha256(fingerprint, "fingerprint")
+        expires_at = _utc_timestamp(expires_at_utc, "expires_at_utc")
+        await self._conn.execute(
+            """INSERT INTO preview_analysis_aliases
+                   (track_id, profile, duration_seconds, decoder_version,
+                    engine_key, fingerprint, expires_at_utc)
+               VALUES (?, ?, ?, ?, ?, ?, ?)
+               ON CONFLICT(track_id, profile, duration_seconds, decoder_version, engine_key)
+               DO UPDATE SET fingerprint = excluded.fingerprint,
+                             expires_at_utc = excluded.expires_at_utc""",
+            (
+                track_id,
+                profile,
+                duration_seconds,
+                decoder_version,
+                engine_key,
+                fingerprint,
+                expires_at,
+            ),
+        )
+        await self._conn.commit()
 
     async def add_to_queue(self, tidal_id, item_type, title, artist, album, quality, format, from_collection: bool = False):
         cursor = await self._conn.execute(

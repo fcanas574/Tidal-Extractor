@@ -271,17 +271,59 @@ export interface PreviewStream {
   duration: number | null;
 }
 
-export type PreviewMetadataStatus = 'queued' | 'processing' | 'complete' | 'failed';
+export type PreviewMetadataStatus = 'queued' | 'processing' | 'partial' | 'complete' | 'failed';
+
+export type PreviewAnalysisStatus = 'queued' | 'processing' | 'complete' | 'failed' | 'unknown' | 'deferred';
+export type PreviewAnalysisQuality = 'reliable' | 'needs_review' | 'unknown' | 'unavailable' | 'failed';
+
+export interface PreviewKeyAnalysis {
+  key: string | null;
+  camelot: string | null;
+  status: PreviewAnalysisQuality;
+}
+
+export interface PreviewGridAnalysis {
+  bpm: number | null;
+  period_seconds: number | null;
+  origin_seconds: number | null;
+  meter: string | null;
+  first_downbeat_beat: number | null;
+  status: PreviewAnalysisQuality;
+}
+
+export interface PreviewRhythmAnalysis {
+  bpm: number | null;
+  beats: number[];
+  downbeats: number[];
+  grid: PreviewGridAnalysis;
+  status: PreviewAnalysisQuality;
+}
+
+export interface PreviewAnalysis {
+  key: PreviewKeyAnalysis | null;
+  rhythm: PreviewRhythmAnalysis | null;
+}
+
+export type PreviewFieldSource = 'local' | 'provider';
 
 export interface PreviewMetadataSnapshot {
   track_id: number;
   status: PreviewMetadataStatus;
   revision: number;
   waveform: WaveformData | null;
+  waveform_status?: 'queued' | 'processing' | 'complete' | 'failed';
+  analysis_status?: PreviewAnalysisStatus;
+  analysis?: PreviewAnalysis | null;
+  analysis_error?: string | null;
   key: string | null;
   camelot: string | null;
   bpm: number | null;
   error: string | null;
+  key_source?: PreviewFieldSource | null;
+  bpm_source?: PreviewFieldSource | null;
+  provider_key?: string | null;
+  provider_camelot?: string | null;
+  provider_bpm?: number | null;
 }
 
 export const preview = {
@@ -289,4 +331,10 @@ export const preview = {
   getUrl: (trackId: number) => request<{ stream_url: string; waveform: WaveformData | null; key: string | null; camelot: string | null; bpm: number | null }>(`/preview/${trackId}`),
   getStream: (trackId: number, signal?: AbortSignal) => request<PreviewStream>(`/preview/${trackId}/stream`, { signal }),
   getMetadata: (trackId: number, signal?: AbortSignal) => request<PreviewMetadataSnapshot>(`/preview/${trackId}/metadata`, { signal }),
+  retryAnalysis: (trackId: number, signal?: AbortSignal) =>
+    request<PreviewMetadataSnapshot>(`/preview/${trackId}/analysis/retry`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      signal,
+    }),
 };

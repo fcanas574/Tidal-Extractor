@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useCallback, useState } from 'react';
 import { useApp } from '../context/AppContext';
 import { preview } from '../api';
-import type { WaveformData } from '../api';
+import type { PreviewAnalysis, PreviewMetadataSnapshot, WaveformData } from '../api';
 import VolumeControl from './VolumeControl';
 import { sliderToGain } from '../utils/audioMath';
 
@@ -24,9 +24,96 @@ function KeyBadge({ camelot }: { camelot: string | null }) {
 function BPMBadge({ bpm }: { bpm: number | null }) {
   if (!bpm) return null;
 
-  return (
-    <span data-testid="bpm-badge" className="preview-bpm-badge">{Math.round(bpm)} BPM</span>
-  );
+  const displayBpm = Number(bpm.toFixed(2)).toString();
+  return <span data-testid="bpm-badge" className="preview-bpm-badge">{displayBpm} BPM</span>;
+}
+
+type PreviewMarker = { time: number; kind: 'beat' | 'downbeat'; left: string };
+
+function getPreviewAnalysisLabel(
+  status: PreviewMetadataSnapshot['analysis_status'],
+  analysis: PreviewAnalysis | null,
+): string {
+  if (status === 'queued' || status === 'processing') return 'Analyzing';
+  if (status === 'failed' || status === 'deferred') return 'Analysis unavailable';
+  if (status === 'unknown' || status == null) return 'Unknown';
+
+  const keyStatus = analysis?.key?.status;
+  const rhythmStatus = analysis?.rhythm?.grid?.status ?? analysis?.rhythm?.status;
+  const componentStatuses = [keyStatus ?? 'unknown', rhythmStatus ?? 'unknown'];
+  if (componentStatuses.some((value) => value === 'failed' || value === 'unavailable')) {
+    return 'Analysis unavailable';
+  }
+  if (componentStatuses.some((value) => value === 'needs_review')) return 'Needs review';
+  if (componentStatuses.some((value) => value === 'unknown')) return 'Unknown';
+  if (componentStatuses.length > 0 && componentStatuses.every((value) => value === 'reliable')) return 'Ready';
+  return 'Unknown';
+}
+
+function hasRetryableAnalysisFailure(analysis: PreviewAnalysis): boolean {
+  return analysis.key?.status === 'failed'
+    || ['failed', 'unavailable'].includes(analysis.rhythm?.status ?? '')
+    || ['failed', 'unavailable'].includes(analysis.rhythm?.grid?.status ?? '');
+}
+
+function getPreviewMarkers(
+  analysis: PreviewAnalysis | null,
+  duration: number,
+  width: number,
+): PreviewMarker[] {
+  if (!analysis?.rhythm || !Number.isFinite(duration) || duration <= 0) return [];
+  const rhythm = analysis.rhythm;
+  const grid = rhythm.grid;
+  let events: Array<{ time: number; kind: 'beat' | 'downbeat' }> = [];
+
+  const period = grid?.period_seconds ?? (grid?.bpm ? 60 / grid.bpm : null);
+  if (
+    grid?.status === 'reliable'
+    && Number.isFinite(grid.origin_seconds)
+    && period !== null
+    && Number.isFinite(period)
+    && period > 0
+  ) {
+    const origin = grid.origin_seconds as number;
+    const firstDownbeat = grid.first_downbeat_beat;
+    const beatsPerBar = Number.parseInt(grid.meter?.split('/')[0] ?? '', 10) || 4;
+    const firstBeatIndex = Math.ceil((0 - origin) / period);
+    for (let beatIndex = firstBeatIndex; ; beatIndex += 1) {
+      const time = origin + beatIndex * period;
+      if (time > duration) break;
+      if (time < 0) continue;
+      const isDownbeat = Number.isInteger(firstDownbeat)
+        && (beatIndex - (firstDownbeat as number)) % beatsPerBar === 0;
+      events.push({ time, kind: isDownbeat ? 'downbeat' : 'beat' });
+    }
+  } else {
+    const validTimes = (values: number[] | undefined, kind: 'beat' | 'downbeat') =>
+      (values ?? [])
+        .filter((time) => Number.isFinite(time) && time >= 0 && time <= duration)
+        .map((time) => ({ time, kind }));
+    events = [...validTimes(rhythm.beats, 'beat'), ...validTimes(rhythm.downbeats, 'downbeat')];
+  }
+
+  events.sort((a, b) => a.time - b.time || (a.kind === 'downbeat' ? -1 : 1));
+  const coalesced: Array<{ time: number; kind: 'beat' | 'downbeat' }> = [];
+  let nearby: Array<{ time: number; kind: 'beat' | 'downbeat' }> = [];
+  const addPreferred = () => {
+    if (nearby.length === 0) return;
+    coalesced.push(nearby.find((event) => event.kind === 'downbeat') ?? nearby[0]);
+    nearby = [];
+  };
+  for (const event of events) {
+    const previous = nearby[nearby.length - 1];
+    const pixelGap = previous && width > 0 ? ((event.time - previous.time) / duration) * width : Infinity;
+    if (nearby.length > 0 && pixelGap > 4) addPreferred();
+    nearby.push(event);
+  }
+  addPreferred();
+
+  return coalesced.map((event) => ({
+    ...event,
+    left: `${(event.time / duration) * 100}%`,
+  }));
 }
 
 export type WaveformMode = '3band' | 'rgb';
@@ -208,6 +295,8 @@ export default function AudioPlayerFooter() {
     details: DOMRect | null;
   } | null>(null);
   const previewTokenRef = useRef(0);
+  const previewAbortRef = useRef<AbortController | null>(null);
+  const pollMetadataRef = useRef<(() => void) | null>(null);
   const { previewTrack, previewPlaying } = state;
   const previewPlayingRef = useRef(previewPlaying);
   const [displayTrack, setDisplayTrack] = useState(previewTrack);
@@ -219,6 +308,13 @@ export default function AudioPlayerFooter() {
   const [hoverFraction, setHoverFraction] = useState<number | null>(null);
   const [keyCamelot, setKeyCamelot] = useState<string | null>(null);
   const [bpm, setBpm] = useState<number | null>(null);
+  const [keySource, setKeySource] = useState<'local' | 'provider' | null>(null);
+  const [bpmSource, setBpmSource] = useState<'local' | 'provider' | null>(null);
+  const [analysis, setAnalysis] = useState<PreviewAnalysis | null>(null);
+  const [analysisStatus, setAnalysisStatus] = useState<PreviewMetadataSnapshot['analysis_status']>('unknown');
+  const [analysisRetrying, setAnalysisRetrying] = useState(false);
+  const [analysisRetryError, setAnalysisRetryError] = useState<string | null>(null);
+  const [waveformWidth, setWaveformWidth] = useState(0);
   const DEFAULT_VOLUME = 0.8;
   const [waveformFailed, setWaveformFailed] = useState(false);
   const [streamFailed, setStreamFailed] = useState(false);
@@ -243,6 +339,20 @@ export default function AudioPlayerFooter() {
     }
   });
   const prevVolumeRef = useRef<number>(volumeSlider > 0 ? volumeSlider : DEFAULT_VOLUME);
+
+  const applyMetadata = useCallback((meta: PreviewMetadataSnapshot, trackId: number, token: number) => {
+    if (token !== previewTokenRef.current || meta.track_id !== trackId) return false;
+    setWaveform(meta.waveform ?? null);
+    setWaveformFailed(meta.waveform_status === 'failed' || (meta.status === 'failed' && !meta.waveform));
+    setKeyCamelot(meta.camelot ?? null);
+    setBpm(meta.bpm ?? null);
+    setKeySource(meta.key_source ?? null);
+    setBpmSource(meta.bpm_source ?? null);
+    setAnalysis(meta.analysis ?? null);
+    setAnalysisStatus(meta.analysis_status ?? (meta.status === 'failed' ? 'failed' : 'unknown'));
+    setAnalysisRetryError(null);
+    return true;
+  }, []);
 
   useEffect(() => {
     previewPlayingRef.current = previewPlaying;
@@ -280,12 +390,15 @@ export default function AudioPlayerFooter() {
     const trackId = previewTrack.id;
     const token = ++previewTokenRef.current;
     const abort = new AbortController();
+    previewAbortRef.current = abort;
     let cancelled = false;
     let pollTimer: ReturnType<typeof setTimeout> | undefined;
     let ownedAudio: HTMLAudioElement | null = null;
     let disposeAudio: (() => void) | undefined;
     setCurrentTime(0); setDuration(0); setWaveform(null); setWaveformFailed(false); setStreamFailed(false);
     setKeyCamelot(null); setBpm(null);
+    setKeySource(null); setBpmSource(null); setAnalysis(null); setAnalysisStatus('processing');
+    setAnalysisRetrying(false); setAnalysisRetryError(null);
 
     const active = () => !cancelled && token === previewTokenRef.current;
 
@@ -295,16 +408,14 @@ export default function AudioPlayerFooter() {
         try {
           const meta = await preview.getMetadata(trackId, abort.signal);
           if (!active()) return;
-          if (meta.track_id !== trackId) return; // stale/mismatched snapshot: stop polling
-          if (meta.waveform?.bands) setWaveform(meta.waveform);
-          if (meta.camelot) setKeyCamelot(meta.camelot);
-          if (meta.bpm) setBpm(meta.bpm);
-          if (meta.status === 'failed') { setWaveformFailed(true); return; } // terminal failure
-          if (meta.status === 'complete') return; // terminal: stop polling
+          if (!applyMetadata(meta, trackId, token)) return; // stale/mismatched snapshot: stop polling
+          if (meta.status === 'failed') return; // terminal preview failure
+          if (meta.status === 'partial' || meta.status === 'complete') return; // partial analysis is terminal
           poll();
         } catch { /* transient error: retry next tick, keep placeholder */ poll(); }
       }, 750);
     };
+    pollMetadataRef.current = poll;
 
     preview.getStream(trackId, abort.signal).then((r) => {
       if (!active()) return;
@@ -343,6 +454,8 @@ export default function AudioPlayerFooter() {
       cancelled = true;
       abort.abort(); // cancel any in-flight preview requests on track change/close
       if (pollTimer) clearTimeout(pollTimer);
+      if (pollMetadataRef.current === poll) pollMetadataRef.current = null;
+      if (previewAbortRef.current === abort) previewAbortRef.current = null;
       if (ownedAudio) {
         disposeAudio?.();
         ownedAudio.pause();
@@ -351,7 +464,7 @@ export default function AudioPlayerFooter() {
         if (audioRef.current === ownedAudio) audioRef.current = null;
       }
     };
-  }, [previewTrack?.id, streamRetryNonce]);
+  }, [previewTrack?.id, streamRetryNonce, applyMetadata]);
 
   useEffect(() => {
     if (!previewTrack) {
@@ -359,6 +472,28 @@ export default function AudioPlayerFooter() {
       audioRef.current = null;
     }
   }, [previewTrack]);
+
+  useLayoutEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      setWaveformWidth((current) => current === 0 ? current : 0);
+      return;
+    }
+
+    const measure = () => {
+      const width = canvas.getBoundingClientRect().width;
+      setWaveformWidth((current) => current === width ? current : width);
+    };
+    measure();
+
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(measure);
+    observer?.observe(canvas);
+    window.addEventListener('resize', measure);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener('resize', measure);
+    };
+  }, [waveform]);
 
   useEffect(() => {
     setMobileExpanded(false);
@@ -495,12 +630,37 @@ export default function AudioPlayerFooter() {
     seekToFraction(nextTime / wfDuration);
   }, [currentTime, duration, seekToFraction, waveform]);
 
-  const playerExpanded = !!displayTrack && expandedPreviewTrackId === displayTrack.id;
   const retryStream = useCallback(() => {
     setStreamFailed(false);
     setStreamRetryNonce((nonce) => nonce + 1);
     dispatch({ type: 'SET_PREVIEW_PLAYING', payload: true });
   }, [dispatch]);
+
+  const retryAnalysis = useCallback(async () => {
+    const trackId = previewTrack?.id;
+    const token = previewTokenRef.current;
+    const signal = previewAbortRef.current?.signal;
+    if (trackId === undefined || !signal || signal.aborted || analysisRetrying) return;
+
+    setAnalysisRetrying(true);
+    setAnalysisRetryError(null);
+    try {
+      const snapshot = await preview.retryAnalysis(trackId, signal);
+      if (!applyMetadata(snapshot, trackId, token)) return;
+      if (snapshot.status === 'queued' || snapshot.status === 'processing') {
+        pollMetadataRef.current?.();
+      }
+    } catch {
+      if (token === previewTokenRef.current) {
+        setAnalysisStatus('failed');
+        setAnalysisRetryError('Analysis retry failed. Try again.');
+      }
+    } finally {
+      if (token === previewTokenRef.current) setAnalysisRetrying(false);
+    }
+  }, [previewTrack?.id, analysisRetrying, applyMetadata]);
+
+  const playerExpanded = !!displayTrack && expandedPreviewTrackId === displayTrack.id;
 
   useLayoutEffect(() => {
     const previousRects = previousLayoutRectsRef.current;
@@ -546,6 +706,10 @@ export default function AudioPlayerFooter() {
 
   const waveformMode = (state.settings?.waveform_color as WaveformMode) || '3band';
   const totalDuration = waveform?.duration || duration;
+  const analysisLabel = getPreviewAnalysisLabel(analysisStatus, analysis);
+  const markers = getPreviewMarkers(analysis, totalDuration, waveformWidth);
+  const canRetryAnalysis = analysisStatus === 'deferred'
+    || (analysisStatus === 'failed' && (!analysis || hasRetryableAnalysisFailure(analysis)));
   const detailVisibility = playerExpanded || mobileExpanded ? 'block' : 'hidden md:block';
   const secondaryVisibility = playerExpanded || mobileExpanded ? 'flex' : 'hidden md:flex';
 
@@ -657,28 +821,56 @@ export default function AudioPlayerFooter() {
                 <button type="button" onClick={retryStream}>Retry preview</button>
               </div>
             ) : waveform ? (
-              <canvas
-                ref={canvasRef}
-                role="slider"
-                tabIndex={0}
-                aria-label={`Seek preview: ${activeTrack.title}`}
-                aria-valuemin={0}
-                aria-valuemax={totalDuration}
-                aria-valuenow={Math.min(currentTime, totalDuration)}
-                aria-valuetext={`${formatTime(currentTime)} of ${formatTime(totalDuration)}`}
-                onClick={seek}
-                onKeyDown={seekWithKeyboard}
-                onMouseMove={(e) => {
-                  const c = canvasRef.current;
-                  if (!c) return;
-                  const r = c.getBoundingClientRect();
-                  if (!Number.isFinite(r.width) || r.width <= 0) return;
-                  setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
-                }}
-                onMouseLeave={() => setHoverFraction(null)}
-                className="preview-waveform-canvas w-full cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-offset-2"
-                style={{ display: 'block', height: '44px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}
-              />
+              <div className="preview-waveform-stage" style={{ position: 'relative', width: '100%', height: '44px' }}>
+                <canvas
+                  ref={canvasRef}
+                  role="slider"
+                  tabIndex={0}
+                  aria-label={`Seek preview: ${activeTrack.title}`}
+                  aria-valuemin={0}
+                  aria-valuemax={totalDuration}
+                  aria-valuenow={Math.min(currentTime, totalDuration)}
+                  aria-valuetext={`${formatTime(currentTime)} of ${formatTime(totalDuration)}`}
+                  onClick={seek}
+                  onKeyDown={seekWithKeyboard}
+                  onMouseMove={(e) => {
+                    const c = canvasRef.current;
+                    if (!c) return;
+                    const r = c.getBoundingClientRect();
+                    if (!Number.isFinite(r.width) || r.width <= 0) return;
+                    setHoverFraction(Math.max(0, Math.min(1, (e.clientX - r.left) / r.width)));
+                  }}
+                  onMouseLeave={() => setHoverFraction(null)}
+                  className="preview-waveform-canvas w-full cursor-pointer rounded focus-visible:outline-2 focus-visible:outline-offset-2"
+                  style={{ display: 'block', width: '100%', height: '44px', background: '#000000', border: '1px solid rgba(255,255,255,0.06)' }}
+                />
+                <div
+                  className="preview-waveform-markers"
+                  data-testid="preview-waveform-markers"
+                  aria-hidden="true"
+                  style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden' }}
+                >
+                  {markers.map((marker) => (
+                    <span
+                      key={`${marker.kind}-${marker.time}`}
+                      data-testid={`${marker.kind}-marker`}
+                      data-marker-kind={marker.kind}
+                      data-time={marker.time}
+                      aria-hidden="true"
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        bottom: 0,
+                        left: marker.left,
+                        width: marker.kind === 'downbeat' ? '2px' : '1px',
+                        transform: 'translateX(-50%)',
+                        background: marker.kind === 'downbeat' ? 'rgba(255,255,255,0.72)' : 'rgba(255,255,255,0.32)',
+                        pointerEvents: 'none',
+                      }}
+                    />
+                  ))}
+                </div>
+              </div>
             ) : waveformFailed ? (
               <div className="preview-waveform-placeholder" role="status" aria-live="polite">
                 <span>waveform unavailable</span>
@@ -687,9 +879,53 @@ export default function AudioPlayerFooter() {
               <div className="preview-waveform-placeholder animate-pulse" aria-label="Loading waveform" role="status" />
             )}
           </div>
-          <div id="preview-player-secondary" className={`preview-player-meta ${secondaryVisibility} items-center shrink-0`}>
+          <div
+            id="preview-player-secondary"
+            className={`preview-player-meta ${secondaryVisibility} items-center shrink-0`}
+            style={{ flexWrap: 'wrap' }}
+          >
             <KeyBadge camelot={keyCamelot} />
             <BPMBadge bpm={bpm} />
+            {keyCamelot && keySource && (
+              <span
+                className="preview-field-source"
+                data-testid="key-source"
+                style={{ color: 'var(--text-dim)', fontSize: '9px', whiteSpace: 'nowrap' }}
+              >
+                Key from {keySource === 'local' ? 'local analysis' : 'provider'}
+              </span>
+            )}
+            {bpm !== null && bpmSource && (
+              <span
+                className="preview-field-source"
+                data-testid="bpm-source"
+                style={{ color: 'var(--text-dim)', fontSize: '9px', whiteSpace: 'nowrap' }}
+              >
+                BPM from {bpmSource === 'local' ? 'local analysis' : 'provider'}
+              </span>
+            )}
+            <span
+              role="status"
+              aria-live="polite"
+              data-testid="preview-analysis-status"
+              className="preview-analysis-status"
+              style={{ color: 'var(--text-dim)', fontSize: '10px', whiteSpace: 'nowrap' }}
+            >
+              {analysisLabel}
+            </span>
+            {canRetryAnalysis && (
+              <button
+                type="button"
+                onClick={() => void retryAnalysis()}
+                disabled={analysisRetrying}
+                className="preview-analysis-retry focus-visible:outline-2 focus-visible:outline-offset-2"
+                aria-label="Retry analysis"
+                style={{ padding: 0, color: 'var(--mint)', background: 'transparent', border: 0, fontSize: '10px', cursor: 'pointer' }}
+              >
+                {analysisRetrying ? 'Retrying analysis…' : 'Retry analysis'}
+              </button>
+            )}
+            {analysisRetryError && <span role="alert">{analysisRetryError}</span>}
           </div>
         </div>
         <div className="preview-player-mobile-volume sm:hidden">
