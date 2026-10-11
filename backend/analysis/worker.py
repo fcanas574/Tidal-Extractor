@@ -523,11 +523,11 @@ class AnalysisWorker:
                         await asyncio.shield(remove_task)
                     finally:
                         raise cancelled
+                self.managed_paths[job_id] = managed_path
                 if len(self._queue) >= self.max_waiting:
                     oldest_id, oldest = self._queue.popitem(last=False)
                     self._jobs.pop(oldest_id, None)
                     self.managed_paths.pop(oldest_id, None)
-                    await asyncio.to_thread(self._remove_managed_file, oldest.wav_path)
                     for old_waiter in oldest.waiters:
                         if not old_waiter.done():
                             old_waiter.set_exception(
@@ -535,10 +535,23 @@ class AnalysisWorker:
                                     f"queued analysis {oldest_id!r} was replaced by newer work"
                                 )
                             )
+                    cleanup_task = asyncio.create_task(
+                        asyncio.to_thread(self._remove_managed_file, oldest.wav_path)
+                    )
+                    try:
+                        await asyncio.shield(cleanup_task)
+                    except asyncio.CancelledError as cancelled:
+                        self.managed_paths.pop(job_id, None)
+                        remove_task = asyncio.create_task(
+                            asyncio.to_thread(self._remove_managed_file, managed_path)
+                        )
+                        try:
+                            await asyncio.shield(remove_task)
+                        finally:
+                            raise cancelled
                 pending = _PendingJob(job_id, managed_path, settings, [waiter])
                 self._queue[job_id] = pending
                 self._jobs[job_id] = pending
-                self.managed_paths[job_id] = managed_path
                 if self._dispatcher is None or self._dispatcher.done():
                     self._dispatcher = asyncio.create_task(self._dispatch())
 

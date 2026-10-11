@@ -335,6 +335,116 @@ async def test_worker_queue_is_bounded_and_replaces_oldest_waiter(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_cancel_during_eviction_cleanup_removes_new_wav_and_notifies_evicted_waiter(
+    tmp_path, monkeypatch
+):
+    context = multiprocessing.get_context("spawn")
+    release_path = tmp_path / "release"
+    started = context.Event()
+    worker = AnalysisWorker(
+        worker_target=_fake_worker_loop,
+        worker_target_args=(str(release_path), started),
+        max_waiting=4,
+    )
+    active = asyncio.create_task(
+        worker.submit(
+            "active", _wav(tmp_path, "active.wav", b"block"), AnalysisSettings()
+        )
+    )
+    queued = []
+    submitter = None
+    release_cleanup = threading.Event()
+    cleanup_started = threading.Event()
+    cleanup_finished = threading.Event()
+    copied_paths = []
+    real_copy = worker._copy_wav
+    real_remove = worker._remove_managed_file
+
+    def record_copy(source_path):
+        path = real_copy(source_path)
+        copied_paths.append(path)
+        return path
+
+    monkeypatch.setattr(worker, "_copy_wav", record_copy)
+    try:
+        assert await asyncio.to_thread(started.wait, 3)
+        for index in range(4):
+            queued.append(
+                asyncio.create_task(
+                    worker.submit(
+                        f"queued-{index}",
+                        _wav(tmp_path, f"queued-{index}.wav"),
+                        AnalysisSettings(),
+                    )
+                )
+            )
+            await _wait_until(lambda: worker.queued_source_count == index + 1)
+
+        evicted_path = worker.managed_paths["queued-0"]
+
+        def block_evicted_cleanup(path):
+            if Path(path) == evicted_path:
+                cleanup_started.set()
+                if not release_cleanup.wait(3):
+                    raise TimeoutError("test did not release eviction cleanup")
+                result = real_remove(path)
+                cleanup_finished.set()
+                return result
+            return real_remove(path)
+
+        monkeypatch.setattr(worker, "_remove_managed_file", block_evicted_cleanup)
+        submitter = asyncio.create_task(
+            worker.submit(
+                "cancelled-fifth",
+                _wav(tmp_path, "cancelled-fifth.wav"),
+                AnalysisSettings(),
+            )
+        )
+        assert await asyncio.to_thread(cleanup_started.wait, 3)
+        assert len(copied_paths) == 6
+        new_managed_path = copied_paths[-1]
+        assert new_managed_path.is_file()
+
+        submitter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await submitter
+        release_cleanup.set()
+        assert await asyncio.to_thread(cleanup_finished.wait, 3)
+
+        assert not new_managed_path.exists()
+        assert queued[0].done()
+        with pytest.raises(QueueWaiterReplaced):
+            await queued[0]
+        assert worker.queued_source_count == 3
+        assert set(worker.managed_paths) == set(worker._jobs)
+        assert set(worker.managed_paths) == {
+            "active",
+            "queued-1",
+            "queued-2",
+            "queued-3",
+        }
+
+        release_path.touch()
+        assert (await active).key.status == "reliable"
+        for waiter in queued[1:]:
+            assert (await waiter).key.status == "reliable"
+    finally:
+        release_cleanup.set()
+        release_path.touch()
+        if submitter is not None and not submitter.done():
+            submitter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await submitter
+        await worker.close()
+        for waiter in (active, *queued):
+            if not waiter.done():
+                waiter.cancel()
+        await asyncio.gather(active, *queued, return_exceptions=True)
+        for path in copied_paths:
+            path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
 async def test_same_identity_coalesces(tmp_path):
     context = multiprocessing.get_context("spawn")
     release_path = tmp_path / "release"
