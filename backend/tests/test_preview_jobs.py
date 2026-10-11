@@ -1,5 +1,6 @@
 import asyncio
 from copy import deepcopy
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -12,6 +13,185 @@ def test_start_or_get_is_idempotent():
     second = manager.start_or_get(12, "https://example.test/stream", 240.0)
     assert first.track_id == second.track_id == 12
     assert manager.active_job_count() == 1
+
+
+@pytest.mark.parametrize(
+    ("next_url", "next_duration"),
+    [
+        ("https://example.test/replacement-stream", 240.0),
+        ("https://example.test/stream", 180.0),
+    ],
+    ids=["changed-source", "changed-duration"],
+)
+def test_completed_snapshot_is_not_reused_for_changed_preview_identity(
+    next_url, next_duration,
+):
+    calls = []
+
+    def analyzer(stream_url, duration, *_args, **_kwargs):
+        calls.append((stream_url, duration))
+        return {"waveform": {"points": [len(calls)]}}
+
+    manager = PreviewJobManager(analyzer=analyzer)
+    manager.start_or_get(12, "https://example.test/stream", 240.0)
+    manager.run_pending_for_test()
+
+    replacement = manager.start_or_get(12, next_url, next_duration)
+    assert replacement.status == "queued"
+    manager.run_pending_for_test()
+
+    assert calls == [
+        ("https://example.test/stream", 240.0),
+        (next_url, next_duration),
+    ]
+    assert manager.snapshot(12).waveform == {"points": [2]}
+
+
+@pytest.mark.parametrize(
+    "changed_identity",
+    [
+        {"preview_profile": "HIGH"},
+        {"decoder_version": "decoder-v2"},
+        {"settings_identity": "settings-v2"},
+    ],
+    ids=["changed-profile", "changed-decoder", "changed-settings"],
+)
+def test_completed_snapshot_is_not_reused_after_engine_identity_changes(changed_identity):
+    calls = []
+
+    def analyzer(stream_url, duration, *_args, **_kwargs):
+        calls.append((stream_url, duration))
+        return {"waveform": {"points": [len(calls)]}}
+
+    manager = PreviewJobManager(analyzer=analyzer)
+    manager.start_or_get(
+        12,
+        "https://example.test/stream?asset=one&token=old",
+        240.0,
+        preview_profile="LOW",
+        decoder_version="decoder-v1",
+        settings_identity="settings-v1",
+    )
+    manager.run_pending_for_test()
+
+    identity = {
+        "preview_profile": "LOW",
+        "decoder_version": "decoder-v1",
+        "settings_identity": "settings-v1",
+    }
+    identity.update(changed_identity)
+    replacement = manager.start_or_get(
+        12,
+        "https://example.test/stream?asset=one&token=new",
+        240.0,
+        **identity,
+    )
+    assert replacement.status == "queued"
+    manager.run_pending_for_test()
+
+    assert len(calls) == 2
+    assert manager.snapshot(12).waveform == {"points": [2]}
+
+
+def test_rotating_signed_url_reuses_matching_preview_alias_within_24_hours():
+    calls = []
+
+    def analyzer(stream_url, duration, *_args, **_kwargs):
+        calls.append(stream_url)
+        return {"waveform": {"points": [1]}}
+
+    manager = PreviewJobManager(analyzer=analyzer)
+    first = manager.start_or_get(
+        12,
+        "https://example.test/stream?asset=one&token=old",
+        240.0,
+        preview_profile="LOW",
+        decoder_version="decoder-v1",
+        settings_identity="settings-v1",
+    )
+    manager.run_pending_for_test()
+    refreshed = manager.start_or_get(
+        12,
+        "https://example.test/stream?token=new&asset=one",
+        240.0,
+        preview_profile="LOW",
+        decoder_version="decoder-v1",
+        settings_identity="settings-v1",
+    )
+
+    assert refreshed.status == "complete"
+    assert refreshed.revision == manager.snapshot(12).revision
+    assert first.revision < refreshed.revision
+    assert calls == ["https://example.test/stream?asset=one&token=old"]
+
+
+def test_completed_snapshot_expires_after_24_hours():
+    now = [datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)]
+    calls = []
+
+    def analyzer(*_args, **_kwargs):
+        calls.append("analyzed")
+        return {"waveform": {"points": [len(calls)]}}
+
+    manager = PreviewJobManager(analyzer=analyzer, clock=lambda: now[0])
+    manager.start_or_get(12, "https://example.test/stream", 240.0)
+    manager.run_pending_for_test()
+    now[0] += timedelta(hours=24)
+
+    assert manager.snapshot(12) is None
+    replacement = manager.start_or_get(12, "https://example.test/stream", 240.0)
+    assert replacement.status == "queued"
+    manager.run_pending_for_test()
+
+    assert calls == ["analyzed", "analyzed"]
+
+
+def test_completed_snapshot_retention_is_bounded():
+    manager = PreviewJobManager(
+        analyzer=lambda *_args, **_kwargs: {"waveform": {"points": [1]}},
+        max_retained_snapshots=2,
+    )
+    for track_id in (1, 2, 3):
+        manager.start_or_get(track_id, f"https://example.test/{track_id}", 10.0)
+        manager.run_pending_for_test()
+
+    assert manager.snapshot(1) is None
+    assert manager.snapshot(2) is not None
+    assert manager.snapshot(3) is not None
+
+
+@pytest.mark.asyncio
+async def test_superseded_in_progress_result_cannot_publish_to_current_snapshot():
+    old_started = asyncio.Event()
+    release_old = asyncio.Event()
+    old_finished = asyncio.Event()
+    new_finished = asyncio.Event()
+
+    async def analyzer(stream_url, _duration, _track_id, on_snapshot=None):
+        if stream_url.endswith("old"):
+            old_started.set()
+            await release_old.wait()
+            await on_snapshot({"waveform": {"points": ["stale"]}})
+            old_finished.set()
+            return {"waveform": {"points": ["stale"]}}
+        result = {"waveform": {"points": ["current"]}}
+        new_finished.set()
+        return result
+
+    manager = PreviewJobManager(analyzer=analyzer)
+    manager.start_or_get(12, "https://example.test/old", 240.0)
+    await asyncio.wait_for(old_started.wait(), timeout=1)
+    manager.start_or_get(12, "https://example.test/new", 180.0)
+    await asyncio.wait_for(new_finished.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    release_old.set()
+    await asyncio.wait_for(old_finished.wait(), timeout=1)
+    await asyncio.sleep(0)
+
+    current = manager.snapshot(12)
+    assert current is not None
+    assert current.waveform == {"points": ["current"]}
 
 
 def test_snapshot_reports_failed_job():

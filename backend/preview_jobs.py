@@ -5,10 +5,26 @@ import inspect
 from contextlib import suppress
 from copy import deepcopy
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Any, Callable, Literal
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 PreviewStatus = Literal["queued", "processing", "partial", "complete", "failed"]
+_SNAPSHOT_ALIAS_TTL = timedelta(hours=24)
+_MAX_RETAINED_SNAPSHOTS = 256
+_SIGNED_URL_QUERY_PARAMS = {
+    "access_token",
+    "auth",
+    "expires",
+    "expiry",
+    "exp",
+    "hdnea",
+    "hdnts",
+    "signature",
+    "sig",
+    "token",
+}
 
 
 @dataclass(slots=True)
@@ -39,6 +55,8 @@ class _PreviewJob:
     duration: float | None
     task: asyncio.Task[Any] | None
     snapshot: PreviewMetadataSnapshot
+    identity: tuple[str, str, float | None, str | None, str | None]
+    completed_at_utc: datetime | None = None
 
 
 class PreviewJobManager:
@@ -46,21 +64,55 @@ class PreviewJobManager:
         self,
         analyzer: Callable[..., Any] | None = None,
         analysis_retry: Callable[..., Any] | None = None,
+        *,
+        clock: Callable[[], datetime] | None = None,
+        snapshot_ttl: timedelta = _SNAPSHOT_ALIAS_TTL,
+        max_retained_snapshots: int = _MAX_RETAINED_SNAPSHOTS,
     ):
         self.analyzer = analyzer or (lambda *_: {})
         self.analysis_retry = analysis_retry
+        self._clock = clock or (lambda: datetime.now(timezone.utc))
+        self._snapshot_ttl = snapshot_ttl
+        self._max_retained_snapshots = max_retained_snapshots
         self._test_loop = asyncio.new_event_loop()
         self._lock = RLock()
         self._jobs: dict[int, _PreviewJob] = {}
-        self._active_track_ids: set[int] = set()
+        self._retired_jobs: list[_PreviewJob] = []
 
-    def start_or_get(self, track_id: int, stream_url: str, duration: float | None) -> PreviewMetadataSnapshot:
+    def start_or_get(
+        self,
+        track_id: int,
+        stream_url: str,
+        duration: float | None,
+        *,
+        preview_profile: str = "LOW",
+        decoder_version: str | None = None,
+        settings_identity: str | None = None,
+    ) -> PreviewMetadataSnapshot:
         with self._lock:
             self._prune_completed_jobs_locked()
 
             job = self._jobs.get(track_id)
             if job is not None:
-                return self._clone_snapshot(job.snapshot)
+                identity = self._preview_identity(
+                    stream_url,
+                    duration,
+                    preview_profile,
+                    decoder_version,
+                    settings_identity,
+                )
+                if job.identity == identity and self._is_current_alias_locked(job):
+                    return self._clone_snapshot(job.snapshot)
+                if job.task is not None and not job.task.done():
+                    self._retired_jobs.append(job)
+
+            identity = self._preview_identity(
+                stream_url,
+                duration,
+                preview_profile,
+                decoder_version,
+                settings_identity,
+            )
 
             snapshot = PreviewMetadataSnapshot(
                 track_id=track_id,
@@ -73,20 +125,16 @@ class PreviewJobManager:
                 duration=duration,
                 task=None,
                 snapshot=snapshot,
+                identity=identity,
             )
             self._jobs[track_id] = job
-            self._active_track_ids.add(track_id)
-
-        loop = self._get_scheduling_loop()
-        task = loop.create_task(self._run_job(track_id))
-        with self._lock:
-            current_job = self._jobs.get(track_id)
-            if current_job is not None:
-                current_job.task = task
-        return self._clone_snapshot(snapshot)
+            loop = self._get_scheduling_loop()
+            job.task = loop.create_task(self._run_job(job))
+            return self._clone_snapshot(snapshot)
 
     def snapshot(self, track_id: int) -> PreviewMetadataSnapshot | None:
         with self._lock:
+            self._prune_completed_jobs_locked()
             job = self._jobs.get(track_id)
             if job is None:
                 return None
@@ -95,16 +143,19 @@ class PreviewJobManager:
     def active_job_count(self) -> int:
         with self._lock:
             self._prune_completed_jobs_locked()
-            return len(self._active_track_ids)
+            return sum(
+                1
+                for job in (*self._jobs.values(), *self._retired_jobs)
+                if job.task is not None and not job.task.done()
+            )
 
     def run_pending_for_test(self) -> None:
         while True:
             with self._lock:
                 pending_tasks = [
                     job.task
-                    for track_id in list(self._active_track_ids)
-                    if (job := self._jobs.get(track_id)) is not None
-                    and job.task is not None
+                    for job in (*self._jobs.values(), *self._retired_jobs)
+                    if job.task is not None
                     and job.task.get_loop() is self._test_loop
                     and not job.task.done()
                 ]
@@ -119,10 +170,10 @@ class PreviewJobManager:
         with suppress(Exception):
             self._shutdown()
 
-    async def _run_job(self, track_id: int, *, retry: bool = False) -> None:
+    async def _run_job(self, job: _PreviewJob, *, retry: bool = False) -> None:
+        track_id = job.track_id
         with self._lock:
-            job = self._jobs.get(track_id)
-            if job is None:
+            if self._jobs.get(track_id) is not job:
                 return
             updates = {"status": "processing"}
             if retry:
@@ -134,7 +185,7 @@ class PreviewJobManager:
         async def _on_progress(snapshot: dict) -> None:
             with self._lock:
                 current_job = self._jobs.get(track_id)
-                if current_job is not None:
+                if current_job is job:
                     progress: dict[str, Any] = {}
                     bands = snapshot.get("bands")
                     duration = snapshot.get("duration")
@@ -186,7 +237,7 @@ class PreviewJobManager:
             result_data = self._extract_result_data(result)
             with self._lock:
                 current_job = self._jobs.get(track_id)
-                if current_job is not None:
+                if current_job is job:
                     updates = dict(result_data)
                     if "analysis_status" not in updates:
                         updates["analysis_status"] = "complete"
@@ -202,7 +253,7 @@ class PreviewJobManager:
         except Exception as exc:  # pragma: no cover - exercised by unit tests
             with self._lock:
                 current_job = self._jobs.get(track_id)
-                if current_job is not None:
+                if current_job is job:
                     waveform_status = current_job.snapshot.waveform_status
                     self._update_snapshot_locked(
                         current_job,
@@ -211,6 +262,9 @@ class PreviewJobManager:
                         analysis_error=str(exc),
                         error=str(exc),
                     )
+        finally:
+            with self._lock:
+                job.completed_at_utc = self._now_utc()
 
     def publish_progress(self, track_id: int, updates: dict) -> None:
         """Merge partial fields into the live snapshot with a revision bump."""
@@ -333,9 +387,9 @@ class PreviewJobManager:
                 error=None,
             )
             loop = self._get_scheduling_loop()
-            task = loop.create_task(self._run_job(track_id, retry=True))
+            job.completed_at_utc = None
+            task = loop.create_task(self._run_job(job, retry=True))
             job.task = task
-            self._active_track_ids.add(track_id)
             return self._clone_snapshot(job.snapshot)
 
     async def close(self) -> None:
@@ -344,7 +398,7 @@ class PreviewJobManager:
         with self._lock:
             tasks = [
                 job.task
-                for job in self._jobs.values()
+                for job in (*self._jobs.values(), *self._retired_jobs)
                 if job.task is not None and not job.task.done()
             ]
         same_loop = [task for task in tasks if task.get_loop() is current_loop]
@@ -354,17 +408,68 @@ class PreviewJobManager:
             await asyncio.gather(*same_loop, return_exceptions=True)
 
     def _prune_completed_jobs_locked(self) -> None:
-        for track_id in list(self._active_track_ids):
-            job = self._jobs.get(track_id)
-            if job is None or job.task is None or not job.task.done():
+        now = self._now_utc()
+        self._retired_jobs = [
+            job for job in self._retired_jobs
+            if job.task is not None and not job.task.done()
+        ]
+        for track_id, job in list(self._jobs.items()):
+            if job.task is None or not job.task.done():
                 continue
-            self._active_track_ids.discard(track_id)
+            if job.completed_at_utc is None:
+                job.completed_at_utc = now
+            if now >= job.completed_at_utc + self._snapshot_ttl:
+                del self._jobs[track_id]
+
+        retained = sorted(
+            (
+                (job.completed_at_utc, track_id)
+                for track_id, job in self._jobs.items()
+                if job.task is not None and job.task.done()
+            ),
+            key=lambda item: item[0],
+        )
+        for _, track_id in retained[: max(0, len(retained) - self._max_retained_snapshots)]:
+            del self._jobs[track_id]
+
+    def _is_current_alias_locked(self, job: _PreviewJob) -> bool:
+        if job.task is None or not job.task.done():
+            return True
+        if job.completed_at_utc is None:
+            job.completed_at_utc = self._now_utc()
+        return self._now_utc() < job.completed_at_utc + self._snapshot_ttl
+
+    def _now_utc(self) -> datetime:
+        current = self._clock()
+        if (
+            not isinstance(current, datetime)
+            or current.tzinfo is None
+            or current.utcoffset() is None
+            or current.utcoffset().total_seconds() != 0
+        ):
+            raise ValueError("clock must return a timezone-aware UTC datetime")
+        return current.astimezone(timezone.utc)
+
+    @staticmethod
+    def _preview_identity(
+        stream_url: str,
+        duration: float | None,
+        preview_profile: str,
+        decoder_version: str | None,
+        settings_identity: str | None,
+    ) -> tuple[str, str, float | None, str | None, str | None]:
+        source = _source_identity(stream_url)
+        try:
+            normalized_duration = float(duration) if duration is not None else None
+        except (TypeError, ValueError, OverflowError):
+            normalized_duration = None
+        return source, preview_profile, normalized_duration, decoder_version, settings_identity
 
     def _shutdown(self) -> None:
         with self._lock:
             pending_tasks = [
                 job.task
-                for job in self._jobs.values()
+                for job in (*self._jobs.values(), *self._retired_jobs)
                 if job.task is not None and not job.task.done() and job.task.get_loop() is self._test_loop
             ]
             for task in pending_tasks:
@@ -439,6 +544,37 @@ def _waveform_is_usable(waveform: Any) -> bool:
         isinstance(bands.get(name), list) and bool(bands[name])
         for name in ("low", "mid", "high")
     )
+
+
+def _source_identity(stream_url: str) -> str:
+    """Keep stable media URL parts while ignoring common rotating signatures."""
+    if not isinstance(stream_url, str):
+        return repr(stream_url)
+    try:
+        parsed = urlsplit(stream_url)
+    except ValueError:
+        return stream_url
+    if not parsed.scheme or not parsed.netloc:
+        return stream_url
+
+    stable_query = []
+    for name, value in parse_qsl(parsed.query, keep_blank_values=True):
+        lowered = name.lower()
+        if (
+            lowered in _SIGNED_URL_QUERY_PARAMS
+            or lowered.startswith("x-amz-")
+            or lowered.startswith("x-goog-")
+        ):
+            continue
+        stable_query.append((name, value))
+    stable_query.sort()
+    return urlunsplit((
+        parsed.scheme.lower(),
+        parsed.netloc.lower(),
+        parsed.path,
+        urlencode(stable_query, doseq=True),
+        "",
+    ))
 
 
 def _local_analysis_fields(analysis: Any) -> tuple[str | None, str | None, float | None]:

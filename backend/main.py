@@ -768,33 +768,37 @@ async def preview_stream(track_id: int):
 
 @app.get("/preview/{track_id}/metadata")
 async def preview_metadata(track_id: int):
-    """Resolve the same LOW-quality url, kick off (or fetch) the preview
-    metadata job, and return the current snapshot without waiting for the
-    background analyzer.
+    """Resolve the current LOW-quality source and return its metadata snapshot.
 
     Track/url resolution failures are reported as 404 (mirroring the legacy
-    route); a failure from `start_or_get` (e.g. scheduling error) propagates as
-    a 500 rather than masquerading as "not found."
+    route); manager failures are reported as 503. Repeated polls attach to an
+    in-progress job or a still-valid snapshot for the same preview identity.
     """
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
-        snap = preview_job_manager.snapshot(track_id)
+        preview_job_manager.snapshot(track_id)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Preview metadata unavailable: {e}")
-    if snap is None:
-        # Resolve only when creating a job. Polling attaches to the existing
-        # snapshot and never reschedules completed or failed analysis.
-        try:
-            track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
-        except Exception as e:
-            raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
-        try:
-            snap = preview_job_manager.start_or_get(
-                track_id, url, getattr(track, "duration", None)
-            )
-        except Exception as e:
-            raise HTTPException(status_code=503, detail=f"Preview scheduling failed: {e}")
+    try:
+        track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+    try:
+        from backend.analysis.service import ENGINE_VERSION
+        from backend.analysis.types import AnalysisSettings
+
+        settings = AnalysisSettings()
+        snap = preview_job_manager.start_or_get(
+            track_id,
+            url,
+            getattr(track, "duration", None),
+            preview_profile="LOW",
+            decoder_version=DECODER_VERSION,
+            settings_identity=f"{ENGINE_VERSION}:{settings.sha256}",
+        )
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview scheduling failed: {e}")
     return dataclasses.asdict(snap)
 
 

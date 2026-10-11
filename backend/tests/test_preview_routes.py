@@ -179,7 +179,10 @@ def test_metadata_route_returns_processing_snapshot(stub_auth, monkeypatch):
         def snapshot(self, _track_id):
             return None
 
-        def start_or_get(self, track_id, _stream_url, _duration):
+        def start_or_get(self, track_id, _stream_url, _duration, **identity):
+            assert identity["preview_profile"] == "LOW"
+            assert identity["decoder_version"] == main.DECODER_VERSION
+            assert identity["settings_identity"]
             return PreviewMetadataSnapshot(track_id=track_id, status="queued", revision=1)
 
     monkeypatch.setattr(main, "preview_job_manager", SnapshotManager())
@@ -193,6 +196,47 @@ def test_metadata_route_returns_processing_snapshot(stub_auth, monkeypatch):
         "waveform_status", "analysis_status", "analysis", "analysis_error",
         "key_source", "bpm_source", "provider_key", "provider_camelot", "provider_bpm",
     }
+
+
+@pytest.mark.asyncio
+async def test_metadata_route_refreshes_source_before_reusing_completed_snapshot(
+    stub_auth, monkeypatch,
+):
+    calls = []
+    current = {"url": TEST_STREAM_URL, "duration": TEST_DURATION}
+
+    async def analyzer(stream_url, duration, _track_id, **_kwargs):
+        calls.append((stream_url, duration))
+        return {"waveform": {"points": [len(calls)]}}
+
+    manager = main.PreviewJobManager(analyzer=analyzer)
+    monkeypatch.setattr(main, "preview_job_manager", manager)
+    monkeypatch.setattr(
+        main,
+        "_resolve_preview_track",
+        lambda _track_id: (
+            type("Track", (), {"duration": current["duration"]})(),
+            current["url"],
+        ),
+    )
+
+    first = await main.preview_metadata(TEST_TRACK_ID)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert first["track_id"] == TEST_TRACK_ID
+    assert calls == [(TEST_STREAM_URL, TEST_DURATION)]
+
+    current.update(url="https://example.test/replacement-stream", duration=180.0)
+    second = await main.preview_metadata(TEST_TRACK_ID)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert second["status"] in {"queued", "processing", "complete"}
+    assert calls == [
+        (TEST_STREAM_URL, TEST_DURATION),
+        ("https://example.test/replacement-stream", 180.0),
+    ]
+    assert manager.snapshot(TEST_TRACK_ID).waveform == {"points": [2]}
 
 
 def test_legacy_preview_route_keeps_display_fields_additive(stub_auth, monkeypatch):
