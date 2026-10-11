@@ -5,7 +5,10 @@ import multiprocessing
 import os
 from pathlib import Path
 import signal
+import sys
+import threading
 import time
+from types import ModuleType
 
 import pytest
 
@@ -17,7 +20,7 @@ from backend.analysis.types import (
     KeyResult,
     RhythmResult,
 )
-from backend.analysis.worker import AnalysisWorker, QueueWaiterReplaced
+from backend.analysis.worker import AnalysisWorker, QueueWaiterReplaced, _load_model_once
 
 
 def _result(job_id, settings, *, rhythm_status="reliable"):
@@ -123,6 +126,41 @@ def test_worker_limits_waiting_sources_and_execution_timeout():
         AnalysisWorker(execution_timeout=180.1)
 
 
+def test_failed_model_load_can_be_retried_after_setup_is_repaired(monkeypatch):
+    class RhythmEngine:
+        attempts = 0
+        loaded_model = object()
+
+        def get_model_path(self, _model_id):
+            self.attempts += 1
+            if self.attempts == 1:
+                raise FileNotFoundError("checkpoint missing")
+            return Path("/verified/final0.ckpt")
+
+        @staticmethod
+        def _checkpoint_sha256(_path):
+            return "b" * 64
+
+        def _load_file2beats(self):
+            return lambda **_kwargs: self.loaded_model
+
+    torch = ModuleType("torch")
+    torch.set_num_threads = lambda _count: None
+    torch.set_num_interop_threads = lambda _count: None
+    torch.get_num_interop_threads = lambda: 2
+    monkeypatch.setitem(sys.modules, "torch", torch)
+
+    rhythm_engine = RhythmEngine()
+    cache = {}
+    failed = _load_model_once(rhythm_engine, "final0", cache)
+    recovered = _load_model_once(rhythm_engine, "final0", cache)
+
+    assert failed["error_status"] == "unavailable"
+    assert recovered["error"] is None
+    assert recovered["model"] is rhythm_engine.loaded_model
+    assert rhythm_engine.attempts == 2
+
+
 async def _wait_until(predicate, timeout=3.0):
     deadline = time.monotonic() + timeout
     while not predicate():
@@ -142,6 +180,108 @@ async def test_worker_starts_only_after_submit(tmp_path):
         assert worker.worker_start_count == 1
         assert worker.active_worker_count == 1
     finally:
+        await worker.close()
+
+
+@pytest.mark.asyncio
+async def test_close_during_startup_does_not_launch_queued_job(tmp_path):
+    context = multiprocessing.get_context("spawn")
+    worker = AnalysisWorker(worker_target=_fake_worker_loop, mp_context=context)
+    start_entered = threading.Event()
+    release_start = threading.Event()
+    real_process_factory = context.Process
+
+    class BlockingStartContext:
+        Pipe = staticmethod(context.Pipe)
+
+        class DelayedProcess:
+            def __init__(self, process):
+                self.process = process
+
+            def start(self):
+                start_entered.set()
+                if not release_start.wait(3):
+                    raise TimeoutError("test did not release process startup")
+                self.process.start()
+
+            def __getattr__(self, name):
+                return getattr(self.process, name)
+
+        @staticmethod
+        def Process(**kwargs):
+            process = real_process_factory(**kwargs)
+            return BlockingStartContext.DelayedProcess(process)
+
+    worker._context = BlockingStartContext()
+    submitter = asyncio.create_task(
+        worker.submit("closing-race", _wav(tmp_path, "startup-race.wav"), AnalysisSettings())
+    )
+    closer = None
+    try:
+        assert await asyncio.to_thread(start_entered.wait, 3)
+        closer = asyncio.create_task(worker.close())
+        await _wait_until(lambda: worker._closed)
+        assert not closer.done()
+        release_start.set()
+
+        result = await submitter
+        await closer
+
+        assert result.key.status == "failed"
+        assert worker.processed_job_count == 0
+        assert worker.process is None
+        assert worker.active_worker_count == 0
+    finally:
+        release_start.set()
+        if not submitter.done():
+            submitter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await submitter
+        if closer is not None:
+            await closer
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_wav_copy_removes_completed_managed_file(tmp_path, monkeypatch):
+    worker = AnalysisWorker(worker_target=_fake_worker_loop)
+    copy_started = threading.Event()
+    release_copy = threading.Event()
+    copy_finished = threading.Event()
+    copied_paths = []
+    real_copy = worker._copy_wav
+
+    def delayed_copy(source_path):
+        copy_started.set()
+        if not release_copy.wait(3):
+            raise TimeoutError("test did not release WAV copy")
+        path = real_copy(source_path)
+        copied_paths.append(path)
+        copy_finished.set()
+        return path
+
+    monkeypatch.setattr(worker, "_copy_wav", delayed_copy)
+    submitter = asyncio.create_task(
+        worker.submit("cancel-copy", _wav(tmp_path, "cancel-copy.wav"), AnalysisSettings())
+    )
+    try:
+        assert await asyncio.to_thread(copy_started.wait, 3)
+        submitter.cancel()
+        await asyncio.sleep(0.05)
+        release_copy.set()
+        with pytest.raises(asyncio.CancelledError):
+            await submitter
+
+        assert await asyncio.to_thread(copy_finished.wait, 3)
+        assert len(copied_paths) == 1
+        assert not copied_paths[0].exists()
+    finally:
+        release_copy.set()
+        if not submitter.done():
+            submitter.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await submitter
+        for path in copied_paths:
+            path.unlink(missing_ok=True)
         await worker.close()
 
 

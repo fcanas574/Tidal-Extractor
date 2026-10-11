@@ -287,7 +287,7 @@ class AnalysisService:
                 engine_key=engine_key,
                 now_utc=self._now_utc(),
             )
-            if alias_fingerprint is not None:
+            if alias_fingerprint == fingerprint:
                 alias_result = await self.db.get_analysis_result(alias_fingerprint, engine_key)
                 if alias_result is not None and self._result_matches(
                     alias_result,

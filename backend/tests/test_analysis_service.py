@@ -118,7 +118,41 @@ async def test_analysis_cache_hit_skips_worker(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_live_preview_alias_returns_cached_result_without_worker(tmp_path):
+async def test_current_pcm_cache_hit_works_without_preview_alias(tmp_path):
+    db = Database(":memory:")
+    await db.init()
+    now = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
+    settings = AnalysisSettings()
+    engine_key = build_engine_key(settings, "decoder-v1", MODEL_SHA)
+    cached = _result(fingerprint=PCM_SHA)
+    await db.set_analysis_result(cached, engine_key)
+    worker = WorkerStub()
+    service = AnalysisService(
+        db,
+        worker=worker,
+        model_identity_resolver=lambda _model_id: (tmp_path / "final0.ckpt", MODEL_SHA),
+        clock=lambda: now,
+    )
+    wav_path = tmp_path / "preview.wav"
+    wav_path.write_bytes(b"decoded audio")
+    try:
+        result = await service.analyze_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+        )
+        assert result == cached
+        assert worker.calls == []
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_live_preview_alias_with_different_pcm_does_not_return_other_audio(tmp_path):
     db = Database(":memory:")
     await db.init()
     now = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
@@ -155,8 +189,9 @@ async def test_live_preview_alias_returns_cached_result_without_worker(tmp_path)
             decoder_version="decoder-v1",
             settings=settings,
         )
-        assert result == cached
-        assert worker.calls == []
+        assert result.audio_fingerprint == PCM_SHA
+        assert result != cached
+        assert len(worker.calls) == 1
     finally:
         await db.close()
 

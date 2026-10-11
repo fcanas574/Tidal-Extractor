@@ -130,7 +130,6 @@ def _load_model_once(rhythm_engine: Any, model_id: str, cache: dict[str, dict[st
         "error": None,
         "error_status": "failed",
     }
-    cache[model_id] = entry
     try:
         model_path = rhythm_engine.get_model_path(model_id)
         model_sha256 = rhythm_engine._checkpoint_sha256(Path(model_path))
@@ -153,6 +152,8 @@ def _load_model_once(rhythm_engine: Any, model_id: str, cache: dict[str, dict[st
         entry["error_status"] = "unavailable"
     except Exception as exc:
         entry["error"] = f"beat model unavailable: {exc}"
+    else:
+        cache[model_id] = entry
     return entry
 
 
@@ -505,7 +506,23 @@ class AnalysisWorker:
                 existing.waiters.append(waiter)
                 self._coalesced_waiter_count += 1
             else:
-                managed_path = await asyncio.to_thread(self._copy_wav, Path(wav_path))
+                copy_task = asyncio.create_task(
+                    asyncio.to_thread(self._copy_wav, Path(wav_path))
+                )
+                try:
+                    managed_path = await asyncio.shield(copy_task)
+                except asyncio.CancelledError as cancelled:
+                    try:
+                        managed_path = await copy_task
+                    except BaseException:
+                        raise cancelled
+                    remove_task = asyncio.create_task(
+                        asyncio.to_thread(self._remove_managed_file, managed_path)
+                    )
+                    try:
+                        await asyncio.shield(remove_task)
+                    finally:
+                        raise cancelled
                 if len(self._queue) >= self.max_waiting:
                     oldest_id, oldest = self._queue.popitem(last=False)
                     self._jobs.pop(oldest_id, None)
@@ -579,16 +596,23 @@ class AnalysisWorker:
             return _failure_result(pending.job_id, pending.settings, "analysis worker is unavailable")
 
         try:
-            await asyncio.to_thread(
-                command_sender.send,
-                {
-                    "kind": "analyze",
-                    "job_id": pending.job_id,
-                    "wav_path": str(pending.wav_path),
-                    "settings": pending.settings,
-                },
-            )
-            self._processed_job_count += 1
+            async with self._state_lock:
+                if self._closed:
+                    return _failure_result(
+                        pending.job_id,
+                        pending.settings,
+                        "analysis worker is closing",
+                    )
+                await asyncio.to_thread(
+                    command_sender.send,
+                    {
+                        "kind": "analyze",
+                        "job_id": pending.job_id,
+                        "wav_path": str(pending.wav_path),
+                        "settings": pending.settings,
+                    },
+                )
+                self._processed_job_count += 1
             message = await asyncio.to_thread(
                 self._receive_with_timeout, result_receiver, self.execution_timeout
             )
@@ -682,12 +706,10 @@ class AnalysisWorker:
             *(asyncio.to_thread(self._remove_managed_file, path) for path in stale_paths)
         )
 
-        async with self._dispose_lock:
-            process = self._process
-            if process is not None:
-                # Closing during an active inference must wake the pipe reader.
-                # The dispatcher then deletes its managed WAV after this join.
-                await asyncio.to_thread(self._terminate_and_join, process)
+        # Serialize shutdown with spawn and its readiness handshake. This also
+        # catches a process that start() has launched but not published yet.
+        async with self._start_lock:
+            await self._dispose_process()
         if dispatcher is not None and dispatcher is not asyncio.current_task():
             await dispatcher
         if self._process is not None:
