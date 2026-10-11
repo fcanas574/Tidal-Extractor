@@ -8,6 +8,8 @@ it off to the module-level `PreviewJobManager`, returning the initial snapshot
 without waiting for the background analyzer.
 """
 import asyncio
+import hashlib
+import json
 from pathlib import Path
 import threading
 from unittest.mock import AsyncMock, MagicMock
@@ -196,6 +198,107 @@ def test_metadata_route_returns_processing_snapshot(stub_auth, monkeypatch):
         "waveform_status", "analysis_status", "analysis", "analysis_error",
         "key_source", "bpm_source", "provider_key", "provider_camelot", "provider_bpm",
     }
+
+
+@pytest.mark.asyncio
+async def test_metadata_snapshot_identity_changes_when_installed_model_sha_changes(
+    stub_auth, monkeypatch,
+):
+    current_sha = {"value": "a" * 64}
+    calls = []
+
+    async def analyzer(stream_url, duration, _track_id, **_kwargs):
+        calls.append((stream_url, duration))
+        return {"waveform": {"points": [len(calls)]}}
+
+    manager = main.PreviewJobManager(analyzer=analyzer)
+    monkeypatch.setattr(main, "preview_job_manager", manager)
+    monkeypatch.setattr(main, "_preview_model_sha256", lambda _model_id: current_sha["value"], raising=False)
+    monkeypatch.setattr(
+        main,
+        "_resolve_preview_track",
+        lambda _track_id: (type("Track", (), {"duration": TEST_DURATION})(), TEST_STREAM_URL),
+    )
+
+    await main.preview_metadata(TEST_TRACK_ID)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+    assert calls == [(TEST_STREAM_URL, TEST_DURATION)]
+
+    current_sha["value"] = "b" * 64
+    await main.preview_metadata(TEST_TRACK_ID)
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
+
+    assert calls == [(TEST_STREAM_URL, TEST_DURATION), (TEST_STREAM_URL, TEST_DURATION)]
+
+
+def test_preview_model_sha256_reuses_verified_digest_until_model_stat_changes(
+    tmp_path, monkeypatch,
+):
+    from scripts import setup_analysis_model as setup
+
+    checkpoint = tmp_path / "final0.ckpt"
+    manifest = tmp_path / "final0.manifest.json"
+    monkeypatch.setattr(setup, "MODEL_DIR", tmp_path)
+    monkeypatch.setattr(setup, "_validate_checkpoint_archive", lambda _path: None)
+    real_sha256_file = setup._sha256_file
+    hash_calls = []
+
+    def counted_sha256_file(path):
+        hash_calls.append(path)
+        return real_sha256_file(path)
+
+    monkeypatch.setattr(setup, "_sha256_file", counted_sha256_file)
+
+    def write_model(contents):
+        checkpoint.write_bytes(contents)
+        manifest.write_text(json.dumps({
+            "model_id": "final0",
+            "filename": checkpoint.name,
+            "source_url": setup.MODEL_URLS["final0"],
+            "sha256": hashlib.sha256(contents).hexdigest(),
+        }))
+
+    write_model(b"verified model v1")
+    model_sha256 = getattr(main, "_preview_model_sha256", None)
+    assert callable(model_sha256), "preview metadata needs a cached verified model identity"
+    first_digest = model_sha256("final0")
+    assert first_digest == hashlib.sha256(b"verified model v1").hexdigest()
+    assert model_sha256("final0") == first_digest
+    assert len(hash_calls) == 1
+
+    write_model(b"verified model v2")
+    second_digest = model_sha256("final0")
+    assert second_digest == hashlib.sha256(b"verified model v2").hexdigest()
+    assert second_digest != first_digest
+    assert len(hash_calls) == 2
+
+
+@pytest.mark.parametrize(
+    ("resolution_error", "expected_status"),
+    [
+        ("missing", 404),
+        ("transient", 503),
+    ],
+    ids=["missing-track", "transient-session-failure"],
+)
+def test_metadata_route_distinguishes_missing_track_from_transient_resolution_failure(
+    stub_auth, monkeypatch, resolution_error, expected_status,
+):
+    from tidalapi.exceptions import ObjectNotFound
+
+    error = ObjectNotFound("track does not exist") if resolution_error == "missing" else RuntimeError(
+        "session temporarily unavailable"
+    )
+
+    def fail_resolution(_track_id):
+        raise error
+
+    monkeypatch.setattr(main, "_resolve_preview_track", fail_resolution)
+    response = client.get(f"/preview/{TEST_TRACK_ID}/metadata")
+
+    assert response.status_code == expected_status, response.text
 
 
 @pytest.mark.asyncio

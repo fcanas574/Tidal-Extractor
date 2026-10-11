@@ -8,23 +8,16 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Any, Callable, Literal
-from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+from urllib.parse import urlsplit, urlunsplit
 
 PreviewStatus = Literal["queued", "processing", "partial", "complete", "failed"]
 _SNAPSHOT_ALIAS_TTL = timedelta(hours=24)
 _MAX_RETAINED_SNAPSHOTS = 256
-_SIGNED_URL_QUERY_PARAMS = {
-    "access_token",
-    "auth",
-    "expires",
-    "expiry",
-    "exp",
-    "hdnea",
-    "hdnts",
-    "signature",
-    "sig",
-    "token",
-}
+_MAX_INFLIGHT_JOBS = 5  # one active source plus four waiting sources
+
+
+class PreviewJobQueueFullError(RuntimeError):
+    """The preview worker and its four waiting slots are occupied."""
 
 
 @dataclass(slots=True)
@@ -103,8 +96,6 @@ class PreviewJobManager:
                 )
                 if job.identity == identity and self._is_current_alias_locked(job):
                     return self._clone_snapshot(job.snapshot)
-                if job.task is not None and not job.task.done():
-                    self._retired_jobs.append(job)
 
             identity = self._preview_identity(
                 stream_url,
@@ -113,6 +104,10 @@ class PreviewJobManager:
                 decoder_version,
                 settings_identity,
             )
+            if self._inflight_job_count_locked() >= _MAX_INFLIGHT_JOBS:
+                raise PreviewJobQueueFullError(
+                    "preview job capacity reached (one active source plus four waiting sources)"
+                )
 
             snapshot = PreviewMetadataSnapshot(
                 track_id=track_id,
@@ -127,9 +122,16 @@ class PreviewJobManager:
                 snapshot=snapshot,
                 identity=identity,
             )
-            self._jobs[track_id] = job
             loop = self._get_scheduling_loop()
-            job.task = loop.create_task(self._run_job(job))
+            job.task = self._create_job_task(loop, job)
+            current_job = self._jobs.get(track_id)
+            if (
+                current_job is not None
+                and current_job.task is not None
+                and not current_job.task.done()
+            ):
+                self._retired_jobs.append(current_job)
+            self._jobs[track_id] = job
             return self._clone_snapshot(snapshot)
 
     def snapshot(self, track_id: int) -> PreviewMetadataSnapshot | None:
@@ -143,11 +145,7 @@ class PreviewJobManager:
     def active_job_count(self) -> int:
         with self._lock:
             self._prune_completed_jobs_locked()
-            return sum(
-                1
-                for job in (*self._jobs.values(), *self._retired_jobs)
-                if job.task is not None and not job.task.done()
-            )
+            return self._inflight_job_count_locked()
 
     def run_pending_for_test(self) -> None:
         while True:
@@ -379,6 +377,12 @@ class PreviewJobManager:
                 return self._clone_snapshot(job.snapshot)
             if self.analysis_retry is None:
                 raise RuntimeError("preview analysis retry is unavailable")
+            if self._inflight_job_count_locked() >= _MAX_INFLIGHT_JOBS:
+                raise PreviewJobQueueFullError(
+                    "preview job capacity reached (one active source plus four waiting sources)"
+                )
+            loop = self._get_scheduling_loop()
+            task = self._create_job_task(loop, job, retry=True)
             self._update_snapshot_locked(
                 job,
                 status="processing",
@@ -386,9 +390,7 @@ class PreviewJobManager:
                 analysis_error=None,
                 error=None,
             )
-            loop = self._get_scheduling_loop()
             job.completed_at_utc = None
-            task = loop.create_task(self._run_job(job, retry=True))
             job.task = task
             return self._clone_snapshot(job.snapshot)
 
@@ -431,6 +433,27 @@ class PreviewJobManager:
         )
         for _, track_id in retained[: max(0, len(retained) - self._max_retained_snapshots)]:
             del self._jobs[track_id]
+
+    def _inflight_job_count_locked(self) -> int:
+        return sum(
+            1
+            for job in (*self._jobs.values(), *self._retired_jobs)
+            if job.task is not None and not job.task.done()
+        )
+
+    def _create_job_task(
+        self,
+        loop: asyncio.AbstractEventLoop,
+        job: _PreviewJob,
+        *,
+        retry: bool = False,
+    ) -> asyncio.Task[Any]:
+        coroutine = self._run_job(job, retry=retry)
+        try:
+            return loop.create_task(coroutine)
+        except Exception:
+            coroutine.close()
+            raise
 
     def _is_current_alias_locked(self, job: _PreviewJob) -> bool:
         if job.task is None or not job.task.done():
@@ -547,7 +570,7 @@ def _waveform_is_usable(waveform: Any) -> bool:
 
 
 def _source_identity(stream_url: str) -> str:
-    """Keep stable media URL parts while ignoring common rotating signatures."""
+    """Normalize the URL origin while preserving every query selector."""
     if not isinstance(stream_url, str):
         return repr(stream_url)
     try:
@@ -557,22 +580,11 @@ def _source_identity(stream_url: str) -> str:
     if not parsed.scheme or not parsed.netloc:
         return stream_url
 
-    stable_query = []
-    for name, value in parse_qsl(parsed.query, keep_blank_values=True):
-        lowered = name.lower()
-        if (
-            lowered in _SIGNED_URL_QUERY_PARAMS
-            or lowered.startswith("x-amz-")
-            or lowered.startswith("x-goog-")
-        ):
-            continue
-        stable_query.append((name, value))
-    stable_query.sort()
     return urlunsplit((
         parsed.scheme.lower(),
         parsed.netloc.lower(),
         parsed.path,
-        urlencode(stable_query, doseq=True),
+        parsed.query,
         "",
     ))
 

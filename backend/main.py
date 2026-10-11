@@ -1,8 +1,10 @@
 import asyncio
 import dataclasses
 import inspect
+import json
 import logging
 import os
+import threading
 import time
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
@@ -11,6 +13,7 @@ from typing import Optional, List
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+from tidalapi.exceptions import ObjectNotFound
 
 from backend.auth import AuthManager
 from backend.config import AppConfig
@@ -45,6 +48,8 @@ ws_manager = WebSocketManager()
 orchestrator: DownloadOrchestrator = None
 search_metadata_jobs: SearchMetadataJobManager | None = None
 _analysis_service = None
+_preview_model_sha_cache: dict[str, tuple[tuple[object, ...], str]] = {}
+_preview_model_sha_lock = threading.Lock()
 
 # FreqBlog stats counters (in-memory, reset on restart)
 freqblog_stats = {
@@ -581,6 +586,56 @@ def _get_analysis_service():
     return _analysis_service
 
 
+def _preview_file_stat_identity(path: Path) -> tuple[object, ...]:
+    stat = path.stat()
+    return (
+        str(path.resolve()),
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_size,
+        stat.st_mtime_ns,
+        stat.st_ctime_ns,
+    )
+
+
+def _preview_model_sha256(model_id: str) -> str | None:
+    """Return a verified checkpoint digest, rehashing only after a stat change."""
+    try:
+        from scripts import setup_analysis_model
+
+        checkpoint = setup_analysis_model._checkpoint_path(model_id)
+        manifest_path = setup_analysis_model._manifest_path(model_id)
+        stat_identity = (
+            *_preview_file_stat_identity(checkpoint),
+            *_preview_file_stat_identity(manifest_path),
+        )
+        with _preview_model_sha_lock:
+            cached = _preview_model_sha_cache.get(model_id)
+            if cached is not None and cached[0] == stat_identity:
+                return cached[1]
+
+            # This verifies the manifest and hashes the checkpoint. Stable file
+            # stats make later polling use the cached digest without rehashing.
+            setup_analysis_model._verified_local_model(model_id)
+            manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+            digest = manifest.get("sha256")
+            if not isinstance(digest, str) or len(digest) != 64:
+                _preview_model_sha_cache.pop(model_id, None)
+                return None
+            if stat_identity != (
+                *_preview_file_stat_identity(checkpoint),
+                *_preview_file_stat_identity(manifest_path),
+            ):
+                _preview_model_sha_cache.pop(model_id, None)
+                return None
+            _preview_model_sha_cache[model_id] = (stat_identity, digest)
+            return digest
+    except (ImportError, OSError, RuntimeError, ValueError, TypeError, KeyError):
+        with _preview_model_sha_lock:
+            _preview_model_sha_cache.pop(model_id, None)
+        return None
+
+
 async def _preview_provider_metadata(track_id: int) -> dict:
     empty = {
         "provider_key": None,
@@ -770,9 +825,9 @@ async def preview_stream(track_id: int):
 async def preview_metadata(track_id: int):
     """Resolve the current LOW-quality source and return its metadata snapshot.
 
-    Track/url resolution failures are reported as 404 (mirroring the legacy
-    route); manager failures are reported as 503. Repeated polls attach to an
-    in-progress job or a still-valid snapshot for the same preview identity.
+    Missing tracks are reported as 404; source/session and manager failures are
+    reported as 503. Repeated polls attach to an in-progress job or a still-valid
+    snapshot for the same preview identity.
     """
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
@@ -783,19 +838,25 @@ async def preview_metadata(track_id: int):
     try:
         track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+        if isinstance(e, ObjectNotFound):
+            raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+        raise HTTPException(status_code=503, detail=f"Preview source unavailable: {e}")
     try:
         from backend.analysis.service import ENGINE_VERSION
         from backend.analysis.types import AnalysisSettings
 
         settings = AnalysisSettings()
+        model_sha256 = await asyncio.to_thread(_preview_model_sha256, settings.model_id)
         snap = preview_job_manager.start_or_get(
             track_id,
             url,
             getattr(track, "duration", None),
             preview_profile="LOW",
             decoder_version=DECODER_VERSION,
-            settings_identity=f"{ENGINE_VERSION}:{settings.sha256}",
+            settings_identity=(
+                f"{ENGINE_VERSION}:{settings.model_id}:{settings.sha256}:"
+                f"{model_sha256 or 'unverified'}"
+            ),
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Preview scheduling failed: {e}")
