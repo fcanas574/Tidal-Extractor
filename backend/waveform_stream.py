@@ -16,6 +16,7 @@ on completion), preserving the frontend contract consumed by
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
 import os
 import subprocess
@@ -36,6 +37,7 @@ from wavy import get_band_preset, FilterType, FrequencyBand, FilterProfile  # no
 WAVEFORM_WIDTH = 600
 SAMPLE_RATE = 44100
 _CHANNELS = 1
+DECODER_VERSION = f"ffmpeg-mono-s16le-{SAMPLE_RATE}-v1"
 
 
 def _club_frequency_bands(sample_rate: int) -> list[FrequencyBand]:
@@ -376,7 +378,8 @@ async def analyze_stream(
 
     Emits progressive ``{bands, duration, complete}`` snapshots via
     ``on_snapshot`` (first incomplete, last complete). Returns the final
-    ``{bands: {low, mid, high}, duration: float, temp_wav_path: str | None}``;
+    ``{bands: {low, mid, high}, duration: float, pcm_sha256: str | None,
+    temp_wav_path: str | None}``;
     the caller owns deletion of the temp WAV after key analysis.
 
     On any failure, returns empty bands with ``temp_wav_path=None`` and no temp
@@ -394,6 +397,7 @@ async def analyze_stream(
     os.close(tmp_fd)
     wav_writer: wave.Wave_write | None = None
     cleanup_path = True
+    pcm_hasher = hashlib.sha256()
     try:
         wav_writer = wave.open(tmp_path, "wb")
         wav_writer.setnchannels(_CHANNELS)
@@ -417,6 +421,7 @@ async def analyze_stream(
             if not block:
                 continue
             wav_writer.writeframes(block)
+            pcm_hasher.update(block)
             samples = np.frombuffer(block, dtype="<i2").astype(np.float64)
             saw_samples += len(samples)
             new = gen.feed(samples)
@@ -431,12 +436,10 @@ async def analyze_stream(
         # is empty in practice -- a single trailing byte is not a sample).
         _ = carry
 
-        # If duration was unknown, refine total so finish()/snapshot report the
-        # real length rather than the empty-string fallback of 2 samples/pixel.
-        if total_samples == 0 and saw_samples > 0:
+        # The supplied duration is only a hint. Report actual decoded PCM
+        # duration so the analysis identity matches the WAV passed to the worker.
+        if saw_samples > 0:
             gen.total_samples = saw_samples
-            # samples_per_pixel stays as-is (already set from width/total before
-            # any feeding); we only correct the reported duration via total.
 
         gen.finish()
         await _emit(on_snapshot, gen.snapshot())
@@ -445,11 +448,17 @@ async def analyze_stream(
         return {
             "bands": final["bands"],
             "duration": final["duration"],
+            "pcm_sha256": pcm_hasher.hexdigest(),
             "temp_wav_path": tmp_path,
         }
     except Exception as exc:  # pragma: no cover - exercised by failure test
         logger.warning("analyze_stream failed for %s: %s", stream_url, exc)
-        return {"bands": {"low": [], "mid": [], "high": []}, "duration": float(duration or 0), "temp_wav_path": None}
+        return {
+            "bands": {"low": [], "mid": [], "high": []},
+            "duration": float(duration or 0),
+            "pcm_sha256": None,
+            "temp_wav_path": None,
+        }
     finally:
         if wav_writer is not None:
             with suppress_called_process_error():

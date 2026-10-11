@@ -1,7 +1,35 @@
 import threading
+from pathlib import Path
 
 import pytest
 import backend.main as main
+
+
+def _install_fake_analysis_service(monkeypatch, observed=None, analysis=None):
+    payload = analysis or {
+        "key": {"key": "Am", "camelot": "4A", "status": "reliable"},
+        "rhythm": {"grid": {"bpm": 128.0, "status": "reliable"}},
+    }
+
+    class Service:
+        async def analyze_preview(self, **kwargs):
+            if observed is not None:
+                observed.update(kwargs)
+            return object()
+
+    monkeypatch.setattr(main, "_get_analysis_service", lambda: Service())
+    monkeypatch.setattr(
+        main, "_analysis_lifecycle", lambda _result: ("complete", None, payload)
+    )
+
+
+def _decoded(bands, wav_path, *, duration=12.0, fingerprint="a" * 64):
+    return {
+        "bands": bands,
+        "duration": duration,
+        "temp_wav_path": str(wav_path),
+        "pcm_sha256": fingerprint,
+    }
 
 
 def _fake_session_track(monkeypatch):
@@ -13,77 +41,82 @@ def _fake_session_track(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_uses_one_stream_and_persists(monkeypatch):
+async def test_uses_one_stream_and_passes_pcm_identity(monkeypatch, tmp_path):
     calls = []
+    observed = {}
+    wav = tmp_path / "preview.wav"
+    wav.write_bytes(b"wav")
+    bands = {"low": [0.1], "mid": [0.2], "high": [0.3]}
 
     async def fake_analyze(url, duration, **kw):
         calls.append(url)
-        return {"bands": {"low": [0.1], "mid": [0.2], "high": [0.3]},
-                "duration": 240.0, "temp_wav_path": None}
-
-    async def none(_):
-        return None
-
-    saved = {}
-
-    async def fake_set(tid, bands, duration):
-        saved[tid] = bands
+        return _decoded(bands, wav, duration=240.0)
 
     async def fake_fb(*a, **k):
         return None
 
+    _install_fake_analysis_service(monkeypatch, observed)
     monkeypatch.setattr(main, "analyze_stream", fake_analyze)
-    monkeypatch.setattr(main.db, "get_waveform_cache", none)
-    monkeypatch.setattr(main.db, "set_waveform_cache", fake_set)
     monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
     _fake_session_track(monkeypatch)
 
     result = await main.preview_analyzer(stream_url="https://s/7", duration=240.0, track_id=7)
-    assert calls == ["https://s/7"]                    # exactly one download
-    assert saved["7"]["low"] == [0.1]                  # persisted by tidal id
+    assert calls == ["https://s/7"]
+    assert observed["track_id"] == 7
+    assert observed["pcm_sha256"] == "a" * 64
+    assert observed["wav_path"] == Path(wav)
+    assert observed["duration_seconds"] == 240.0
     assert result["waveform"]["bands"]["mid"] == [0.2]
+    assert not wav.exists()
 
 
 @pytest.mark.asyncio
-async def test_cache_hit_skips_download(monkeypatch):
-    async def boom(*a, **k):
-        raise AssertionError("must not download")
+async def test_identityless_waveform_cache_is_not_reused(monkeypatch, tmp_path):
+    calls = []
+    wav = tmp_path / "preview.wav"
+    wav.write_bytes(b"wav")
+    bands = {"low": [0.4], "mid": [0.5], "high": [0.6]}
 
-    async def hit(_):
+    async def fake_analyze(url, duration, **kw):
+        calls.append(url)
+        return _decoded(bands, wav)
+
+    async def identityless_cache(_):
         return {"bands": {"low": [1.0], "mid": [1.0], "high": [1.0]}, "duration": 12.0}
 
-    monkeypatch.setattr(main, "analyze_stream", boom)
-    monkeypatch.setattr(main.db, "get_waveform_cache", hit)
+    async def no_provider(_tid):
+        return {"provider_key": None, "provider_camelot": None, "provider_bpm": None}
+
+    _install_fake_analysis_service(monkeypatch)
+    monkeypatch.setattr(main, "analyze_stream", fake_analyze)
+    monkeypatch.setattr(main.db, "get_waveform_cache", identityless_cache)
+    monkeypatch.setattr(main, "_preview_provider_metadata", no_provider)
     result = await main.preview_analyzer(stream_url="https://s/9", duration=12.0, track_id=9)
-    assert result["waveform"]["bands"]["high"] == [1.0]
+    assert calls == ["https://s/9"]
+    assert result["waveform"]["bands"]["high"] == [0.6]
 
 
 @pytest.mark.asyncio
-async def test_empty_waveform_cache_is_reanalyzed(monkeypatch):
+async def test_empty_waveform_cache_is_redecoded_once(monkeypatch, tmp_path):
     calls = []
+    wav = tmp_path / "preview.wav"
+    wav.write_bytes(b"wav")
+    bands = {"low": [0.1], "mid": [0.2], "high": [0.3]}
 
     async def empty_cache(_):
         return {"bands": {"low": [], "mid": [], "high": []}, "duration": 12.0}
 
     async def fake_analyze(url, duration, **kw):
         calls.append(url)
-        return {"bands": {"low": [0.1], "mid": [0.2], "high": [0.3]},
-                "duration": 12.0, "temp_wav_path": None}
-
-    async def fake_key_cache(_):
-        return {}
+        return _decoded(bands, wav)
 
     async def fake_fb(*a, **k):
         return None
 
-    async def fake_set(*args):
-        pass
-
+    _install_fake_analysis_service(monkeypatch)
     monkeypatch.setattr(main.db, "get_waveform_cache", empty_cache)
-    monkeypatch.setattr(main, "_detect_preview_key_cached", fake_key_cache)
     monkeypatch.setattr(main, "analyze_stream", fake_analyze)
     monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
-    monkeypatch.setattr(main.db, "set_waveform_cache", fake_set)
     _fake_session_track(monkeypatch)
 
     result = await main.preview_analyzer(stream_url="https://s/17", duration=12.0, track_id=17)
@@ -93,36 +126,28 @@ async def test_empty_waveform_cache_is_reanalyzed(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_empty_analysis_result_is_not_cached(monkeypatch):
-    saved = []
-
-    async def no_cache(_):
-        return None
+async def test_empty_waveform_is_rejected(monkeypatch, tmp_path):
+    wav = tmp_path / "empty.wav"
+    wav.write_bytes(b"wav")
 
     async def empty_analysis(url, duration, **kw):
-        return {"bands": {"low": [], "mid": [], "high": []},
-                "duration": 12.0, "temp_wav_path": None}
+        return _decoded({"low": [], "mid": [], "high": []}, wav)
 
-    async def fake_fb(*a, **k):
-        return None
+    async def no_provider(_tid):
+        return {"provider_key": None, "provider_camelot": None, "provider_bpm": None}
 
-    async def record_cache(*args):
-        saved.append(args)
-
-    monkeypatch.setattr(main.db, "get_waveform_cache", no_cache)
+    monkeypatch.setattr(main, "_preview_provider_metadata", no_provider)
     monkeypatch.setattr(main, "analyze_stream", empty_analysis)
-    monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
-    monkeypatch.setattr(main.db, "set_waveform_cache", record_cache)
-    _fake_session_track(monkeypatch)
+    _install_fake_analysis_service(monkeypatch)
 
     with pytest.raises(RuntimeError, match="no samples"):
         await main.preview_analyzer(stream_url="https://s/18", duration=12.0, track_id=18)
 
-    assert saved == []
+    assert not wav.exists()
 
 
 @pytest.mark.asyncio
-async def test_preview_analyzer_resolves_track_off_event_loop(monkeypatch):
+async def test_preview_analyzer_resolves_track_off_event_loop(monkeypatch, tmp_path):
     event_loop_thread = threading.get_ident()
     call_threads = []
 
@@ -134,24 +159,18 @@ async def test_preview_analyzer_resolves_track_off_event_loop(monkeypatch):
                 "artist": type("A", (), {"name": "a"})(),
             })()
 
-    async def no_cache(_):
-        return None
-
+    wav = tmp_path / "preview.wav"
     async def valid_analysis(url, duration, **kw):
-        return {"bands": {"low": [0.1], "mid": [0.2], "high": [0.3]},
-                "duration": 12.0, "temp_wav_path": None}
+        wav.write_bytes(b"wav")
+        return _decoded({"low": [0.1], "mid": [0.2], "high": [0.3]}, wav)
 
     async def fake_fb(*a, **k):
         return None
 
-    async def fake_set(*args):
-        pass
-
+    _install_fake_analysis_service(monkeypatch)
     monkeypatch.setattr(main.auth_manager, "session", Session())
-    monkeypatch.setattr(main.db, "get_waveform_cache", no_cache)
     monkeypatch.setattr(main, "analyze_stream", valid_analysis)
     monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
-    monkeypatch.setattr(main.db, "set_waveform_cache", fake_set)
 
     await main.preview_analyzer("https://s/19", 12.0, 19)
 
@@ -160,32 +179,21 @@ async def test_preview_analyzer_resolves_track_off_event_loop(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_local_key_detection_reads_temp_wav_not_network(monkeypatch):
+async def test_local_hybrid_analysis_reads_temp_wav_not_network(monkeypatch, tmp_path):
     seen, deleted = {}, []
+    wav = tmp_path / "preview.wav"
+    wav.write_bytes(b"wav")
 
     async def fake_analyze(url, duration, **kw):
-        return {"bands": {"low": [0.5], "mid": [0.5], "high": [0.5]},
-                "duration": 10.0, "temp_wav_path": "/tmp/fake.wav"}
-
-    async def fake_detect(path):
-        seen["path"] = path
-        return {"key": "Am", "camelot": "4A", "bpm": 128.0, "confidence": 0.9}
+        return _decoded({"low": [0.5], "mid": [0.5], "high": [0.5]}, wav,
+                        duration=10.0, fingerprint="b" * 64)
 
     async def fake_fb(*a, **k):
         return None
 
-    async def fake_set_key(*a, **k):
-        pass
-
-    async def none(_):
-        return None
-
+    _install_fake_analysis_service(monkeypatch, seen)
     monkeypatch.setattr(main, "analyze_stream", fake_analyze)
-    monkeypatch.setattr(main, "_detect_key_local", fake_detect)
     monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
-    monkeypatch.setattr(main.db, "get_waveform_cache", none)
-    monkeypatch.setattr(main.db, "set_key_cache", fake_set_key)
-    monkeypatch.setattr(main.db, "set_waveform_cache", fake_set_key)
 
     async def fake_remove(path):
         deleted.append(path)
@@ -193,9 +201,10 @@ async def test_local_key_detection_reads_temp_wav_not_network(monkeypatch):
     _fake_session_track(monkeypatch)
 
     result = await main.preview_analyzer(stream_url="https://s/11", duration=10.0, track_id=11)
-    assert seen["path"] == "/tmp/fake.wav"
-    assert deleted == ["/tmp/fake.wav"]
-    assert result["camelot"] == "4A"
+    assert seen["wav_path"] == wav
+    assert seen["pcm_sha256"] == "b" * 64
+    assert deleted == [str(wav)]
+    assert result["analysis"]["key"]["camelot"] == "4A"
 
 
 @pytest.mark.asyncio
@@ -270,33 +279,31 @@ async def test_metadata_poll_with_existing_job_skips_url_resolution(monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_temp_wav_removed_even_when_db_write_fails(monkeypatch):
+async def test_temp_wav_removed_when_worker_fails(monkeypatch, tmp_path):
     deleted = []
+    wav = tmp_path / "preview.wav"
+    wav.write_bytes(b"wav")
 
     async def fake_analyze(url, duration, **kw):
-        return {"bands": {"low": [0.2], "mid": [0.2], "high": [0.2]},
-                "duration": 30.0, "temp_wav_path": "/tmp/fake.wav"}
+        return _decoded({"low": [0.2], "mid": [0.2], "high": [0.2]}, wav,
+                        duration=30.0)
 
-    async def failing_set(tid, bands, duration):
-        raise RuntimeError("db write exploded")
-
-    async def none(_):
-        return None
+    class FailingService:
+        async def analyze_preview(self, **_kwargs):
+            raise RuntimeError("analysis worker failed")
 
     async def fake_remove(path):
         deleted.append(path)
 
-    async def fake_fb(*a, **k):
-        return None
+    async def no_provider(_tid):
+        return {"provider_key": None, "provider_camelot": None, "provider_bpm": None}
 
     monkeypatch.setattr(main, "analyze_stream", fake_analyze)
-    monkeypatch.setattr(main.db, "get_waveform_cache", none)
-    monkeypatch.setattr(main.db, "set_waveform_cache", failing_set)
-    monkeypatch.setattr(main, "_freqblog_lookup", fake_fb)
+    monkeypatch.setattr(main, "_get_analysis_service", lambda: FailingService())
+    monkeypatch.setattr(main, "_preview_provider_metadata", no_provider)
     monkeypatch.setattr(main, "_remove_temp_file", fake_remove)
-    _fake_session_track(monkeypatch)
 
-    # DB failure must not propagate or block cleanup
-    result = await main.preview_analyzer(stream_url="https://s/15", duration=30.0, track_id=15)
-    assert deleted == ["/tmp/fake.wav"]  # temp WAV removed despite DB error
-    assert result["waveform"]["bands"]["low"] == [0.2]
+    with pytest.raises(RuntimeError, match="analysis worker failed"):
+        await main.preview_analyzer(stream_url="https://s/15", duration=30.0, track_id=15)
+
+    assert deleted == [str(wav)]

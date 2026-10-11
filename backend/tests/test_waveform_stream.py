@@ -8,6 +8,7 @@ a terminal ``complete=True`` snapshot. Output-equivalence with the full-file
 ``get_waveform_cached`` path is checked in Task 3 integration tests.
 """
 from pathlib import Path
+import hashlib
 from unittest.mock import Mock
 
 import numpy as np
@@ -193,6 +194,8 @@ async def test_analyze_stream_writes_wav_and_emits_snapshots(monkeypatch, tmp_pa
         "https://example.test/track", duration=12.0, width=60,
         on_snapshot=snapshots.append,
     )
+
+    assert result.get("pcm_sha256") == hashlib.sha256(pcm_bytes).hexdigest()
 
     # Caller owns the temp WAV path; it exists and is a real WAV.
     assert result["temp_wav_path"] is not None
