@@ -12,8 +12,10 @@ from backend.analysis.types import (
     KeyResult,
     RhythmResult,
     camelot_for_key,
+    deserialize_result,
     serialize_result,
 )
+from backend.analysis.rhythm_engine import fit_steady_grid
 
 
 def _result(*, key_bpm=120.0, beats=(0.5, 1.0), downbeats=(0.5,)):
@@ -132,3 +134,21 @@ def test_serialization_preserves_typed_result_as_json_data():
     }
     assert serialized["rhythm"]["beats"] == [0.5, 1.0]
     json.dumps(serialized, allow_nan=False)
+
+
+def test_serialization_preserves_tempo_ambiguity_diagnostic():
+    beat_times = tuple(0.13 + index for index in range(40))
+    downbeat_times = tuple(beat_times[index] for index in range(0, 40, 4))
+    rhythm = fit_steady_grid(beat_times, downbeat_times, 40.2)
+    result = replace(_result(), duration_seconds=40.2, rhythm=rhythm)
+
+    serialized = serialize_result(result)
+    restored = deserialize_result(serialized)
+
+    assert serialized["rhythm"]["status"] == "needs_review"
+    assert serialized["rhythm"]["bpm"] == rhythm.bpm
+    assert serialized["rhythm"]["reason"] == rhythm.reason
+    assert serialized["rhythm"]["grid"]["status"] == "needs_review"
+    assert serialized["rhythm"]["grid"]["bpm"] is None
+    assert serialized["rhythm"]["grid"]["reason"] == rhythm.grid.reason
+    assert restored.rhythm == rhythm

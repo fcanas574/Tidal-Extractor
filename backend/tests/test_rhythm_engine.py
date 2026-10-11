@@ -19,29 +19,27 @@ def test_grid_fit_preserves_fractional_bpm_and_origin():
     bpm = 128.24
     origin = 0.137
     beat_times = _beats(bpm, 64, origin)
-    downbeat_times = _downbeats(beat_times, tuple(range(3, 64, 4)))
 
-    result = fit_steady_grid(beat_times, downbeat_times, 30.0)
+    result = fit_steady_grid(beat_times, (), 30.0)
 
     assert result.grid.status == "reliable"
     assert result.grid.bpm is not None
     assert abs(result.grid.bpm - bpm) < 1e-3
     assert result.grid.origin_seconds is not None
     assert abs(result.grid.origin_seconds - origin) < 0.005
-    assert result.grid.first_downbeat_beat == 3
+    assert result.grid.first_downbeat_beat is None
 
 
 def test_missing_beats_keep_integer_beat_numbers():
     source_indices = tuple(index for index in range(64) if index not in {12, 29})
     beat_times = tuple(0.08 + index * 0.5 for index in source_indices)
-    downbeat_times = tuple(0.08 + index * 0.5 for index in range(2, 64, 4))
 
-    result = fit_steady_grid(beat_times, downbeat_times, 32.0)
+    result = fit_steady_grid(beat_times, (), 32.0)
 
     assert result.grid.status == "reliable"
     assert result.grid.bpm is not None
     assert abs(result.grid.bpm - 120.0) < 1e-3
-    assert result.grid.first_downbeat_beat == 2
+    assert result.grid.first_downbeat_beat is None
     assert result.grid.period_seconds == 0.5
 
 
@@ -70,13 +68,21 @@ def test_bar_phase_requires_eight_consistent_downbeats():
 
     seven = fit_steady_grid(beat_times, seven_downbeats, 32.0)
     eight = fit_steady_grid(beat_times, eight_downbeats, 32.0)
+    seven_phase = rhythm_engine._phase_result(
+        seven_downbeats, 0.5, 0.08, AnalysisSettings()
+    )
+    eight_phase = rhythm_engine._phase_result(
+        eight_downbeats, 0.5, 0.08, AnalysisSettings()
+    )
 
     assert seven.grid.status == "reliable"
     assert seven.grid.meter is None
     assert seven.grid.first_downbeat_beat is None
-    assert eight.grid.status == "reliable"
-    assert eight.grid.meter == "4/4"
-    assert eight.grid.first_downbeat_beat == 2
+    assert seven_phase[0] is None
+    assert eight.grid.status == "needs_review"
+    assert eight.grid.meter is None
+    assert eight_phase[0] == "4/4"
+    assert eight_phase[1] == 2
 
 
 def test_short_or_empty_sequence_has_no_grid():
@@ -111,7 +117,8 @@ def test_malformed_and_out_of_duration_events_are_ignored():
 
     assert result.beats == valid
     assert result.downbeats == (valid[0], *valid[4::4])
-    assert result.grid.status == "reliable"
+    assert result.grid.status == "needs_review"
+    assert "half/double-tempo ambiguity" in result.reason
 
 
 def test_conflicting_downbeat_phase_is_not_accepted():
@@ -125,16 +132,95 @@ def test_conflicting_downbeat_phase_is_not_accepted():
     assert result.grid.first_downbeat_beat is None
 
 
-def test_half_double_tempo_ambiguity_keeps_observed_period():
+def test_half_double_tempo_ambiguity_requests_review_and_keeps_estimate():
     beat_times = _beats(60.0, 40, 0.13)
     downbeat_times = _downbeats(beat_times, tuple(range(0, 40, 4)))
 
     result = fit_steady_grid(beat_times, downbeat_times, 40.2)
 
+    assert result.status == "needs_review"
+    assert result.grid.status == "needs_review"
+    assert result.bpm is not None
+    assert abs(result.bpm - 60.0) < 1e-3
+    assert result.grid.bpm is None
+    assert result.grid.period_seconds is None
+    assert result.reason == result.grid.reason
+    assert "half/double-tempo ambiguity" in result.reason
+    assert "60.00 BPM" in result.reason
+    assert "120.00 BPM" in result.reason
+
+
+def test_higher_tempo_with_supported_double_phase_requests_review():
+    beat_times = _beats(128.24, 64, 0.137)
+    downbeat_times = _downbeats(beat_times, tuple(range(3, 64, 4)))
+
+    result = fit_steady_grid(beat_times, downbeat_times, 30.0)
+
+    assert result.status == "needs_review"
+    assert result.bpm is not None
+    assert abs(result.bpm - 128.24) < 1e-3
+    assert result.grid.status == "needs_review"
+    assert result.grid.bpm is None
+    assert "128.24 BPM" in result.reason
+    assert "256.48 BPM" in result.reason
+
+
+def test_conflicting_half_time_phase_does_not_hide_double_time_ambiguity():
+    beat_times = _beats(128.0, 64, 0.137)
+    downbeat_times = _downbeats(beat_times, tuple(range(0, 64, 4)))
+
+    result = fit_steady_grid(beat_times, downbeat_times, 30.0)
+    slower_phase = rhythm_engine._phase_result(
+        downbeat_times, 2.0 * (60.0 / 128.0), 0.137, AnalysisSettings()
+    )
+
+    assert slower_phase[0] is None
+    assert result.status == "needs_review"
+    assert result.bpm is not None
+    assert abs(result.bpm - 128.0) < 1e-3
+    assert result.grid.status == "needs_review"
+    assert result.grid.bpm is None
+    assert "256.00 BPM" in result.reason
+
+
+def test_both_octave_alternatives_with_compatible_bar_phase_request_review():
+    beat_times = _beats(128.0, 128, 0.137)
+    downbeat_times = _downbeats(beat_times, tuple(range(0, 128, 8)))
+
+    result = fit_steady_grid(beat_times, downbeat_times, 60.0)
+
+    assert result.status == "needs_review"
+    assert result.bpm is not None
+    assert abs(result.bpm - 128.0) < 1e-3
+    assert result.grid.status == "needs_review"
+    assert result.grid.bpm is None
+    assert result.grid.period_seconds is None
+    assert "64.00 BPM" in result.reason
+    assert "128.00 BPM" in result.reason
+    assert "256.00 BPM" in result.reason
+
+
+def test_octave_alternatives_without_4_4_phase_do_not_block_grid():
+    beat_times = _beats(128.0, 64, 0.137)
+    downbeat_times = _downbeats(beat_times, tuple(range(0, 64, 3)))
+    period = 60.0 / 128.0
+    settings = AnalysisSettings()
+
+    result = fit_steady_grid(beat_times, downbeat_times, 30.0)
+    slower_phase_results = tuple(
+        rhythm_engine._phase_result(downbeat_times, 2.0 * period, origin, settings)
+        for origin in (0.137, 0.137 + period)
+    )
+    faster_phase_results = tuple(
+        rhythm_engine._phase_result(downbeat_times, period / 2.0, origin, settings)
+        for origin in (0.137, 0.137 + period / 2.0)
+    )
+
+    assert all(phase[0] is None for phase in slower_phase_results)
+    assert all(phase[0] is None for phase in faster_phase_results)
+    assert result.status == "reliable"
     assert result.grid.status == "reliable"
-    assert result.grid.bpm is not None
-    assert abs(result.grid.bpm - 60.0) < 1e-3
-    assert result.grid.period_seconds == 1.0
+    assert result.grid.meter is None
 
 
 def test_irregular_false_positive_sequence_withholds_grid():
@@ -192,7 +278,10 @@ def test_estimate_uses_verified_local_checkpoint_without_model_download(
         "dbn": False,
         "audio_path": "sample.wav",
     }
-    assert result.status == "reliable"
+    assert result.status == "needs_review"
+    assert result.bpm is not None
+    assert abs(result.bpm - 120.0) < 1e-3
+    assert result.grid.bpm is None
     assert result.beats == beat_times
     assert result.downbeats == downbeat_times
 

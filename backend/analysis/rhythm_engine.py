@@ -117,6 +117,64 @@ def _candidate_period(intervals: Sequence[float], tolerance: float) -> float:
     return best_period
 
 
+def _alternative_has_event_support(
+    intervals: Sequence[float],
+    period: float,
+    source_period: float,
+    tolerance: float,
+) -> bool:
+    """Check whether events fit a neighboring octave as beats or subdivisions."""
+    supported = 0
+    for interval in intervals:
+        beat_count = max(1, round(interval / period))
+        matches_beat_or_gap = abs(interval - beat_count * period) <= tolerance
+        matches_subdivision = (
+            period > source_period and abs(interval - period / 2.0) <= tolerance
+        )
+        if matches_beat_or_gap or matches_subdivision:
+            supported += 1
+    return supported >= ceil(0.95 * len(intervals))
+
+
+def _octave_ambiguity_reason(
+    intervals: Sequence[float],
+    downbeats: Sequence[float],
+    period: float,
+    origin: float,
+    settings: AnalysisSettings,
+    tolerance: float,
+) -> str | None:
+    """Report octave alternatives supported by both beat and 4/4 phase evidence."""
+    supported_tempos: list[float] = []
+    for alternative_period in (period * 2.0, period / 2.0):
+        if not _alternative_has_event_support(
+            intervals, alternative_period, period, tolerance
+        ):
+            continue
+
+        # A slower alternative may use either parity of the detected events as
+        # its beat phase; a faster alternative may likewise start on either
+        # newly inserted subdivision.
+        alternate_origin = origin + min(period, alternative_period)
+        if not any(
+            _phase_result(downbeats, alternative_period, candidate_origin, settings)[0]
+            == "4/4"
+            for candidate_origin in (origin, alternate_origin)
+        ):
+            continue
+        supported_tempos.append(60.0 / alternative_period)
+
+    if not supported_tempos:
+        return None
+
+    tempos = sorted({60.0 / period, *supported_tempos})
+    tempo_text = ", ".join(f"{tempo:.2f} BPM" for tempo in tempos)
+    return (
+        "possible half/double-tempo ambiguity among "
+        f"{tempo_text}; review before accepting a fitted grid"
+    )
+
+
 def _robust_line_fit(
     beat_numbers: Sequence[int], event_times: Sequence[float]
 ) -> tuple[float, float, tuple[float, ...]]:
@@ -290,6 +348,34 @@ def _fit_steady_grid(
             ),
             status="needs_review",
             reason=reason,
+        )
+
+    ambiguity_reason = _octave_ambiguity_reason(
+        intervals,
+        usable_downbeats,
+        period,
+        origin,
+        settings,
+        interval_tolerance,
+    )
+    if ambiguity_reason is not None:
+        return RhythmResult(
+            bpm=60.0 / period,
+            beats=usable_beats,
+            downbeats=usable_downbeats,
+            grid=GridResult(
+                bpm=None,
+                period_seconds=None,
+                origin_seconds=None,
+                meter=None,
+                first_downbeat_beat=None,
+                status="needs_review",
+                residual_p95_seconds=residual_p95,
+                split_drift_seconds=split_drift,
+                reason=ambiguity_reason,
+            ),
+            status="needs_review",
+            reason=ambiguity_reason,
         )
 
     meter, first_downbeat_beat, phase_reason = _phase_result(
