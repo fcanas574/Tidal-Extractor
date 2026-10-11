@@ -200,6 +200,33 @@ def test_both_octave_alternatives_with_compatible_bar_phase_request_review():
     assert "256.00 BPM" in result.reason
 
 
+def test_slower_octave_support_includes_missed_event_gaps():
+    origin = 0.13
+    source_beats = _beats(120.0, 80, origin)
+    missing_indices = {
+        index
+        for gap_start in range(5, 80, 8)
+        for index in (gap_start, gap_start + 1)
+    }
+    beat_times = tuple(
+        timestamp
+        for index, timestamp in enumerate(source_beats)
+        if index not in missing_indices
+    )
+    downbeat_times = _downbeats(source_beats, tuple(range(0, 80, 8)))
+
+    result = fit_steady_grid(beat_times, downbeat_times, 40.2)
+
+    assert result.status == "needs_review"
+    assert result.bpm is not None
+    assert abs(result.bpm - 120.0) < 1e-3
+    assert result.grid.status == "needs_review"
+    assert result.grid.bpm is None
+    assert result.grid.period_seconds is None
+    assert "60.00 BPM" in result.reason
+    assert "120.00 BPM" in result.reason
+
+
 def test_octave_alternatives_without_4_4_phase_do_not_block_grid():
     beat_times = _beats(128.0, 64, 0.137)
     downbeat_times = _downbeats(beat_times, tuple(range(0, 64, 3)))

@@ -128,9 +128,10 @@ def _alternative_has_event_support(
     for interval in intervals:
         beat_count = max(1, round(interval / period))
         matches_beat_or_gap = abs(interval - beat_count * period) <= tolerance
-        matches_subdivision = (
-            period > source_period and abs(interval - period / 2.0) <= tolerance
-        )
+        subdivision_count = max(1, round(interval / source_period))
+        matches_subdivision = period > source_period and abs(
+            interval - subdivision_count * source_period
+        ) <= tolerance
         if matches_beat_or_gap or matches_subdivision:
             supported += 1
     return supported >= ceil(0.95 * len(intervals))
