@@ -8,6 +8,7 @@ it off to the module-level `PreviewJobManager`, returning the initial snapshot
 without waiting for the background analyzer.
 """
 import asyncio
+from dataclasses import replace
 import hashlib
 import json
 from pathlib import Path
@@ -16,6 +17,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.requests import Request
 
 import backend.main as main
 from backend.analysis.types import (
@@ -169,6 +171,33 @@ async def test_preview_routes_resolve_tidal_io_off_event_loop(stub_auth, route, 
 
     assert call_threads
     assert all(thread_id != event_loop_thread for thread_id in call_threads)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("resolution_error", "expected_status"),
+    [("missing", 404), ("transient", 503)],
+    ids=["missing-track", "transient-session-failure"],
+)
+async def test_stream_route_distinguishes_missing_track_from_transient_resolution_failure(
+    stub_auth, monkeypatch, resolution_error, expected_status,
+):
+    from fastapi import HTTPException
+    from tidalapi.exceptions import ObjectNotFound
+
+    error = ObjectNotFound("track does not exist") if resolution_error == "missing" else RuntimeError(
+        "session temporarily unavailable"
+    )
+
+    def fail_resolution(_track_id):
+        raise error
+
+    monkeypatch.setattr(main, "_resolve_preview_track", fail_resolution)
+
+    with pytest.raises(HTTPException) as raised:
+        await main.preview_stream(TEST_TRACK_ID)
+
+    assert raised.value.status_code == expected_status
 
 
 def test_metadata_route_returns_processing_snapshot(stub_auth, monkeypatch):
@@ -376,6 +405,66 @@ def test_legacy_preview_route_keeps_display_fields_additive(stub_auth, monkeypat
     assert payload["bpm_source"] == "provider"
 
 
+def test_unusable_analysis_is_unknown_instead_of_failed():
+    result = _analysis_result(key=None, bpm=None)
+    result = replace(
+        result,
+        key=replace(result.key, status="unknown"),
+        rhythm=replace(
+            result.rhythm,
+            status="needs_review",
+            grid=replace(result.rhythm.grid, status="needs_review"),
+        ),
+    )
+
+    status, error, _analysis = main._analysis_lifecycle(result)
+
+    assert status == "unknown"
+    assert error is None
+
+
+def test_legacy_preview_route_returns_404_for_missing_source(stub_auth, monkeypatch):
+    from tidalapi.exceptions import ObjectNotFound
+
+    def missing_source(_track_id):
+        raise ObjectNotFound("track does not exist")
+
+    monkeypatch.setattr(main, "_resolve_preview_track", missing_source)
+
+    response = client.get(f"/preview/{TEST_TRACK_ID}")
+
+    assert response.status_code == 404
+
+
+def test_legacy_preview_route_returns_503_for_source_resolution_failure(stub_auth, monkeypatch):
+    def unavailable_source(_track_id):
+        raise RuntimeError("session temporarily unavailable")
+
+    monkeypatch.setattr(main, "_resolve_preview_track", unavailable_source)
+
+    response = client.get(f"/preview/{TEST_TRACK_ID}")
+
+    assert response.status_code == 503
+
+
+def test_legacy_preview_route_returns_503_for_analysis_failure(stub_auth, monkeypatch):
+    track = type("Track", (), {
+        "title": "Test",
+        "artist": type("Artist", (), {"name": "Test Artist"})(),
+        "duration": TEST_DURATION,
+    })()
+    monkeypatch.setattr(main, "_resolve_preview_track", lambda _track_id: (track, TEST_STREAM_URL))
+
+    async def unavailable_analysis(*_args, **_kwargs):
+        raise RuntimeError("analysis worker unavailable")
+
+    monkeypatch.setattr(main, "preview_analyzer", unavailable_analysis)
+
+    response = client.get(f"/preview/{TEST_TRACK_ID}")
+
+    assert response.status_code == 503
+
+
 # ---------------------------------------------------------------------------
 # Integration tests for the streaming pipeline (Stage 2, Task 3)
 # ---------------------------------------------------------------------------
@@ -467,6 +556,45 @@ async def test_preview_analyzer_reuses_temp_wav_for_hybrid_service(monkeypatch):
 
     assert str(service.analyze_preview.await_args.kwargs["wav_path"]) == wav_path
     assert service.analyze_preview.await_args.kwargs["pcm_sha256"] == "b" * 64
+
+
+@pytest.mark.asyncio
+async def test_preview_analyzer_forwards_worker_progress_to_snapshot(monkeypatch):
+    async def fake_analyze_stream(*_args, **_kwargs):
+        return {
+            "bands": {"low": [0.1], "mid": [0.1], "high": [0.1]},
+            "duration": 10.0,
+            "temp_wav_path": "/tmp/test_preview_progress.wav",
+            "pcm_sha256": "f" * 64,
+        }
+
+    async def analyze_preview(**kwargs):
+        await kwargs["on_progress"]({
+            "analysis_status": "processing",
+            "analysis": {"key": None, "rhythm": {"beats": [0.5], "downbeats": [0.5]}},
+        })
+        return _analysis_result(duration=10.0)
+
+    monkeypatch.setattr(main, "analyze_stream", fake_analyze_stream)
+    monkeypatch.setattr(main, "_preview_provider_metadata", AsyncMock(return_value={
+        "provider_key": None, "provider_camelot": None, "provider_bpm": None,
+    }))
+    service = MagicMock()
+    service.analyze_preview = analyze_preview
+    monkeypatch.setattr(main, "_get_analysis_service", lambda: service)
+    snapshots = []
+
+    async def on_snapshot(snapshot):
+        snapshots.append(snapshot)
+
+    await main.preview_analyzer(
+        TEST_STREAM_URL, TEST_DURATION, TEST_TRACK_ID, on_snapshot=on_snapshot,
+    )
+
+    assert any(
+        update.get("analysis", {}).get("rhythm", {}).get("beats") == [0.5]
+        for update in snapshots
+    )
 
 
 @pytest.mark.asyncio
@@ -570,6 +698,13 @@ def test_retry_returns_current_snapshot_without_a_body(stub_auth, monkeypatch):
             assert track_id == TEST_TRACK_ID
             return current
 
+        def start_or_get(self, track_id, _stream_url, _duration, **identity):
+            assert track_id == TEST_TRACK_ID
+            assert identity["preview_profile"] == "LOW"
+            assert identity["decoder_version"] == main.DECODER_VERSION
+            assert identity["settings_identity"]
+            return current
+
         def retry_analysis(self, track_id):
             assert track_id == TEST_TRACK_ID
             return current
@@ -583,6 +718,74 @@ def test_retry_returns_current_snapshot_without_a_body(stub_auth, monkeypatch):
     assert payload["revision"] == 5
     assert payload["waveform_status"] == "complete"
     assert payload["analysis_status"] == "queued"
+
+
+@pytest.mark.asyncio
+async def test_retry_resolves_current_source_after_failed_terminal_snapshot(stub_auth, monkeypatch):
+    current_url = {"value": "https://example.test/track?token=old&expiry=1"}
+    analyzer_urls = []
+    retry_urls = []
+
+    class MutableTrack(_FakeTrack):
+        def get_url(self):
+            return current_url["value"]
+
+    monkeypatch.setattr(stub_auth, "track", lambda _track_id: MutableTrack())
+    monkeypatch.setattr(main, "_preview_model_sha256", lambda _model_id: "model-sha")
+
+    async def analyzer(stream_url, *_args, **_kwargs):
+        analyzer_urls.append(stream_url)
+        raise RuntimeError("temporary analysis failure")
+
+    async def retry(stream_url, *_args, **_kwargs):
+        retry_urls.append(stream_url)
+        return {"analysis_status": "complete"}
+
+    manager = main.PreviewJobManager(analyzer=analyzer, analysis_retry=retry)
+    start_calls = []
+    original_start_or_get = manager.start_or_get
+
+    def start_or_get(track_id, stream_url, duration, **identity):
+        start_calls.append((track_id, stream_url, duration, identity))
+        return original_start_or_get(track_id, stream_url, duration, **identity)
+
+    monkeypatch.setattr(manager, "start_or_get", start_or_get)
+    monkeypatch.setattr(main, "preview_job_manager", manager)
+
+    initial = await main.preview_metadata(TEST_TRACK_ID)
+    assert initial["analysis_status"] in {"queued", "processing"}
+    for _ in range(100):
+        snapshot = manager.snapshot(TEST_TRACK_ID)
+        if snapshot.analysis_status == "failed":
+            break
+        await asyncio.sleep(0.01)
+    assert snapshot.analysis_status == "failed"
+    assert analyzer_urls == ["https://example.test/track?token=old&expiry=1"]
+
+    # The URL rotates after the terminal snapshot. Retry must resolve it again,
+    # then refresh the same stable source before scheduling analysis.
+    current_url["value"] = "https://example.test/track?token=new&expiry=2"
+
+    async def receive():
+        return {"type": "http.request", "body": b"", "more_body": False}
+
+    request = Request(
+        {"type": "http", "method": "POST", "path": f"/preview/{TEST_TRACK_ID}/analysis/retry", "headers": []},
+        receive,
+    )
+    retried = await main.retry_preview_analysis(TEST_TRACK_ID, request)
+    assert retried["analysis_status"] in {"queued", "processing"}
+
+    for _ in range(100):
+        if retry_urls:
+            break
+        await asyncio.sleep(0.01)
+
+    assert retry_urls == ["https://example.test/track?token=new&expiry=2"]
+    assert len(start_calls) == 2
+    assert start_calls[0][3] == start_calls[1][3]
+    assert start_calls[0][3]["preview_profile"] == "LOW"
+    assert start_calls[0][3]["decoder_version"] == main.DECODER_VERSION
 
 
 @pytest.mark.asyncio

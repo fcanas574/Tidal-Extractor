@@ -1,3 +1,4 @@
+import asyncio
 import threading
 from pathlib import Path
 
@@ -68,6 +69,59 @@ async def test_uses_one_stream_and_passes_pcm_identity(monkeypatch, tmp_path):
     assert observed["duration_seconds"] == 240.0
     assert result["waveform"]["bands"]["mid"] == [0.2]
     assert not wav.exists()
+
+
+@pytest.mark.asyncio
+async def test_concurrent_preview_analyzers_share_decode_gate(monkeypatch, tmp_path):
+    first_url = "https://s/first"
+    second_url = "https://s/second"
+    first_entered = asyncio.Event()
+    release_first = asyncio.Event()
+    second_entered = asyncio.Event()
+    calls = []
+    active_decodes = 0
+    max_active_decodes = 0
+
+    async def fake_analyze(url, duration, **_kwargs):
+        nonlocal active_decodes, max_active_decodes
+        active_decodes += 1
+        max_active_decodes = max(max_active_decodes, active_decodes)
+        calls.append(url)
+        if url == first_url:
+            first_entered.set()
+            await release_first.wait()
+        else:
+            second_entered.set()
+        wav = tmp_path / f"{len(calls)}.wav"
+        wav.write_bytes(b"wav")
+        active_decodes -= 1
+        return _decoded(
+            {"low": [0.1], "mid": [0.2], "high": [0.3]},
+            wav,
+            duration=duration,
+        )
+
+    async def no_provider(_track_id):
+        return {"provider_key": None, "provider_camelot": None, "provider_bpm": None}
+
+    _install_fake_analysis_service(monkeypatch)
+    monkeypatch.setattr(main, "analyze_stream", fake_analyze)
+    monkeypatch.setattr(main, "_preview_provider_metadata", no_provider)
+
+    first = asyncio.create_task(main.preview_analyzer(first_url, 12.0, 1))
+    second = None
+    try:
+        await first_entered.wait()
+        second = asyncio.create_task(main.preview_analyzer(second_url, 12.0, 2))
+        await asyncio.sleep(0.05)
+        assert calls == [first_url]
+        assert not second_entered.is_set()
+    finally:
+        release_first.set()
+        await asyncio.gather(*(task for task in (first, second) if task is not None))
+
+    assert calls == [first_url, second_url]
+    assert max_active_decodes == 1
 
 
 @pytest.mark.asyncio
@@ -246,8 +300,9 @@ async def test_publish_progress_merges_and_bumps_revision():
 
 
 @pytest.mark.asyncio
-async def test_metadata_poll_with_existing_job_skips_url_resolution(monkeypatch):
+async def test_metadata_poll_refreshes_source_and_reuses_matching_job(monkeypatch):
     track_calls, url_calls = [], []
+    analyzer_calls = []
 
     track = type("T", (), {
         "title": "t",
@@ -261,21 +316,29 @@ async def test_metadata_poll_with_existing_job_skips_url_resolution(monkeypatch)
     monkeypatch.setattr(type(main.auth_manager), "is_authenticated",
                         property(lambda self: True))
 
-    async def fast_analyzer(tid, url, duration):
+    async def fast_analyzer(url, duration, tid, **_kwargs):
+        analyzer_calls.append((tid, url, duration))
         return {"waveform": {"bands": {"low": [0.1], "mid": [0.1], "high": [0.1]},
                              "colors": {}, "duration": duration or 0}}
 
-    monkeypatch.setattr(main.preview_job_manager, "analyzer", fast_analyzer)
+    from backend.preview_jobs import PreviewJobManager
+    monkeypatch.setattr(main, "preview_job_manager", PreviewJobManager(analyzer=fast_analyzer))
+    monkeypatch.setattr(main, "_preview_model_sha256", lambda _model_id: "a" * 64)
 
     first = await main.preview_metadata(7)
     assert track_calls == [7]
     assert len(url_calls) == 1
+    await asyncio.sleep(0)
+    await asyncio.sleep(0)
 
     second = await main.preview_metadata(7)
-    # Second poll must not re-resolve the stream URL
-    assert track_calls == [7]
-    assert len(url_calls) == 1
+    # Polls refresh the source identity, while matching URLs still attach to the
+    # existing snapshot and do not restart analysis.
+    assert track_calls == [7, 7]
+    assert len(url_calls) == 2
     assert set(first) == set(second)  # same response shape
+    assert len(analyzer_calls) == 1
+    assert analyzer_calls == [(7, "https://s/7", 240.0)]
 
 
 @pytest.mark.asyncio

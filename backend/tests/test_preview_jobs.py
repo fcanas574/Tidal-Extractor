@@ -1,10 +1,20 @@
 import asyncio
 from copy import deepcopy
 from datetime import datetime, timedelta, timezone
+import time
 
 import pytest
 
-from backend.preview_jobs import PreviewJobManager
+from backend.analysis.worker import QueueWaiterReplaced
+from backend.preview_jobs import PreviewJobManager, _source_identity
+
+
+async def _wait_until(predicate, timeout=3.0):
+    deadline = time.monotonic() + timeout
+    while not predicate():
+        if time.monotonic() >= deadline:
+            raise AssertionError("condition did not become true before timeout")
+        await asyncio.sleep(0.01)
 
 
 def test_start_or_get_is_idempotent():
@@ -13,6 +23,7 @@ def test_start_or_get_is_idempotent():
     second = manager.start_or_get(12, "https://example.test/stream", 240.0)
     assert first.track_id == second.track_id == 12
     assert manager.active_job_count() == 1
+    manager.run_pending_for_test()
 
 
 @pytest.mark.parametrize(
@@ -93,108 +104,153 @@ def test_completed_snapshot_is_not_reused_after_engine_identity_changes(changed_
     assert manager.snapshot(12).waveform == {"points": [2]}
 
 
+def test_source_identity_preserves_stable_query_selectors():
+    first = _source_identity("https://example.test/stream?asset=one&quality=high")
+    second = _source_identity("https://example.test/stream?asset=two&quality=high")
+
+    assert first != second
+
+
 @pytest.mark.parametrize(
-    ("old_query", "new_query"),
+    ("old_parameter", "new_parameter"),
     [
-        ("asset=one&token=old", "asset=one&token=new"),
-        ("asset=one&auth=old", "asset=one&auth=new"),
-        ("asset=one&X-Amz-Credential=old", "asset=one&X-Amz-Credential=new"),
-        ("asset=one&X-Goog-Signature=old", "asset=one&X-Goog-Signature=new"),
+        ("token=old", "token=new"),
+        ("auth=old", "AUTH=new"),
+        ("access_token=old", "ACCESS_TOKEN=new"),
+        ("signature=old", "Signature=new"),
+        ("sig=old", "SIG=new"),
+        ("expires=100", "EXPIRES=200"),
+        ("expiry=100", "Expiry=200"),
+        ("X-Amz-Credential=old", "x-amz-credential=new"),
+        ("X-Amz-Signature=old", "x-amz-signature=new"),
+        ("X-Goog-Signature=old", "x-goog-signature=new"),
+        ("X-Goog-Expires=100", "x-goog-expires=200"),
+        ("HDNEA=old", "hdnea=new"),
+        ("HDNTS=old", "hdnts=new"),
     ],
-    ids=["generic-token", "generic-auth", "aws-query", "google-query"],
+    ids=[
+        "token",
+        "auth",
+        "access-token",
+        "signature",
+        "sig",
+        "expires",
+        "expiry",
+        "aws-credential",
+        "aws-signature",
+        "google-signature",
+        "google-expiry",
+        "hdnea",
+        "hdnts",
+    ],
 )
-def test_unverified_query_parameters_are_preserved_in_preview_identity(old_query, new_query):
+def test_source_identity_ignores_rotating_auth_parameters(old_parameter, new_parameter):
+    first = _source_identity(f"https://example.test/stream?asset=one&{old_parameter}")
+    second = _source_identity(f"https://example.test/stream?asset=one&{new_parameter}")
+
+    assert first == second
+
+
+def test_source_identity_preserves_unrelated_query_parameters():
+    first = _source_identity("https://example.test/stream?asset=one&variant=original")
+    second = _source_identity("https://example.test/stream?asset=one&variant=changed")
+
+    assert first != second
+
+
+def test_rotating_cdn_token_url_reuses_completed_preview_snapshot():
     calls = []
 
     def analyzer(stream_url, duration, *_args, **_kwargs):
-        calls.append(stream_url)
+        calls.append((stream_url, duration))
         return {"waveform": {"points": [len(calls)]}}
 
     manager = PreviewJobManager(analyzer=analyzer)
-    manager.start_or_get(
-        12,
-        f"https://example.test/stream?{old_query}",
-        240.0,
-        preview_profile="LOW",
-        decoder_version="decoder-v1",
-        settings_identity="settings-v1",
-    )
+    manager.start_or_get(12, "https://example.test/stream?asset=one&hdnea=old", 240.0)
     manager.run_pending_for_test()
+    completed = manager.snapshot(12)
+
     refreshed = manager.start_or_get(
         12,
-        f"https://example.test/stream?{new_query}",
+        "https://example.test/stream?asset=one&HDNEA=new",
         240.0,
-        preview_profile="LOW",
-        decoder_version="decoder-v1",
-        settings_identity="settings-v1",
     )
-    assert refreshed.status == "queued"
+
+    assert completed is not None
+    assert refreshed.status == completed.status == "complete"
+    assert refreshed.waveform == completed.waveform == {"points": [1]}
+    assert len(calls) == 1
+
+
+def test_explicit_retry_uses_latest_signed_source_url():
+    analyzed_urls = []
+    retried_urls = []
+
+    def analyzer(stream_url, *_args, **_kwargs):
+        analyzed_urls.append(stream_url)
+        raise RuntimeError("initial analysis failed")
+
+    def analysis_retry(stream_url, *_args, **_kwargs):
+        retried_urls.append(stream_url)
+        return {"analysis_status": "complete"}
+
+    manager = PreviewJobManager(analyzer=analyzer, analysis_retry=analysis_retry)
+    original_url = "https://example.test/stream?asset=one&token=old&expires=100"
+    refreshed_url = "https://example.test/stream?asset=one&token=new&expires=200"
+    manager.start_or_get(12, original_url, 240.0)
+    manager.run_pending_for_test()
+    assert manager.snapshot(12).analysis_status == "failed"
+
+    manager.start_or_get(12, refreshed_url, 240.0)
+    queued = manager.retry_analysis(12)
+    assert queued is not None
+    assert queued.analysis_status == "queued"
     manager.run_pending_for_test()
 
-    assert len(calls) == 2
-    assert manager.snapshot(12).waveform == {"points": [2]}
+    assert analyzed_urls == [original_url]
+    assert retried_urls == [refreshed_url]
 
 
 @pytest.mark.asyncio
-async def test_superseded_jobs_share_the_five_task_cap_and_stale_result_cannot_publish():
-    urls = [
-        "https://example.test/old",
-        "https://example.test/other-2",
-        "https://example.test/other-3",
-        "https://example.test/other-4",
-        "https://example.test/new",
-        "https://example.test/admitted-after-drain",
-    ]
-    started = {url: asyncio.Event() for url in urls}
-    finished = {url: asyncio.Event() for url in urls}
-    release = {url: asyncio.Event() for url in urls}
+async def test_new_sources_are_admitted_and_stale_result_cannot_publish():
+    old_url = "https://example.test/old"
+    new_url = "https://example.test/new"
+    active_started = asyncio.Event()
+    release = asyncio.Event()
+    analyzed = []
 
-    async def analyzer(stream_url, _duration, _track_id, on_snapshot=None):
-        started[stream_url].set()
-        await release[stream_url].wait()
-        if stream_url.endswith("/old"):
+    async def analyzer(stream_url, _duration, track_id, on_snapshot=None):
+        analyzed.append((track_id, stream_url))
+        if stream_url == old_url:
+            active_started.set()
+        await release.wait()
+        if stream_url == old_url:
             await on_snapshot({"waveform": {"points": ["stale"]}})
-            result = {"waveform": {"points": ["stale"]}}
-        else:
-            result = {"waveform": {"points": [stream_url.rsplit("/", 1)[-1]]}}
-        finished[stream_url].set()
-        return result
+            return {"waveform": {"points": ["stale"]}}
+        return {"waveform": {"points": [stream_url.rsplit("/", 1)[-1]]}}
 
     manager = PreviewJobManager(analyzer=analyzer)
-    manager.start_or_get(1, urls[0], 10.0)
-    await asyncio.wait_for(started[urls[0]].wait(), timeout=1)
-    for track_id, stream_url in zip((2, 3, 4), urls[1:4]):
-        manager.start_or_get(track_id, stream_url, 10.0)
-        await asyncio.wait_for(started[stream_url].wait(), timeout=1)
+    manager.start_or_get(1, old_url, 10.0)
+    await asyncio.wait_for(active_started.wait(), timeout=1)
+    for track_id in (2, 3, 4):
+        manager.start_or_get(track_id, f"https://example.test/{track_id}", 10.0)
 
-    manager.start_or_get(1, urls[4], 10.0)
-    await asyncio.wait_for(started[urls[4]].wait(), timeout=1)
-    assert manager.active_job_count() == 5  # four waiting/current sources plus the retired source
+    # A changed source for the active track waits behind its still-running old
+    # source. The manager admits only four waiters and replaces the oldest when
+    # a fifth new identity arrives.
+    manager.start_or_get(1, new_url, 10.0)
+    manager.start_or_get(5, "https://example.test/5", 10.0)
+    assert manager.active_job_count() == 5  # one active decode plus four waiters
+    assert analyzed == [(1, old_url)]
 
-    try:
-        with pytest.raises(RuntimeError, match="capacity|queue"):
-            manager.start_or_get(5, urls[5], 10.0)
-        assert manager.snapshot(5) is None
-        assert manager.active_job_count() == 5
+    displaced = manager.snapshot(2)
+    assert displaced is not None
+    assert displaced.analysis_status == "deferred"
+    assert "replaced by newer work" in displaced.analysis_error
 
-        release[urls[0]].set()
-        await asyncio.wait_for(finished[urls[0]].wait(), timeout=1)
-        await asyncio.sleep(0)
-        current = manager.snapshot(1)
-        assert current is not None
-        assert current.waveform is None
-        assert manager.active_job_count() == 4
-
-        # The rejected source can be admitted once a slot frees.
-        manager.start_or_get(5, urls[5], 10.0)
-        await asyncio.wait_for(started[urls[5]].wait(), timeout=1)
-        assert manager.active_job_count() == 5
-    finally:
-        for event in release.values():
-            event.set()
-        while manager.active_job_count():
-            await asyncio.sleep(0)
-
+    release.set()
+    await _wait_until(lambda: manager.snapshot(1).waveform == {"points": ["new"]})
+    await _wait_until(lambda: manager.active_job_count() == 0)
     current = manager.snapshot(1)
     assert current is not None
     assert current.waveform == {"points": ["new"]}
@@ -202,52 +258,45 @@ async def test_superseded_jobs_share_the_five_task_cap_and_stale_result_cannot_p
 
 
 @pytest.mark.asyncio
-async def test_retry_stays_failed_when_capacity_is_full_and_can_be_retried_later():
+async def test_retry_reenters_bounded_manager_admission():
+    active_started = asyncio.Event()
+    release_active = asyncio.Event()
     retry_started = asyncio.Event()
-    release_retry = asyncio.Event()
-    release_waiters = asyncio.Event()
-    waiting_started = {track_id: asyncio.Event() for track_id in range(2, 7)}
+    calls = []
 
     async def analyzer(_url, _duration, track_id, **_kwargs):
+        calls.append(track_id)
         if track_id == 1:
             raise RuntimeError("analysis failed")
-        waiting_started[track_id].set()
-        await release_waiters.wait()
+        active_started.set()
+        await release_active.wait()
         return {"waveform": {"points": [track_id]}}
 
-    async def analysis_retry(_url, _duration, _track_id):
+    async def analysis_retry(_url, _duration, track_id, **_kwargs):
+        calls.append(("retry", track_id))
         retry_started.set()
-        await release_retry.wait()
         return {"analysis_status": "complete"}
 
     manager = PreviewJobManager(analyzer=analyzer, analysis_retry=analysis_retry)
     manager.start_or_get(1, "https://example.test/failed", 10.0)
-    await asyncio.sleep(0)
-    await asyncio.sleep(0)
-    assert manager.snapshot(1).analysis_status == "failed"
+    await _wait_until(lambda: manager.snapshot(1).analysis_status == "failed")
 
-    for track_id in waiting_started:
+    manager.start_or_get(2, "https://example.test/2", 10.0)
+    await active_started.wait()
+    for track_id in range(3, 7):
         manager.start_or_get(track_id, f"https://example.test/{track_id}", 10.0)
-    await asyncio.gather(*(event.wait() for event in waiting_started.values()))
-    assert manager.active_job_count() == 5
-
-    try:
-        with pytest.raises(RuntimeError, match="capacity|queue"):
-            manager.retry_analysis(1)
-        assert manager.snapshot(1).analysis_status == "failed"
-    finally:
-        release_waiters.set()
-        while manager.active_job_count():
-            await asyncio.sleep(0)
 
     retried = manager.retry_analysis(1)
     assert retried is not None
     assert retried.analysis_status == "queued"
-    await asyncio.wait_for(retry_started.wait(), timeout=1)
-    release_retry.set()
-    while manager.active_job_count():
-        await asyncio.sleep(0)
-    assert manager.snapshot(1).analysis_status == "complete"
+    assert manager.active_job_count() == 5
+    assert manager.snapshot(3).analysis_status == "deferred"
+    assert calls == [1, 2]
+
+    release_active.set()
+    await asyncio.wait_for(retry_started.wait(), timeout=2)
+    await _wait_until(lambda: manager.snapshot(1).analysis_status == "complete")
+    await _wait_until(lambda: manager.active_job_count() == 0)
 
 
 def test_completed_snapshot_expires_after_24_hours():
@@ -290,6 +339,7 @@ async def test_superseded_in_progress_result_cannot_publish_to_current_snapshot(
     old_started = asyncio.Event()
     release_old = asyncio.Event()
     old_finished = asyncio.Event()
+    new_started = asyncio.Event()
     new_finished = asyncio.Event()
 
     async def analyzer(stream_url, _duration, _track_id, on_snapshot=None):
@@ -299,6 +349,7 @@ async def test_superseded_in_progress_result_cannot_publish_to_current_snapshot(
             await on_snapshot({"waveform": {"points": ["stale"]}})
             old_finished.set()
             return {"waveform": {"points": ["stale"]}}
+        new_started.set()
         result = {"waveform": {"points": ["current"]}}
         new_finished.set()
         return result
@@ -307,16 +358,21 @@ async def test_superseded_in_progress_result_cannot_publish_to_current_snapshot(
     manager.start_or_get(12, "https://example.test/old", 240.0)
     await asyncio.wait_for(old_started.wait(), timeout=1)
     manager.start_or_get(12, "https://example.test/new", 180.0)
-    await asyncio.wait_for(new_finished.wait(), timeout=1)
-    await asyncio.sleep(0)
+    try:
+        await asyncio.sleep(0)
+        assert not new_started.is_set()
 
-    release_old.set()
-    await asyncio.wait_for(old_finished.wait(), timeout=1)
-    await asyncio.sleep(0)
+        release_old.set()
+        await asyncio.wait_for(old_finished.wait(), timeout=1)
+        await asyncio.wait_for(new_finished.wait(), timeout=1)
+        await _wait_until(lambda: manager.active_job_count() == 0)
 
-    current = manager.snapshot(12)
-    assert current is not None
-    assert current.waveform == {"points": ["current"]}
+        current = manager.snapshot(12)
+        assert current is not None
+        assert current.waveform == {"points": ["current"]}
+    finally:
+        release_old.set()
+        await manager.close()
 
 
 def test_snapshot_reports_failed_job():
@@ -387,6 +443,95 @@ async def test_waveform_completion_does_not_finish_analysis():
     assert snapshot.status == "complete"
 
 
+@pytest.mark.asyncio
+async def test_manager_queue_replacement_is_deferred_without_decode_and_can_be_retried():
+    active_started = asyncio.Event()
+    release_active = asyncio.Event()
+    analyzed_tracks = []
+    retried_tracks = []
+
+    async def analyzer(_url, _duration, track_id, **_kwargs):
+        analyzed_tracks.append(track_id)
+        if track_id == 1:
+            active_started.set()
+            await release_active.wait()
+        return {"analysis_status": "complete"}
+
+    async def retry(_url, _duration, track_id, **_kwargs):
+        retried_tracks.append(track_id)
+        return {"analysis_status": "complete"}
+
+    manager = PreviewJobManager(analyzer=analyzer, analysis_retry=retry)
+    urls = {track_id: f"https://example.test/{track_id}" for track_id in range(1, 7)}
+    manager.start_or_get(1, urls[1], 10.0)
+    await active_started.wait()
+    for track_id in range(2, 6):
+        manager.start_or_get(track_id, urls[track_id], 10.0)
+
+    admitted = manager.start_or_get(6, urls[6], 10.0)
+    assert admitted.track_id == 6
+    assert manager.active_job_count() == 5
+    assert analyzed_tracks == [1]
+
+    deferred = manager.snapshot(2)
+    assert deferred is not None
+    assert deferred.analysis_status == "deferred"
+    assert deferred.analysis_error is not None
+    assert "replaced by newer work" in deferred.analysis_error
+    assert deferred.error == deferred.analysis_error
+
+    polled = manager.start_or_get(2, urls[2], 10.0)
+    assert polled.analysis_status == "deferred"
+    assert analyzed_tracks == [1]
+
+    release_active.set()
+    await _wait_until(lambda: manager.active_job_count() == 0)
+
+    retry_snapshot = manager.retry_analysis(2)
+    assert retry_snapshot is not None
+    assert retry_snapshot.analysis_status == "queued"
+    await _wait_until(
+        lambda: (snapshot := manager.snapshot(2)) is not None
+        and snapshot.analysis_status == "complete"
+    )
+    assert retried_tracks == [2]
+    assert 2 not in analyzed_tracks
+    assert analyzed_tracks == [1, 3, 4, 5, 6]
+
+
+def test_worker_queue_replacement_error_is_deferred_and_explicitly_retryable():
+    analyzer_calls = []
+    retry_calls = []
+
+    def analyzer(stream_url, *_args, **_kwargs):
+        analyzer_calls.append(stream_url)
+        raise QueueWaiterReplaced("worker waiter was replaced by newer work")
+
+    def retry(stream_url, *_args, **_kwargs):
+        retry_calls.append(stream_url)
+        return {"analysis_status": "complete"}
+
+    manager = PreviewJobManager(analyzer=analyzer, analysis_retry=retry)
+    source_url = "https://example.test/stream"
+    manager.start_or_get(12, source_url, 10.0)
+    manager.run_pending_for_test()
+
+    deferred = manager.snapshot(12)
+    assert deferred is not None
+    assert deferred.analysis_status == "deferred"
+    assert deferred.analysis_error == "worker waiter was replaced by newer work"
+    assert deferred.error == deferred.analysis_error
+    assert analyzer_calls == [source_url]
+
+    assert manager.start_or_get(12, source_url, 10.0).analysis_status == "deferred"
+    assert analyzer_calls == [source_url]
+    assert manager.retry_analysis(12).analysis_status == "queued"
+    manager.run_pending_for_test()
+
+    assert retry_calls == [source_url]
+    assert manager.snapshot(12).analysis_status == "complete"
+
+
 def test_analysis_failure_keeps_waveform_as_partial():
     waveform = {
         "bands": {"low": [0.1], "mid": [0.2], "high": [0.3]},
@@ -446,7 +591,7 @@ def test_explicit_retry_requeues_failed_analysis_once():
             "analysis_error": "model unavailable",
         }
 
-    async def analysis_retry(*_args):
+    async def analysis_retry(*_args, **_kwargs):
         nonlocal retry_calls
         retry_calls += 1
         return {

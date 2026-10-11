@@ -6,6 +6,7 @@ import logging
 import os
 import threading
 import time
+import weakref
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Optional, List
@@ -50,6 +51,10 @@ search_metadata_jobs: SearchMetadataJobManager | None = None
 _analysis_service = None
 _preview_model_sha_cache: dict[str, tuple[tuple[object, ...], str]] = {}
 _preview_model_sha_lock = threading.Lock()
+_preview_decode_gates: weakref.WeakKeyDictionary[
+    asyncio.AbstractEventLoop, weakref.ReferenceType[asyncio.Semaphore]
+] = weakref.WeakKeyDictionary()
+_preview_decode_gates_lock = threading.Lock()
 
 # FreqBlog stats counters (in-memory, reset on restart)
 freqblog_stats = {
@@ -554,6 +559,12 @@ async def preview_track(track_id: int):
         raise HTTPException(status_code=401, detail="Not authenticated")
     try:
         track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
+    except ObjectNotFound as e:
+        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview source unavailable: {e}")
+
+    try:
         logger.info(f"Preview track {track_id}: '{track.title}' by {track.artist.name if track.artist else 'Unknown'}")
         result = await preview_analyzer(url, getattr(track, "duration", None), track_id)
         display = metadata_display_fields(
@@ -564,7 +575,7 @@ async def preview_track(track_id: int):
         )
         return {"stream_url": url, **result, **display}
     except Exception as e:
-        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+        raise HTTPException(status_code=503, detail=f"Preview analysis unavailable: {e}")
 
 
 preview_job_manager = PreviewJobManager()
@@ -636,6 +647,19 @@ def _preview_model_sha256(model_id: str) -> str | None:
         return None
 
 
+async def _preview_analysis_settings_identity() -> str:
+    """Build the analysis identity shared by metadata polling and retry."""
+    from backend.analysis.service import ENGINE_VERSION
+    from backend.analysis.types import AnalysisSettings
+
+    settings = AnalysisSettings()
+    model_sha256 = await asyncio.to_thread(_preview_model_sha256, settings.model_id)
+    return (
+        f"{ENGINE_VERSION}:{settings.model_id}:{settings.sha256}:"
+        f"{model_sha256 or 'unverified'}"
+    )
+
+
 async def _preview_provider_metadata(track_id: int) -> dict:
     empty = {
         "provider_key": None,
@@ -686,10 +710,13 @@ def _analysis_lifecycle(result) -> tuple[str, str | None, dict]:
         failed_components.append(key.reason or "local key analysis failed")
     if rhythm.status in {"failed", "unavailable"}:
         failed_components.append(rhythm.reason or "local rhythm analysis unavailable")
-    if not usable and not failed_components:
-        failed_components.append("local analysis returned no usable key or rhythm")
     if failed_components:
         return "failed", "; ".join(failed_components), analysis
+    if not usable:
+        # A result with no estimate and no failed component is inconclusive.
+        # In particular, unknown key + needs-review rhythm must not be presented
+        # as an operational failure that an explicit retry can fix.
+        return "unknown", None, analysis
     return "complete", None, analysis
 
 
@@ -703,8 +730,32 @@ async def _remove_temp_file(path: str | None) -> None:
         os.unlink(path)
 
 
+def _preview_decode_gate_for_running_loop() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    with _preview_decode_gates_lock:
+        gate_ref = _preview_decode_gates.get(loop)
+        gate = gate_ref() if gate_ref is not None else None
+        if gate is None:
+            gate = asyncio.Semaphore(1)
+            _preview_decode_gates[loop] = weakref.ref(gate)
+        return gate
+
+
 async def preview_analyzer(stream_url: str, duration: float | None, track_id: int,
                            on_snapshot=None) -> dict:
+    gate = _preview_decode_gate_for_running_loop()
+    async with gate:
+        return await _preview_analyzer_with_gate(
+            stream_url, duration, track_id, on_snapshot
+        )
+
+
+async def _preview_analyzer_with_gate(
+    stream_url: str,
+    duration: float | None,
+    track_id: int,
+    on_snapshot=None,
+) -> dict:
     provider_task = asyncio.create_task(_preview_provider_metadata(track_id))
     tmp_path = None
     try:
@@ -735,6 +786,9 @@ async def preview_analyzer(stream_url: str, duration: float | None, track_id: in
         await _notify_preview(on_snapshot, {"analysis_status": "processing"})
         from backend.analysis.types import AnalysisSettings
 
+        async def publish_analysis_progress(snapshot: dict) -> None:
+            await _notify_preview(on_snapshot, snapshot)
+
         analysis_result = await _get_analysis_service().analyze_preview(
             track_id=track_id,
             wav_path=Path(tmp_path),
@@ -743,6 +797,7 @@ async def preview_analyzer(stream_url: str, duration: float | None, track_id: in
             duration_seconds=float(decoded["duration"]),
             decoder_version=DECODER_VERSION,
             settings=AnalysisSettings(),
+            on_progress=publish_analysis_progress,
         )
         analysis_status, analysis_error, analysis = _analysis_lifecycle(analysis_result)
         return {
@@ -764,8 +819,26 @@ async def preview_analyzer(stream_url: str, duration: float | None, track_id: in
             logger.debug("could not remove preview WAV %s", tmp_path, exc_info=True)
 
 
-async def preview_analysis_retry(stream_url: str, duration: float | None, track_id: int) -> dict:
-    decoded = await analyze_stream(stream_url, duration, width=600, on_snapshot=None)
+async def preview_analysis_retry(
+    stream_url: str,
+    duration: float | None,
+    track_id: int,
+    on_snapshot=None,
+) -> dict:
+    gate = _preview_decode_gate_for_running_loop()
+    async with gate:
+        return await _preview_analysis_retry_with_gate(
+            stream_url, duration, track_id, on_snapshot
+        )
+
+
+async def _preview_analysis_retry_with_gate(
+    stream_url: str,
+    duration: float | None,
+    track_id: int,
+    on_snapshot=None,
+) -> dict:
+    decoded = await analyze_stream(stream_url, duration, width=600, on_snapshot=on_snapshot)
     tmp_path = decoded.get("temp_wav_path")
     try:
         pcm_sha256 = decoded.get("pcm_sha256")
@@ -773,6 +846,9 @@ async def preview_analysis_retry(stream_url: str, duration: float | None, track_
             raise RuntimeError("Preview decoder did not produce analysis audio")
         service = _get_analysis_service()
         from backend.analysis.types import AnalysisSettings
+
+        async def publish_analysis_progress(snapshot: dict) -> None:
+            await _notify_preview(on_snapshot, snapshot)
 
         result = await service.retry_preview(
             track_id=track_id,
@@ -782,6 +858,7 @@ async def preview_analysis_retry(stream_url: str, duration: float | None, track_
             duration_seconds=float(decoded["duration"]),
             decoder_version=DECODER_VERSION,
             settings=AnalysisSettings(),
+            on_progress=publish_analysis_progress,
         )
         status, error, analysis = _analysis_lifecycle(result)
         return {
@@ -817,8 +894,10 @@ async def preview_stream(track_id: int):
             "stream_url": url,
             "duration": duration,
         }
-    except Exception as e:
+    except ObjectNotFound as e:
         raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview unavailable: {e}")
 
 
 @app.get("/preview/{track_id}/metadata")
@@ -842,21 +921,14 @@ async def preview_metadata(track_id: int):
             raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
         raise HTTPException(status_code=503, detail=f"Preview source unavailable: {e}")
     try:
-        from backend.analysis.service import ENGINE_VERSION
-        from backend.analysis.types import AnalysisSettings
-
-        settings = AnalysisSettings()
-        model_sha256 = await asyncio.to_thread(_preview_model_sha256, settings.model_id)
+        settings_identity = await _preview_analysis_settings_identity()
         snap = preview_job_manager.start_or_get(
             track_id,
             url,
             getattr(track, "duration", None),
             preview_profile="LOW",
             decoder_version=DECODER_VERSION,
-            settings_identity=(
-                f"{ENGINE_VERSION}:{settings.model_id}:{settings.sha256}:"
-                f"{model_sha256 or 'unverified'}"
-            ),
+            settings_identity=settings_identity,
         )
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Preview scheduling failed: {e}")
@@ -865,7 +937,7 @@ async def preview_metadata(track_id: int):
 
 @app.post("/preview/{track_id}/analysis/retry")
 async def retry_preview_analysis(track_id: int, request: Request):
-    """Explicitly retry failed preview analysis for its already-resolved source."""
+    """Explicitly retry analysis after resolving the current LOW-quality source."""
     if not auth_manager.is_authenticated:
         raise HTTPException(status_code=401, detail="Not authenticated")
     if await request.body():
@@ -877,6 +949,21 @@ async def retry_preview_analysis(track_id: int, request: Request):
     if snapshot is None:
         raise HTTPException(status_code=404, detail="Preview metadata not found")
     try:
+        track, url = await asyncio.to_thread(_resolve_preview_track, track_id)
+    except ObjectNotFound as e:
+        raise HTTPException(status_code=404, detail=f"Preview unavailable: {e}")
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Preview source unavailable: {e}")
+    try:
+        settings_identity = await _preview_analysis_settings_identity()
+        preview_job_manager.start_or_get(
+            track_id,
+            url,
+            getattr(track, "duration", None),
+            preview_profile="LOW",
+            decoder_version=DECODER_VERSION,
+            settings_identity=settings_identity,
+        )
         snapshot = preview_job_manager.retry_analysis(track_id)
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Preview analysis retry failed: {e}")

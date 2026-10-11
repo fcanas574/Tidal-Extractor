@@ -577,6 +577,46 @@ describe('AudioPlayerFooter fast lifecycle', () => {
     expect(pause).not.toHaveBeenCalled();
   });
 
+  it('does_not_offer_retry_for_unusable_analysis_without_failed_components', async () => {
+    vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
+    vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});
+    vi.spyOn(window, 'Audio').mockImplementation((url?: string) => {
+      const audio = document.createElement('audio');
+      if (url) audio.src = url;
+      return audio as any;
+    });
+    (api.preview.getStream as any).mockResolvedValue({ track_id: 7, stream_url: '/audio/7', duration: 20 });
+    (api.preview.getMetadata as any).mockResolvedValue({
+      track_id: 7,
+      status: 'partial',
+      revision: 2,
+      waveform_status: 'complete',
+      analysis_status: 'failed',
+      waveform: { bands: { low: [0.5], mid: [0.4], high: [0.3] }, colors: {}, duration: 20 },
+      key: null,
+      camelot: null,
+      bpm: null,
+      error: null,
+      analysis_error: 'local analysis returned no usable key or rhythm',
+      analysis: {
+        key: { key: null, camelot: null, status: 'unknown' },
+        rhythm: {
+          bpm: null,
+          beats: [],
+          downbeats: [],
+          status: 'needs_review',
+          grid: { bpm: null, period_seconds: null, origin_seconds: null, status: 'needs_review' },
+        },
+      },
+    });
+
+    render(<AudioPlayerFooter />);
+
+    expect(await screen.findByText('Analysis unavailable', {}, { timeout: 2500 })).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Retry analysis' })).not.toBeInTheDocument();
+    expect(api.preview.retryAnalysis).not.toHaveBeenCalled();
+  });
+
   it('ignores_snapshot_for_previous_preview', async () => {
     vi.spyOn(window.HTMLMediaElement.prototype, 'play').mockResolvedValue(undefined);
     vi.spyOn(window.HTMLMediaElement.prototype, 'pause').mockImplementation(() => {});

@@ -10,6 +10,7 @@ from backend.analysis.service import (
     ENGINE_VERSION,
     AnalysisService,
     build_engine_key,
+    build_key_cache_key,
 )
 from backend.analysis.types import (
     AnalysisSettings,
@@ -24,6 +25,7 @@ from backend.models import Database
 
 MODEL_SHA = "b" * 64
 PCM_SHA = "a" * 64
+ZERO_SHA = "0" * 64
 
 
 def _result(settings=None, fingerprint=PCM_SHA, model_sha256=MODEL_SHA):
@@ -67,20 +69,25 @@ def _result(settings=None, fingerprint=PCM_SHA, model_sha256=MODEL_SHA):
 
 
 class WorkerStub:
-    def __init__(self, result=None, retry_result=None):
+    def __init__(self, result=None, retry_result=None, progress=None):
         self.result = result or _result()
         self.retry_result = retry_result if retry_result is not None else self.result
+        self.progress = progress
         self.calls = []
         self.retry_calls = []
 
-    async def submit(self, job_id, wav_path, settings):
+    async def submit(self, job_id, wav_path, settings, *, on_progress=None):
         self.calls.append((job_id, Path(wav_path), settings))
+        if self.progress is not None and on_progress is not None:
+            callback_result = on_progress(self.progress)
+            if hasattr(callback_result, "__await__"):
+                await callback_result
         if callable(self.result):
             return self.result(job_id, settings)
         return self.result
 
     async def submit_retry(
-        self, job_id, wav_path, settings, *, components, prior_result
+        self, job_id, wav_path, settings, *, components, prior_result, on_progress=None
     ):
         self.retry_calls.append(
             (job_id, Path(wav_path), settings, frozenset(components), prior_result)
@@ -128,6 +135,71 @@ def _partial_result(settings=None, *, failed_component="rhythm"):
             ),
         )
     raise ValueError("failed_component must be key or rhythm")
+
+
+def _unavailable_result(settings=None):
+    result = _result(settings, model_sha256=ZERO_SHA)
+    reason = "beat model unavailable"
+    grid = replace(
+        result.rhythm.grid,
+        bpm=None,
+        period_seconds=None,
+        origin_seconds=None,
+        meter=None,
+        first_downbeat_beat=None,
+        status="unavailable",
+        residual_p95_seconds=None,
+        split_drift_seconds=None,
+        reason=reason,
+    )
+    rhythm = replace(
+        result.rhythm,
+        bpm=None,
+        beats=(),
+        downbeats=(),
+        grid=grid,
+        status="unavailable",
+        reason=reason,
+    )
+    return replace(result, rhythm=rhythm)
+
+
+@pytest.mark.asyncio
+async def test_service_publishes_rhythm_progress_as_partial_analysis(tmp_path):
+    db = Database(":memory:")
+    await db.init()
+    settings = AnalysisSettings()
+    worker = WorkerStub(progress={"rhythm": _result(settings).rhythm})
+    service = AnalysisService(
+        db,
+        worker=worker,
+        model_identity_resolver=lambda _model_id: (tmp_path / "final0.ckpt", MODEL_SHA),
+    )
+    wav_path = tmp_path / "preview.wav"
+    wav_path.write_bytes(b"decoded audio")
+    progress = []
+
+    async def on_progress(snapshot):
+        progress.append(snapshot)
+
+    try:
+        await service.analyze_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+            on_progress=on_progress,
+        )
+
+        assert len(progress) == 1
+        assert progress[0]["analysis_status"] == "processing"
+        assert progress[0]["analysis"]["rhythm"]["beats"] == [0.5, 1.0]
+        assert progress[0]["analysis"]["key"] is None
+    finally:
+        await db.close()
 
 
 @pytest.mark.asyncio
@@ -199,6 +271,152 @@ async def test_current_pcm_cache_hit_works_without_preview_alias(tmp_path):
         )
         assert result == cached
         assert worker.calls == []
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_unverified_model_result_caches_key_without_rhythm_data(tmp_path):
+    db = Database(":memory:")
+    await db.init()
+    settings = AnalysisSettings()
+    engine_key = build_engine_key(settings, "decoder-v1", MODEL_SHA)
+    worker = WorkerStub(result=_result(settings, model_sha256=ZERO_SHA))
+    service = AnalysisService(
+        db,
+        worker=worker,
+        model_identity_resolver=lambda _model_id: (tmp_path / "final0.ckpt", MODEL_SHA),
+    )
+    wav_path = tmp_path / "preview.wav"
+    wav_path.write_bytes(b"decoded audio")
+    try:
+        first = await service.analyze_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+        )
+
+        assert first.key.status == "reliable"
+        assert first.model_sha256 == ZERO_SHA
+        assert first.rhythm.status == "unavailable"
+        assert first.rhythm.bpm is None
+        assert first.rhythm.beats == ()
+        assert first.rhythm.downbeats == ()
+        assert first.rhythm.grid.status == "unavailable"
+        assert first.rhythm.grid.bpm is None
+        assert first.rhythm.grid.period_seconds is None
+        assert first.rhythm.grid.origin_seconds is None
+        assert first.rhythm.grid.meter is None
+        assert first.rhythm.grid.first_downbeat_beat is None
+        assert first.rhythm.grid.residual_p95_seconds is None
+        assert first.rhythm.grid.split_drift_seconds is None
+        assert await db.get_analysis_result(PCM_SHA, engine_key) is None
+        key_cache_key = build_key_cache_key(settings, "decoder-v1")
+        assert key_cache_key != engine_key
+        cached = await db.get_analysis_result(PCM_SHA, key_cache_key)
+        assert cached is not None
+        assert cached == first
+        assert cached.key == first.key
+        assert cached.model_sha256 == ZERO_SHA
+        assert cached.rhythm.status == "unavailable"
+        assert cached.rhythm.bpm is None
+        assert cached.rhythm.beats == ()
+        assert cached.rhythm.downbeats == ()
+        assert cached.rhythm.grid.status == "unavailable"
+        assert cached.rhythm.grid.period_seconds is None
+
+        second = await service.analyze_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+        )
+        assert second == cached
+        assert len(worker.calls) == 1
+    finally:
+        await db.close()
+
+
+@pytest.mark.asyncio
+async def test_explicit_retry_reuses_key_but_discards_unverified_rhythm(tmp_path):
+    db = Database(":memory:")
+    await db.init()
+    settings = AnalysisSettings()
+    model_available = False
+
+    def resolve_model(_model_id):
+        if not model_available:
+            raise FileNotFoundError("beat model unavailable")
+        return tmp_path / "final0.ckpt", MODEL_SHA
+
+    worker = WorkerStub(
+        result=_unavailable_result(settings),
+        retry_result=_result(settings, model_sha256=ZERO_SHA),
+    )
+    service = AnalysisService(
+        db,
+        worker=worker,
+        model_identity_resolver=resolve_model,
+    )
+    wav_path = tmp_path / "preview.wav"
+    wav_path.write_bytes(b"decoded audio")
+    try:
+        first = await service.analyze_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+        )
+        assert first.key.status == "reliable"
+        assert first.rhythm.status == "unavailable"
+
+        model_available = True
+        retried = await service.retry_preview(
+            track_id=42,
+            wav_path=wav_path,
+            pcm_sha256=PCM_SHA,
+            preview_profile="high_lossless",
+            duration_seconds=12.5,
+            decoder_version="decoder-v1",
+            settings=settings,
+        )
+
+        assert worker.calls
+        assert len(worker.calls) == 1
+        assert len(worker.retry_calls) == 1
+        _, _, _, components, prior_result = worker.retry_calls[0]
+        assert components == frozenset({"rhythm"})
+        assert prior_result.key == first.key
+        assert prior_result.rhythm.status == "unavailable"
+        assert prior_result.rhythm.beats == ()
+        assert retried.key == first.key
+        assert retried.model_sha256 == ZERO_SHA
+        assert retried.rhythm.status == "unavailable"
+        assert retried.rhythm.bpm is None
+        assert retried.rhythm.beats == ()
+        assert retried.rhythm.downbeats == ()
+        assert retried.rhythm.grid.status == "unavailable"
+        assert retried.rhythm.grid.bpm is None
+        assert retried.rhythm.grid.period_seconds is None
+        assert retried.rhythm.grid.origin_seconds is None
+        assert retried.rhythm.grid.meter is None
+        assert retried.rhythm.grid.first_downbeat_beat is None
+        assert retried.rhythm.grid.residual_p95_seconds is None
+        assert retried.rhythm.grid.split_drift_seconds is None
+        engine_key = build_engine_key(settings, "decoder-v1", MODEL_SHA)
+        key_cache_key = build_key_cache_key(settings, "decoder-v1")
+        assert await db.get_analysis_result(PCM_SHA, engine_key) is None
+        assert await db.get_analysis_result(PCM_SHA, key_cache_key) == retried
     finally:
         await db.close()
 

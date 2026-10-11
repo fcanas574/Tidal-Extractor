@@ -8,12 +8,36 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from threading import RLock
 from typing import Any, Callable, Literal
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import unquote_plus, urlsplit, urlunsplit
+
+from backend.analysis.worker import QueueWaiterReplaced
 
 PreviewStatus = Literal["queued", "processing", "partial", "complete", "failed"]
 _SNAPSHOT_ALIAS_TTL = timedelta(hours=24)
 _MAX_RETAINED_SNAPSHOTS = 256
-_MAX_INFLIGHT_JOBS = 5  # one active source plus four waiting sources
+_MAX_PREVIEW_WAITING = 4
+_ROTATING_SOURCE_QUERY_PARAMETERS = frozenset({
+    "auth",
+    "authorization",
+    "access_token",
+    "auth_token",
+    "id_token",
+    "refresh_token",
+    "session_token",
+    "token",
+    "signature",
+    "sig",
+    "exp",
+    "expires",
+    "expires_at",
+    "expires_in",
+    "expiration",
+    "expiration_time",
+    "expiry",
+    "expiry_time",
+    "hdnea",
+    "hdnts",
+})
 
 
 class PreviewJobQueueFullError(RuntimeError):
@@ -49,6 +73,7 @@ class _PreviewJob:
     task: asyncio.Task[Any] | None
     snapshot: PreviewMetadataSnapshot
     identity: tuple[str, str, float | None, str | None, str | None]
+    loop: asyncio.AbstractEventLoop | None = None
     completed_at_utc: datetime | None = None
 
 
@@ -71,6 +96,8 @@ class PreviewJobManager:
         self._lock = RLock()
         self._jobs: dict[int, _PreviewJob] = {}
         self._retired_jobs: list[_PreviewJob] = []
+        self._active_admission_job: _PreviewJob | None = None
+        self._waiting_jobs: list[tuple[_PreviewJob, bool]] = []
 
     def start_or_get(
         self,
@@ -95,6 +122,10 @@ class PreviewJobManager:
                     settings_identity,
                 )
                 if job.identity == identity and self._is_current_alias_locked(job):
+                    # Preserve the stable identity while refreshing credentials
+                    # for a possible later retry or for work not yet promoted.
+                    job.stream_url = stream_url
+                    job.duration = duration
                     return self._clone_snapshot(job.snapshot)
 
             identity = self._preview_identity(
@@ -104,11 +135,6 @@ class PreviewJobManager:
                 decoder_version,
                 settings_identity,
             )
-            if self._inflight_job_count_locked() >= _MAX_INFLIGHT_JOBS:
-                raise PreviewJobQueueFullError(
-                    "preview job capacity reached (one active source plus four waiting sources)"
-                )
-
             snapshot = PreviewMetadataSnapshot(
                 track_id=track_id,
                 status="queued",
@@ -123,15 +149,20 @@ class PreviewJobManager:
                 identity=identity,
             )
             loop = self._get_scheduling_loop()
-            job.task = self._create_job_task(loop, job)
             current_job = self._jobs.get(track_id)
-            if (
-                current_job is not None
-                and current_job.task is not None
-                and not current_job.task.done()
-            ):
-                self._retired_jobs.append(current_job)
+            if current_job is not None:
+                if self._active_admission_job is current_job:
+                    if current_job.task is not None and not current_job.task.done():
+                        self._retired_jobs.append(current_job)
+                else:
+                    self._remove_waiting_job_locked(current_job)
+            if self._active_admission_job is not None:
+                active_task = self._active_admission_job.task
+                if active_task is not None:
+                    loop = active_task.get_loop()
+            job.loop = loop
             self._jobs[track_id] = job
+            self._admit_job_locked(job, retry=False)
             return self._clone_snapshot(snapshot)
 
     def snapshot(self, track_id: int) -> PreviewMetadataSnapshot | None:
@@ -172,6 +203,7 @@ class PreviewJobManager:
         track_id = job.track_id
         with self._lock:
             if self._jobs.get(track_id) is not job:
+                self._finish_admission_job_locked(job)
                 return
             updates = {"status": "processing"}
             if retry:
@@ -224,7 +256,12 @@ class PreviewJobManager:
             if retry:
                 if self.analysis_retry is None:
                     raise RuntimeError("preview analysis retry is unavailable")
-                result = self.analysis_retry(job.stream_url, job.duration, job.track_id)
+                result = self.analysis_retry(
+                    job.stream_url,
+                    job.duration,
+                    job.track_id,
+                    on_snapshot=_on_progress,
+                )
             else:
                 result = self.analyzer(
                     job.stream_url, job.duration, job.track_id,
@@ -253,16 +290,21 @@ class PreviewJobManager:
                 current_job = self._jobs.get(track_id)
                 if current_job is job:
                     waveform_status = current_job.snapshot.waveform_status
+                    analysis_status = (
+                        "deferred"
+                        if isinstance(exc, QueueWaiterReplaced)
+                        else "failed"
+                    )
                     self._update_snapshot_locked(
                         current_job,
                         waveform_status=waveform_status,
-                        analysis_status="failed",
+                        analysis_status=analysis_status,
                         analysis_error=str(exc),
                         error=str(exc),
                     )
         finally:
             with self._lock:
-                job.completed_at_utc = self._now_utc()
+                self._finish_admission_job_locked(job)
 
     def publish_progress(self, track_id: int, updates: dict) -> None:
         """Merge partial fields into the live snapshot with a revision bump."""
@@ -377,12 +419,7 @@ class PreviewJobManager:
                 return self._clone_snapshot(job.snapshot)
             if self.analysis_retry is None:
                 raise RuntimeError("preview analysis retry is unavailable")
-            if self._inflight_job_count_locked() >= _MAX_INFLIGHT_JOBS:
-                raise PreviewJobQueueFullError(
-                    "preview job capacity reached (one active source plus four waiting sources)"
-                )
             loop = self._get_scheduling_loop()
-            task = self._create_job_task(loop, job, retry=True)
             self._update_snapshot_locked(
                 job,
                 status="processing",
@@ -391,13 +428,20 @@ class PreviewJobManager:
                 error=None,
             )
             job.completed_at_utc = None
-            job.task = task
+            job.task = None
+            if self._active_admission_job is not None:
+                active_task = self._active_admission_job.task
+                if active_task is not None:
+                    loop = active_task.get_loop()
+            job.loop = loop
+            self._admit_job_locked(job, retry=True)
             return self._clone_snapshot(job.snapshot)
 
     async def close(self) -> None:
         """Cancel preview jobs and wait for their analyzer cleanup to finish."""
         current_loop = asyncio.get_running_loop()
         with self._lock:
+            self._waiting_jobs.clear()
             tasks = [
                 job.task
                 for job in (*self._jobs.values(), *self._retired_jobs)
@@ -416,7 +460,14 @@ class PreviewJobManager:
             if job.task is not None and not job.task.done()
         ]
         for track_id, job in list(self._jobs.items()):
-            if job.task is None or not job.task.done():
+            if job.task is None:
+                if (
+                    job.completed_at_utc is not None
+                    and now >= job.completed_at_utc + self._snapshot_ttl
+                ):
+                    del self._jobs[track_id]
+                continue
+            if not job.task.done():
                 continue
             if job.completed_at_utc is None:
                 job.completed_at_utc = now
@@ -427,7 +478,10 @@ class PreviewJobManager:
             (
                 (job.completed_at_utc, track_id)
                 for track_id, job in self._jobs.items()
-                if job.task is not None and job.task.done()
+                if (
+                    (job.task is not None and job.task.done())
+                    or (job.task is None and job.completed_at_utc is not None)
+                )
             ),
             key=lambda item: item[0],
         )
@@ -435,11 +489,58 @@ class PreviewJobManager:
             del self._jobs[track_id]
 
     def _inflight_job_count_locked(self) -> int:
-        return sum(
-            1
-            for job in (*self._jobs.values(), *self._retired_jobs)
-            if job.task is not None and not job.task.done()
+        active = self._active_admission_job
+        active_count = int(
+            active is not None and active.task is not None and not active.task.done()
         )
+        return active_count + len(self._waiting_jobs)
+
+    def _admit_job_locked(self, job: _PreviewJob, *, retry: bool) -> None:
+        active = self._active_admission_job
+        if active is None or active.task is None or active.task.done():
+            self._start_admitted_job_locked(job, retry=retry)
+            return
+
+        if len(self._waiting_jobs) >= _MAX_PREVIEW_WAITING:
+            replaced, _was_retry = self._waiting_jobs.pop(0)
+            if self._jobs.get(replaced.track_id) is replaced:
+                detail = (
+                    f"queued preview analysis {replaced.track_id!r} "
+                    "was replaced by newer work"
+                )
+                replaced.completed_at_utc = self._now_utc()
+                self._update_snapshot_locked(
+                    replaced,
+                    analysis_status="deferred",
+                    analysis_error=detail,
+                    error=detail,
+                )
+
+        self._waiting_jobs.append((job, retry))
+
+    def _start_admitted_job_locked(self, job: _PreviewJob, *, retry: bool) -> None:
+        loop = job.loop or self._get_scheduling_loop()
+        job.task = self._create_job_task(loop, job, retry=retry)
+        self._active_admission_job = job
+
+    def _remove_waiting_job_locked(self, job: _PreviewJob) -> bool:
+        for index, (waiting, _retry) in enumerate(self._waiting_jobs):
+            if waiting is job:
+                self._waiting_jobs.pop(index)
+                return True
+        return False
+
+    def _finish_admission_job_locked(self, job: _PreviewJob) -> None:
+        job.completed_at_utc = self._now_utc()
+        if self._active_admission_job is not job:
+            return
+        self._active_admission_job = None
+        while self._waiting_jobs:
+            waiting, retry = self._waiting_jobs.pop(0)
+            if self._jobs.get(waiting.track_id) is not waiting:
+                continue
+            self._start_admitted_job_locked(waiting, retry=retry)
+            return
 
     def _create_job_task(
         self,
@@ -456,7 +557,11 @@ class PreviewJobManager:
             raise
 
     def _is_current_alias_locked(self, job: _PreviewJob) -> bool:
-        if job.task is None or not job.task.done():
+        if job.task is None:
+            if job.completed_at_utc is None:
+                return True
+            return self._now_utc() < job.completed_at_utc + self._snapshot_ttl
+        if not job.task.done():
             return True
         if job.completed_at_utc is None:
             job.completed_at_utc = self._now_utc()
@@ -490,6 +595,7 @@ class PreviewJobManager:
 
     def _shutdown(self) -> None:
         with self._lock:
+            self._waiting_jobs.clear()
             pending_tasks = [
                 job.task
                 for job in (*self._jobs.values(), *self._retired_jobs)
@@ -570,7 +676,7 @@ def _waveform_is_usable(waveform: Any) -> bool:
 
 
 def _source_identity(stream_url: str) -> str:
-    """Normalize the URL origin while preserving every query selector."""
+    """Normalize URL origin and ignore rotating authentication query fields."""
     if not isinstance(stream_url, str):
         return repr(stream_url)
     try:
@@ -580,13 +686,25 @@ def _source_identity(stream_url: str) -> str:
     if not parsed.scheme or not parsed.netloc:
         return stream_url
 
+    query = "&".join(
+        part for part in parsed.query.split("&")
+        if not part or not _is_rotating_source_query_parameter(part)
+    )
     return urlunsplit((
         parsed.scheme.lower(),
         parsed.netloc.lower(),
         parsed.path,
-        parsed.query,
+        query,
         "",
     ))
+
+
+def _is_rotating_source_query_parameter(parameter: str) -> bool:
+    name = unquote_plus(parameter.partition("=")[0]).casefold()
+    return (
+        name in _ROTATING_SOURCE_QUERY_PARAMETERS
+        or name.startswith(("x-amz-", "x-goog-"))
+    )
 
 
 def _local_analysis_fields(analysis: Any) -> tuple[str | None, str | None, float | None]:

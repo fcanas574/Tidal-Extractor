@@ -98,6 +98,48 @@ def _fake_worker_loop(command_receiver, result_sender, *args):
         )
 
 
+def _progress_worker_loop(command_receiver, result_sender):
+    result_sender.send({"kind": "ready"})
+    while True:
+        command = command_receiver.recv()
+        if command["kind"] == "stop":
+            return
+        result = _result(command["job_id"], command["settings"])
+        result_sender.send({
+            "kind": "progress",
+            "job_id": command["job_id"],
+            "progress": {"rhythm": result.rhythm},
+        })
+        result_sender.send({
+            "kind": "result",
+            "job_id": command["job_id"],
+            "result": result,
+        })
+
+
+def _blocking_progress_worker_loop(command_receiver, result_sender, release_path, started):
+    release_path = Path(release_path)
+    result_sender.send({"kind": "ready"})
+    while True:
+        command = command_receiver.recv()
+        if command["kind"] == "stop":
+            return
+        started.set()
+        while not release_path.exists():
+            time.sleep(0.01)
+        result = _result(command["job_id"], command["settings"])
+        result_sender.send({
+            "kind": "progress",
+            "job_id": command["job_id"],
+            "progress": {"rhythm": result.rhythm},
+        })
+        result_sender.send({
+            "kind": "result",
+            "job_id": command["job_id"],
+            "result": result,
+        })
+
+
 def _terminating_worker_loop(
     command_receiver, result_sender, marker_path, started_event, terminating_event, allow_exit
 ):
@@ -230,6 +272,76 @@ def test_worker_retry_skips_cached_successful_key_component(monkeypatch, tmp_pat
     assert key_calls == []
 
 
+def test_child_publishes_rhythm_before_key_finishes(monkeypatch, tmp_path):
+    import numpy as np
+
+    from backend.analysis import key_engine, rhythm_engine
+
+    settings = AnalysisSettings()
+    job_id = "e" * 64
+    previous = _result(job_id, settings)
+    rhythm = replace(
+        previous.rhythm,
+        status="needs_review",
+        reason="grid needs review",
+        grid=replace(previous.rhythm.grid, status="needs_review", reason="grid needs review"),
+    )
+    soundfile = ModuleType("soundfile")
+    soundfile.read = lambda *_args, **_kwargs: (np.zeros(44_100, dtype=np.float32), 44_100)
+    monkeypatch.setitem(sys.modules, "soundfile", soundfile)
+    monkeypatch.setattr(
+        "backend.analysis.worker._load_model_once",
+        lambda *_args: {
+            "path": tmp_path / "model.ckpt",
+            "sha256": "b" * 64,
+            "model": object(),
+            "error": None,
+            "error_status": "failed",
+        },
+    )
+    events = []
+    monkeypatch.setattr(rhythm_engine, "estimate_rhythm", lambda *_args: rhythm)
+
+    def estimate_key(*_args):
+        events.append("key")
+        return previous.key
+
+    monkeypatch.setattr(key_engine, "estimate_key", estimate_key)
+
+    def on_progress(progress):
+        events.append(("progress", progress["rhythm"]))
+
+    result = _analyze_in_child(
+        job_id,
+        str(tmp_path / "preview.wav"),
+        settings,
+        {},
+        on_progress=on_progress,
+    )
+
+    assert events == [("progress", rhythm), "key"]
+    assert result.rhythm == rhythm
+
+
+@pytest.mark.asyncio
+async def test_worker_forwards_rhythm_progress_before_final_result(tmp_path):
+    worker = AnalysisWorker(worker_target=_progress_worker_loop)
+    events = []
+    try:
+        result = await worker.submit(
+            "progress",
+            _wav(tmp_path, "progress.wav"),
+            AnalysisSettings(),
+            on_progress=lambda progress: events.append(progress),
+        )
+
+        assert len(events) == 1
+        assert events[0]["rhythm"].bpm is None
+        assert result.key.status == "reliable"
+    finally:
+        await worker.close()
+
+
 async def _wait_until(predicate, timeout=3.0):
     deadline = time.monotonic() + timeout
     while not predicate():
@@ -311,7 +423,7 @@ async def test_close_during_startup_does_not_launch_queued_job(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_cancellation_during_wav_copy_removes_completed_managed_file(tmp_path, monkeypatch):
+async def test_repeated_cancellation_during_wav_copy_removes_completed_managed_file(tmp_path, monkeypatch):
     worker = AnalysisWorker(worker_target=_fake_worker_loop)
     copy_started = threading.Event()
     release_copy = threading.Event()
@@ -334,6 +446,10 @@ async def test_cancellation_during_wav_copy_removes_completed_managed_file(tmp_p
     )
     try:
         assert await asyncio.to_thread(copy_started.wait, 3)
+        submitter.cancel()
+        await asyncio.sleep(0.05)
+        # A second cancellation must not cancel the asyncio wrapper around the
+        # still-running to_thread copy and strand its eventual WAV file.
         submitter.cancel()
         await asyncio.sleep(0.05)
         release_copy.set()
@@ -425,7 +541,11 @@ async def test_cancel_during_eviction_cleanup_removes_new_wav_and_notifies_evict
     release_cleanup = threading.Event()
     cleanup_started = threading.Event()
     cleanup_finished = threading.Event()
+    release_incoming_cleanup = threading.Event()
+    incoming_cleanup_started = threading.Event()
+    incoming_cleanup_finished = threading.Event()
     copied_paths = []
+    incoming_path = None
     real_copy = worker._copy_wav
     real_remove = worker._remove_managed_file
 
@@ -459,6 +579,13 @@ async def test_cancel_during_eviction_cleanup_removes_new_wav_and_notifies_evict
                 result = real_remove(path)
                 cleanup_finished.set()
                 return result
+            if incoming_path is not None and Path(path) == incoming_path:
+                incoming_cleanup_started.set()
+                if not release_incoming_cleanup.wait(3):
+                    raise TimeoutError("test did not release incoming WAV cleanup")
+                result = real_remove(path)
+                incoming_cleanup_finished.set()
+                return result
             return real_remove(path)
 
         monkeypatch.setattr(worker, "_remove_managed_file", block_evicted_cleanup)
@@ -472,13 +599,23 @@ async def test_cancel_during_eviction_cleanup_removes_new_wav_and_notifies_evict
         assert await asyncio.to_thread(cleanup_started.wait, 3)
         assert len(copied_paths) == 6
         new_managed_path = copied_paths[-1]
+        incoming_path = new_managed_path
         assert new_managed_path.is_file()
 
         submitter.cancel()
+        await asyncio.sleep(0.05)
+        submitter.cancel()
+        release_cleanup.set()
+        assert await asyncio.to_thread(incoming_cleanup_started.wait, 3)
+        submitter.cancel()
+        await asyncio.sleep(0.05)
+        assert not submitter.done()
+        release_incoming_cleanup.set()
         with pytest.raises(asyncio.CancelledError):
             await submitter
-        release_cleanup.set()
+
         assert await asyncio.to_thread(cleanup_finished.wait, 3)
+        assert await asyncio.to_thread(incoming_cleanup_finished.wait, 3)
 
         assert not new_managed_path.exists()
         assert queued[0].done()
@@ -499,6 +636,7 @@ async def test_cancel_during_eviction_cleanup_removes_new_wav_and_notifies_evict
             assert (await waiter).key.status == "reliable"
     finally:
         release_cleanup.set()
+        release_incoming_cleanup.set()
         release_path.touch()
         if submitter is not None and not submitter.done():
             submitter.cancel()
@@ -511,6 +649,120 @@ async def test_cancel_during_eviction_cleanup_removes_new_wav_and_notifies_evict
         await asyncio.gather(active, *queued, return_exceptions=True)
         for path in copied_paths:
             path.unlink(missing_ok=True)
+
+
+@pytest.mark.asyncio
+async def test_cancel_only_queued_submitter_removes_queued_job_and_wav(tmp_path):
+    context = multiprocessing.get_context("spawn")
+    release_path = tmp_path / "release"
+    started = context.Event()
+    worker = AnalysisWorker(
+        worker_target=_fake_worker_loop,
+        worker_target_args=(str(release_path), started),
+    )
+    active = asyncio.create_task(
+        worker.submit("active", _wav(tmp_path, "active.wav", b"block"), AnalysisSettings())
+    )
+    queued = None
+    try:
+        assert await asyncio.to_thread(started.wait, 3)
+        active_wav = worker.managed_paths["active"]
+        queued = asyncio.create_task(
+            worker.submit("queued-cancel", _wav(tmp_path, "queued-cancel.wav"), AnalysisSettings())
+        )
+        await _wait_until(lambda: worker.queued_source_count == 1)
+        queued_wav = worker.managed_paths["queued-cancel"]
+
+        queued.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await queued
+
+        await _wait_until(lambda: worker.queued_source_count == 0)
+        assert "queued-cancel" not in worker._jobs
+        assert "queued-cancel" not in worker.managed_paths
+        assert not queued_wav.exists()
+        assert active_wav.is_file()
+
+        release_path.touch()
+        assert (await active).key.status == "reliable"
+        assert not active_wav.exists()
+    finally:
+        release_path.touch()
+        if queued is not None and not queued.done():
+            queued.cancel()
+        if not active.done():
+            active.cancel()
+        tasks = [active]
+        if queued is not None:
+            tasks.append(queued)
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await worker.close()
+
+
+@pytest.mark.asyncio
+async def test_cancelled_coalesced_active_waiter_is_removed_and_keeps_shared_wav(tmp_path):
+    context = multiprocessing.get_context("spawn")
+    release_path = tmp_path / "release"
+    started = context.Event()
+    worker = AnalysisWorker(
+        worker_target=_blocking_progress_worker_loop,
+        worker_target_args=(str(release_path), started),
+    )
+    source = _wav(tmp_path, "shared-active.wav", b"block")
+    first_progress = []
+    cancelled_progress = []
+    remaining_progress = []
+    first = asyncio.create_task(
+        worker.submit(
+            "shared", source, AnalysisSettings(),
+            on_progress=lambda event: first_progress.append(event),
+        )
+    )
+    cancelled = None
+    remaining = None
+    try:
+        assert await asyncio.to_thread(started.wait, 3)
+        managed_wav = worker.managed_paths["shared"]
+        cancelled = asyncio.create_task(
+            worker.submit(
+                "shared", source, AnalysisSettings(),
+                on_progress=lambda event: cancelled_progress.append(event),
+            )
+        )
+        await _wait_until(lambda: worker.coalesced_waiter_count == 1)
+        remaining = asyncio.create_task(
+            worker.submit(
+                "shared", source, AnalysisSettings(),
+                on_progress=lambda event: remaining_progress.append(event),
+            )
+        )
+        await _wait_until(lambda: worker.coalesced_waiter_count == 2)
+
+        cancelled.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await cancelled
+
+        assert worker._active_job is not None
+        assert len(worker._active_job.waiters) == 2
+        assert managed_wav.is_file()
+
+        release_path.touch()
+        assert (await first).key.status == "reliable"
+        assert (await remaining).key.status == "reliable"
+        assert not managed_wav.exists()
+        assert len(first_progress) == 1
+        assert cancelled_progress == []
+        assert len(remaining_progress) == 1
+    finally:
+        release_path.touch()
+        for task in (cancelled, remaining, first):
+            if task is not None and not task.done():
+                task.cancel()
+        await asyncio.gather(
+            *(task for task in (cancelled, remaining, first) if task is not None),
+            return_exceptions=True,
+        )
+        await worker.close()
 
 
 @pytest.mark.asyncio

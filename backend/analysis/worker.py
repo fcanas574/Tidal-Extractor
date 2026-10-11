@@ -6,6 +6,7 @@ import asyncio
 from collections import OrderedDict
 from dataclasses import dataclass, replace
 import hashlib
+import inspect
 import math
 import multiprocessing
 import os
@@ -13,6 +14,7 @@ from pathlib import Path
 import re
 import shutil
 import tempfile
+import time
 from typing import Any, Callable
 
 from .types import (
@@ -49,6 +51,7 @@ class _PendingJob:
     components: frozenset[str]
     prior_result: HybridAnalysisResult | None
     waiters: list[asyncio.Future[HybridAnalysisResult]]
+    progress_callbacks: list[Callable[[dict[str, Any]], Any] | None]
 
 
 def _normalize_components(components) -> frozenset[str]:
@@ -235,6 +238,16 @@ def _unavailable_rhythm(reason: str) -> RhythmResult:
     )
 
 
+async def _await_task_through_cancellation(task: asyncio.Task[Any]) -> Any:
+    """Wait for cleanup work even if the caller receives repeated cancels."""
+    while True:
+        try:
+            return await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if task.cancelled():
+                raise
+
+
 def _analyze_in_child(
     job_id: str,
     wav_path: str,
@@ -243,6 +256,7 @@ def _analyze_in_child(
     *,
     components: frozenset[str] = _ANALYSIS_COMPONENTS,
     prior_result: HybridAnalysisResult | None = None,
+    on_progress: Callable[[dict[str, Any]], Any] | None = None,
 ) -> HybridAnalysisResult:
     """Run selected components and preserve any successful cached component."""
     components = _normalize_components(components)
@@ -302,6 +316,9 @@ def _analyze_in_child(
     else:
         rhythm = prior_result.rhythm
         model_sha256 = prior_result.model_sha256
+
+    if "rhythm" in components and on_progress is not None:
+        on_progress({"rhythm": rhythm})
 
     if "key" in components:
         try:
@@ -371,6 +388,17 @@ def _analysis_process_main(command_receiver, result_sender) -> None:
             components = _normalize_components(
                 command.get("components", _ANALYSIS_COMPONENTS)
             )
+
+            def publish_progress(progress: dict[str, Any]) -> None:
+                try:
+                    result_sender.send({
+                        "kind": "progress",
+                        "job_id": job_id,
+                        "progress": progress,
+                    })
+                except (BrokenPipeError, EOFError, OSError):
+                    pass
+
             result = _analyze_in_child(
                 job_id,
                 str(command["wav_path"]),
@@ -378,6 +406,7 @@ def _analysis_process_main(command_receiver, result_sender) -> None:
                 model_cache,
                 components=components,
                 prior_result=prior_result,
+                on_progress=publish_progress,
             )
             result_sender.send(
                 {"kind": "result", "job_id": job_id, "result": result}
@@ -552,7 +581,12 @@ class AnalysisWorker:
                 raise RuntimeError(error)
 
     async def submit(
-        self, job_id: str, wav_path: Path, settings: AnalysisSettings
+        self,
+        job_id: str,
+        wav_path: Path,
+        settings: AnalysisSettings,
+        *,
+        on_progress: Callable[[dict[str, Any]], Any] | None = None,
     ) -> HybridAnalysisResult:
         return await self._submit(
             job_id,
@@ -560,6 +594,7 @@ class AnalysisWorker:
             settings,
             components=_ANALYSIS_COMPONENTS,
             prior_result=None,
+            on_progress=on_progress,
         )
 
     async def submit_retry(
@@ -570,6 +605,7 @@ class AnalysisWorker:
         *,
         components,
         prior_result: HybridAnalysisResult | None,
+        on_progress: Callable[[dict[str, Any]], Any] | None = None,
     ) -> HybridAnalysisResult:
         """Submit an explicit retry for selected components using a prior result."""
         selected = _normalize_components(components)
@@ -583,6 +619,7 @@ class AnalysisWorker:
             settings,
             components=selected,
             prior_result=prior_result,
+            on_progress=on_progress,
         )
 
     async def _submit(
@@ -593,6 +630,7 @@ class AnalysisWorker:
         *,
         components: frozenset[str],
         prior_result: HybridAnalysisResult | None,
+        on_progress: Callable[[dict[str, Any]], Any] | None,
     ) -> HybridAnalysisResult:
         if not isinstance(job_id, str) or not job_id:
             raise ValueError("job_id must be a non-empty string")
@@ -607,6 +645,7 @@ class AnalysisWorker:
             existing = self._jobs.get(job_id)
             if existing is not None:
                 existing.waiters.append(waiter)
+                existing.progress_callbacks.append(on_progress)
                 self._coalesced_waiter_count += 1
             else:
                 copy_task = asyncio.create_task(
@@ -616,14 +655,14 @@ class AnalysisWorker:
                     managed_path = await asyncio.shield(copy_task)
                 except asyncio.CancelledError as cancelled:
                     try:
-                        managed_path = await copy_task
+                        managed_path = await _await_task_through_cancellation(copy_task)
                     except BaseException:
                         raise cancelled
                     remove_task = asyncio.create_task(
                         asyncio.to_thread(self._remove_managed_file, managed_path)
                     )
                     try:
-                        await asyncio.shield(remove_task)
+                        await _await_task_through_cancellation(remove_task)
                     finally:
                         raise cancelled
                 self.managed_paths[job_id] = managed_path
@@ -644,12 +683,18 @@ class AnalysisWorker:
                     try:
                         await asyncio.shield(cleanup_task)
                     except asyncio.CancelledError as cancelled:
+                        try:
+                            await _await_task_through_cancellation(cleanup_task)
+                        except BaseException:
+                            # Preserve cancellation while still attempting to
+                            # remove the WAV copied for this rejected submitter.
+                            pass
                         self.managed_paths.pop(job_id, None)
                         remove_task = asyncio.create_task(
                             asyncio.to_thread(self._remove_managed_file, managed_path)
                         )
                         try:
-                            await asyncio.shield(remove_task)
+                            await _await_task_through_cancellation(remove_task)
                         finally:
                             raise cancelled
                 pending = _PendingJob(
@@ -659,13 +704,38 @@ class AnalysisWorker:
                     components,
                     prior_result,
                     [waiter],
+                    [on_progress],
                 )
                 self._queue[job_id] = pending
                 self._jobs[job_id] = pending
                 if self._dispatcher is None or self._dispatcher.done():
                     self._dispatcher = asyncio.create_task(self._dispatch())
 
-        return await waiter
+        try:
+            return await waiter
+        except asyncio.CancelledError as cancelled:
+            remove_path = None
+            async with self._state_lock:
+                pending = self._jobs.get(job_id)
+                if pending is not None and waiter in pending.waiters:
+                    waiter_index = pending.waiters.index(waiter)
+                    pending.waiters.pop(waiter_index)
+                    pending.progress_callbacks.pop(waiter_index)
+                    if self._queue.get(job_id) is pending and not pending.waiters:
+                        self._queue.pop(job_id, None)
+                        self._jobs.pop(job_id, None)
+                        self.managed_paths.pop(job_id, None)
+                        remove_path = pending.wav_path
+
+            if remove_path is not None:
+                cleanup_task = asyncio.create_task(
+                    asyncio.to_thread(self._remove_managed_file, remove_path)
+                )
+                try:
+                    await _await_task_through_cancellation(cleanup_task)
+                finally:
+                    raise cancelled
+            raise
 
     async def _dispatch(self) -> None:
         while True:
@@ -738,9 +808,33 @@ class AnalysisWorker:
                     },
                 )
                 self._processed_job_count += 1
-            message = await asyncio.to_thread(
-                self._receive_with_timeout, result_receiver, self.execution_timeout
-            )
+            deadline = time.monotonic() + self.execution_timeout
+            while True:
+                remaining = max(0.0, deadline - time.monotonic())
+                message = await asyncio.to_thread(
+                    self._receive_with_timeout, result_receiver, remaining
+                )
+                if not isinstance(message, dict) or message.get("kind") != "progress":
+                    break
+                if (
+                    message.get("job_id") != pending.job_id
+                    or not isinstance(message.get("progress"), dict)
+                ):
+                    message = {"kind": "invalid_progress"}
+                    break
+                for waiter, callback in tuple(
+                    zip(pending.waiters, pending.progress_callbacks)
+                ):
+                    if callback is None or waiter not in pending.waiters:
+                        continue
+                    try:
+                        callback_result = callback(message["progress"])
+                        if inspect.isawaitable(callback_result):
+                            await callback_result
+                    except Exception:
+                        # A progress observer must not turn valid worker work into
+                        # an analysis failure.
+                        continue
         except Exception as exc:
             message = None
             reason = f"analysis worker communication failed: {exc}"

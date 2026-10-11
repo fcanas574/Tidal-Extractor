@@ -50,6 +50,12 @@ function getPreviewAnalysisLabel(
   return 'Unknown';
 }
 
+function hasRetryableAnalysisFailure(analysis: PreviewAnalysis): boolean {
+  return analysis.key?.status === 'failed'
+    || ['failed', 'unavailable'].includes(analysis.rhythm?.status ?? '')
+    || ['failed', 'unavailable'].includes(analysis.rhythm?.grid?.status ?? '');
+}
+
 function getPreviewMarkers(
   analysis: PreviewAnalysis | null,
   duration: number,
@@ -702,7 +708,8 @@ export default function AudioPlayerFooter() {
   const totalDuration = waveform?.duration || duration;
   const analysisLabel = getPreviewAnalysisLabel(analysisStatus, analysis);
   const markers = getPreviewMarkers(analysis, totalDuration, waveformWidth);
-  const canRetryAnalysis = analysisStatus === 'failed' || analysisStatus === 'deferred';
+  const canRetryAnalysis = analysisStatus === 'deferred'
+    || (analysisStatus === 'failed' && (!analysis || hasRetryableAnalysisFailure(analysis)));
   const detailVisibility = playerExpanded || mobileExpanded ? 'block' : 'hidden md:block';
   const secondaryVisibility = playerExpanded || mobileExpanded ? 'flex' : 'hidden md:flex';
 
