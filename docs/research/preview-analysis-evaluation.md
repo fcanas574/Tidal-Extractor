@@ -53,11 +53,11 @@ To reproduce the isolated setup from the repository root on the lock's supported
 host:
 
 ```sh
-rtk proxy mkdir -p .superpowers/sdd/2026-10-10-preview-hybrid-analysis
-rtk proxy python3 -m venv .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv
-rtk proxy .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python -m pip install -r requirements.txt
-rtk proxy .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python -m pip install --require-hashes -r requirements-analysis.txt
-rtk proxy env TIDALEXTRACTOR_MODEL_DIR="$PWD/.superpowers/sdd/2026-10-10-preview-hybrid-analysis/model-cache" .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python scripts/setup_analysis_model.py --model final0
+mkdir -p .superpowers/sdd/2026-10-10-preview-hybrid-analysis
+python3.13 -m venv .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv
+.superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python -m pip install -r requirements.txt
+.superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python -m pip install --require-hashes -r requirements-analysis.txt
+TIDALEXTRACTOR_MODEL_DIR="$PWD/.superpowers/sdd/2026-10-10-preview-hybrid-analysis/model-cache" .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python scripts/setup_analysis_model.py --model final0
 ```
 
 The scratch venv and model directory are ignored validation artifacts. For another
@@ -78,19 +78,22 @@ used no external audio.
 | Measurement | Result |
 |---|---|
 | Model | `final0`, SHA-256 above |
-| Inference wall time | 0.776 seconds |
+| End-to-end `estimate_rhythm` analysis-call time | 0.776 seconds |
 | Peak process RSS | 398.2 MiB |
 | Output | 120.0 BPM, 32 beat events, 30 downbeat events |
 | Status | Rhythm and steady grid reported `reliable`; the grid reason said the downbeats did not meet one accepted 4/4 phase |
 
 This is one synthetic load/inference smoke, not a real-track result or accuracy
-measurement. Its CPU time and memory are not representative of a music library or
-the running application's playback responsiveness.
+measurement. The 0.776-second timer wraps the complete `estimate_rhythm(...)` call,
+including checkpoint verification and hashing, model construction, audio decoding,
+and inference; it is not an inference-only measurement. Its CPU time and memory are
+not representative of a music library or the running application's playback
+responsiveness.
 
 The smoke can be repeated from the repository root after the setup above:
 
 ```sh
-rtk proxy env PYTHONPATH="$PWD/backend/wavypy:$PWD" TIDALEXTRACTOR_MODEL_DIR="$PWD/.superpowers/sdd/2026-10-10-preview-hybrid-analysis/model-cache" .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python - <<'PY'
+PYTHONPATH="$PWD/backend/wavypy:$PWD" TIDALEXTRACTOR_MODEL_DIR="$PWD/.superpowers/sdd/2026-10-10-preview-hybrid-analysis/model-cache" .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python - <<'PY'
 import json
 import resource
 import time
@@ -134,13 +137,13 @@ PY
 
 | Check | Result |
 |---|---|
-| Backend: `rtk proxy env PYTHONPATH="$PWD/backend/wavypy:$PWD" .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python -m pytest backend/tests/ -q` | 233 passed, 1 skipped, 3 warnings in 30.93 seconds |
-| Frontend: `rtk npm --prefix frontend test -- --run` | 18 test files passed; 114 tests passed |
-| Frontend: `rtk npm --prefix frontend run build` | TypeScript check and Vite 6.4.2 production build passed in 2.35 seconds |
+| Backend: `PYTHONPATH="$PWD/backend/wavypy:$PWD" .superpowers/sdd/2026-10-10-preview-hybrid-analysis/task8-venv/bin/python -m pytest backend/tests/ -q` | 233 passed, 1 skipped, 3 warnings in 30.93 seconds |
+| Frontend: `npm --prefix frontend test -- --run` | 18 test files passed; 114 tests passed |
+| Frontend: `npm --prefix frontend run build` | TypeScript check and Vite 6.4.2 production build passed in 2.35 seconds |
 | Model download guard | `test_app_import_never_downloads_model` passed; runtime call-site inspection found no implicit provisioning call |
 
 If frontend dependencies are absent in a fresh checkout, install the locked packages
-with `rtk npm --prefix frontend ci` before running its tests and build.
+with `npm --prefix frontend ci` before running its tests and build.
 
 The skipped backend test is the existing async `backend/tests/test_freqblog_api.py::test_freqblog_api`, which the current pytest configuration does not run. Backend warnings included a Starlette deprecation and the existing unawaited-coroutine warning in `test_stream_route_returns_before_analyzer`. Frontend output included Node local-storage-path warnings and React `act(...)` warnings in existing tests.
 
