@@ -67,8 +67,8 @@ The checked-in hash lock targets CPython 3.13 on Apple Silicon macOS. Install it
 download the model with:
 
 ```bash
-python3 -m pip install --require-hashes -r requirements-analysis.txt
-python3 scripts/setup_analysis_model.py --model final0
+python3.13 -m pip install --require-hashes -r requirements-analysis.txt
+python3.13 scripts/setup_analysis_model.py --model final0
 ```
 
 The analysis pins Beat This! 1.1.0, librosa 0.11.0, and matching torch/torchaudio
