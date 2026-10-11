@@ -54,6 +54,33 @@ pip3 install -r requirements.txt
 cd frontend && npm install && cd ..
 ```
 
+### Optional local beat analysis
+
+Beat and downbeat analysis can use the upstream Beat This! `final0` checkpoint. It is
+optional and is only downloaded when you explicitly run the setup command; importing
+or starting the app does not fetch model files.
+
+The checked-in hash lock targets CPython 3.13 on Apple Silicon macOS. Install it and
+download the model with:
+
+```bash
+python3 -m pip install --require-hashes -r requirements-analysis.txt
+python3 scripts/setup_analysis_model.py --model final0
+```
+
+The analysis pins Beat This! 1.1.0, librosa 0.11.0, and matching torch/torchaudio
+2.9.1; its NumPy and SciPy pins match the main requirements file.
+
+For another Python version, operating system, or architecture, regenerate
+`requirements-analysis.txt` with the same direct pins and hashes for that target.
+The checkpoint and its SHA-256 manifest are stored in the operating system's user
+data directory. Set `TIDALEXTRACTOR_MODEL_DIR` to choose a different local directory.
+
+Beat This! 1.1.0 is MIT-licensed. The checkpoint is a separate upstream model asset;
+the upstream README warns that some files used to train its models are copyrighted
+or carry limited Creative Commons licenses. Review upstream terms before redistributing
+the checkpoint or derived materials.
+
 ### 2. Run the backend
 
 From the **project root**:
