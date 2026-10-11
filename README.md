@@ -56,9 +56,12 @@ cd frontend && npm install && cd ..
 
 ### Optional local beat analysis
 
-Beat and downbeat analysis can use the upstream Beat This! `final0` checkpoint. It is
-optional and is only downloaded when you explicitly run the setup command; importing
-or starting the app does not fetch model files.
+The optional local preview analyzer adds a key estimate plus detected beats,
+downbeats, and a fitted steady grid. Beat and downbeat inference uses the upstream
+Beat This! `final0` checkpoint. If the optional analysis runtime or verified model is
+missing, affected analysis is unavailable while preview playback remains usable. The
+checkpoint is only downloaded when you explicitly run the setup command; importing,
+starting the app, or previewing a track does not fetch model files.
 
 The checked-in hash lock targets CPython 3.13 on Apple Silicon macOS. Install it and
 download the model with:
@@ -80,6 +83,17 @@ Beat This! 1.1.0 is MIT-licensed. The checkpoint is a separate upstream model as
 the upstream README warns that some files used to train its models are copyrighted
 or carry limited Creative Commons licenses. Review upstream terms before redistributing
 the checkpoint or derived materials.
+
+### Preview analysis readiness
+
+Automated backend and frontend checks pass on the validated Apple Silicon host, and
+the local model loaded and ran on generated synthetic audio. The authorized 20-track
+evaluation and manual preview-path check are still incomplete. Real-track accuracy,
+output calibration, and Rekordbox parity have not been established. Treat `Ready` as
+the analyzer's per-result heuristic status, not a measured accuracy claim; keep
+`Needs review` visible for uncertain results. See the [validation and evaluation
+report](docs/research/preview-analysis-evaluation.md) for setup evidence, checks, and
+the remaining acceptance work.
 
 ### 2. Run the backend
 
